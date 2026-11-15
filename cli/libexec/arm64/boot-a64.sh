@@ -754,6 +754,10 @@ if [ -x "$AOTBIN" ]; then
 		u0=$(awk '/^usage_usec/{print $2}' "$CGS" 2>/dev/null) || break; [ -n "$u0" ] || break; sleep 5
 		u1=$(awk '/^usage_usec/{print $2}' "$CGS" 2>/dev/null); [ $(( ${u1:-0} - u0 )) -lt 2500000 ] && break
 	 done
+	 # AOT cache 1: upkeep first (x86sim-aot maintain, skipped while a build / install holds the cache): an image for
+	 # the current placement if it has none (assembled from the chunks that are up to date), then the cleanup of
+	 # images, chunks and per-process caches nothing uses any more (appcache.rs). No user command needed.
+	 nice -n 19 ionice -c 3 "$AOTBIN" --jc "$JC" --device "$D" maintain > "$ST/aot-maintain.log" 2>&1
 	 nice -n 19 ionice -c 3 "$AOTBIN" --jc "$JC" --device "$D" status > "$ST/aot-status.txt" 2>&1
 	 if [ "${X86SIM_AOT_AUTOUPDATE:-0}" = 1 ] && grep -q "need rebuilding" "$ST/aot-status.txt"; then
 		"$AOTBIN" --jc "$JC" --device "$D" update --workers 2 > "$ST/aot-update.log" 2>&1
