@@ -20,7 +20,7 @@ answer is the log line "result <id> <json>" in <data>/var/log/x86sim-openurl.log
   io screenshot [out.png] | io recordVideo [--codec h264|hevc] [--secs N] [--fps N] <out.mp4>
   spawn [--env K=V]... [--timeout S] <program> [args...]   a simulator binary run in the device, output and status
 """
-import json, os, shutil, signal, subprocess, sys, time, tty, uuid
+import fcntl, json, os, shutil, signal, subprocess, sys, time, tty, uuid
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lib"))
 import x86config  # noqa: E402
 
@@ -44,14 +44,20 @@ def request(cmd, timeout=60, **kw):
     except OSError:
         start = 0
     line = "req %s %s\n" % (rid, json.dumps(kw, separators=(",", ":")))
-    # x86Sim: the helper takes the file whole and removes it; wait while an earlier request is still queued
-    for _ in range(100):
-        if not os.path.exists(Q):
-            break
-        time.sleep(0.1)
-    with open(Q + ".new", "w") as f:
+    # x86Sim: the helper takes the file whole and removes it; wait while an earlier request is still queued. Two
+    # commands at once (pidof while another x86sim command runs) both saw no file and the second rename replaced the
+    # first request (lost: "no answer in 60 s"), and a shared "<Q>.new" staging file made one rename fail (a
+    # traceback, empty output): a staging file of our own, and the wait + rename under a lock between our clients
+    tmp = "%s.new.%d.%s" % (Q, os.getpid(), rid)
+    with open(tmp, "w") as f:
         f.write(line)
-    os.rename(Q + ".new", Q)
+    with open(Q + ".lock", "a") as lk:
+        fcntl.flock(lk, fcntl.LOCK_EX)
+        for _ in range(100):
+            if not os.path.exists(Q):
+                break
+            time.sleep(0.1)
+        os.rename(tmp, Q)
     key = "result %s " % rid
     end = time.monotonic() + timeout
     # most answers come within tens of ms: poll fast first, then back off to 0.2 s (a fixed 0.2 s added up to that
@@ -65,7 +71,10 @@ def request(cmd, timeout=60, **kw):
                 f.seek(start)
                 for l in f:
                     if l.startswith(key):
-                        return json.loads(l[len(key):])
+                        try:
+                            return json.loads(l[len(key):])
+                        except ValueError:
+                            break   # x86Sim: read while the helper was still writing the line: read it again
         except OSError:
             pass
     die("x86sim %s: no answer in %d s (is the device booted? see %s)" % (cmd, timeout, LOG))
@@ -134,27 +143,45 @@ def app_running(pid):
 
 
 def pidof(bid, wait=0):
-    """Darwin pid (the pid inside Darling's pid namespace) of the running app, from /proc (executable path), or None."""
-    exe = "/" + app_info(bid)["CFBundleExecutable"]
-    path = dview_to_linux(app_info(bid)["Path"])
+    """Darwin pid (the pid inside Darling's pid namespace) of the running app, from /proc (executable path), or None.
+    x86Sim: the app's process has other command lines on its way up, all one pid: launchd_sim's fork, then per exec an
+    empty one, "xpcproxy_sim UIKitApplication:<bid>[..]", "mldr!..arm64host <app path>" and last the app's own. The
+    xpcproxy_sim and arm64host stages count too (they were "not running": run.sh then took a starting app for an exited
+    one), and a scan that finds nothing is repeated twice (0.25 s apart: an exec in progress)."""
+    app = app_info(bid)
+    exe = "/" + app["CFBundleExecutable"]
+    path = dview_to_linux(app["Path"])
+    label = ":%s[" % bid   # launchd job label UIKitApplication:<bid>[<n>][rb-legacy]
+
+    def is_app(argv):
+        if argv[0].endswith(exe) and path in argv[0]:   # the app, and mldr loading it
+            return True
+        if len(argv) < 2:
+            return False
+        if argv[0].endswith("/arm64host") and argv[1].endswith(exe) and path in argv[1]:
+            return True
+        return any(a.endswith("xpcproxy_sim") for a in argv[:2]) and any(label in a for a in argv[1:3])
+
     end = time.monotonic() + wait
+    tries = 0
     while True:
         for d in os.listdir("/proc"):
             if not d.isdigit():
                 continue
             try:
                 with open("/proc/%s/cmdline" % d, "rb") as f:
-                    a0 = f.read().split(b"\0")[0].decode(errors="replace")
-                if a0.endswith(exe) and path in a0:
+                    argv = f.read(8192).split(b"\0", 3)[:3]
+                if is_app([a.decode(errors="replace") for a in argv]):
                     with open("/proc/%s/status" % d) as f:
                         for l in f:
                             if l.startswith("NSpid:"):
                                 return int(l.split()[-1])
             except OSError:
                 continue
-        if time.monotonic() >= end:
+        tries += 1
+        if tries >= 3 and time.monotonic() >= end:
             return None
-        time.sleep(0.5)
+        time.sleep(0.25 if tries < 3 else 0.5)
 
 
 def cmd_pidof(a):

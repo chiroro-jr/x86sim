@@ -17,7 +17,9 @@ LOG=$D/var/log/x86sim-openurl.log
 Q=$D/tmp/x86sim-openurl
 request() {  # request LINE PATTERN TIMEOUT
 	local n; n=$(wc -l < "$LOG" 2>/dev/null || echo 0)
-	printf '%s\n' "$1" > "$Q.new" && mv "$Q.new" "$Q"
+	# as simctl.py request(): a staging file of our own; waiting for the queue to empty and the rename under its lock
+	printf '%s\n' "$1" > "$Q.new.$$" && { flock 9; for _ in $(seq 100); do [ -e "$Q" ] || break; sleep 0.1; done
+		mv "$Q.new.$$" "$Q"; } 9>>"$Q.lock"
 	for _ in $(seq $(( $3 * 2 ))); do
 		sleep 0.5
 		r=$(tail -n +$((n + 1)) "$LOG" 2>/dev/null | grep -m1 -E "$2") && { echo "$r"; [[ $r != *failed* && $r != *error* ]]; return; }

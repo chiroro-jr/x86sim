@@ -193,9 +193,17 @@ def main(a):
     if a[0] in ("openurl", "app"):
         # x86Sim: host/openurl/openurl (a launchd job in the device) takes URLs from this file
         q = os.path.join(os.path.dirname(SOCK), "tmp/x86sim-openurl")
-        with open(q + ".new", "w") as f:
+        # as simctl.py request(): a staging file of our own, renamed in under the queue's lock once it is empty
+        with open("%s.new.%d" % (q, os.getpid()), "w") as f:
             f.write(("app " if a[0] == "app" else "") + " ".join(a[1:]) + "\n")
-        os.rename(q + ".new", q)
+        import fcntl
+        with open(q + ".lock", "a") as lk:
+            fcntl.flock(lk, fcntl.LOCK_EX)
+            for _ in range(100):
+                if not os.path.exists(q):
+                    break
+                time.sleep(0.1)
+            os.rename("%s.new.%d" % (q, os.getpid()), q)
         return
     if a[0] == "memwarn":
         # Inputs 2: as Apple's SimDevice simulateMemoryWarning: the simulator's libdispatch watches $SIMULATOR_MEMORY_WARNINGS
