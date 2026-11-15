@@ -85,6 +85,9 @@ template <bool Kernel> static void sigaction_like(GuestThread &t, u32 i) {
     if (r == 0 && set && sig > 0 && sig < 32) { g_act[sig].handler = g.handler; g_act[sig].mask = g.mask; g_act[sig].flags = g.flags; }
     t.set_x(0, (u32)r);
 }
+// Whether the guest set an action other than SIG_DFL for a (Darwin) signal: host.cpp's SIGUSR1 memlog handler then
+// passes the signal on to Darling's handler (which runs the guest's handler, or drops an ignored signal).
+bool guest_sig_action_set(int sig) { return sig > 0 && sig < 32 && g_act[sig].handler.load(std::memory_order_relaxed) != 0; }
 void h_sigaction(GuestThread &t, u32 i) { sigaction_like<true>(t, i); }
 void h_platform_sigaction(GuestThread &t, u32 i) { sigaction_like<false>(t, i); }
 

@@ -774,8 +774,16 @@ static void memlog_once(bool with_save) {
 // died with it (SIGILL in __simple_abort on its next call). Glibc's malloc, gheap's locks and the jitcache save were
 // no safer there. Send it to guest processes only: darlingserver has no SIGUSR1 handler (only in its ASan build), so
 // the signal terminates it, and the whole device with it.
+// The handler wraps Darling's (sigexc_handler, installed for every signal by darling_sigexc_self): when the guest has an
+// action of its own for SIGUSR1 (a handler, or SIG_IGN, e.g. for a dispatch signal source), the signal is the guest's
+// and goes to Darling's handler as before (Darling's sigaction only records guest handlers; its Linux handler is what
+// runs them). Replacing it outright swallowed every guest SIGUSR1: raise/kill/pthread_kill never reached the app.
+// Only a guest that left SIGUSR1 at SIG_DFL (where Darwin would terminate it) gets the memlog dump.
+bool guest_sig_action_set(int sig);  // signals.cpp
 static sem_t g_memlog_sem;
-static void on_usr1(int, siginfo_t *, void *) {
+static void (*g_darling_usr1)(int, siginfo_t *, void *) = nullptr;
+static void on_usr1(int sig, siginfo_t *si, void *uc) {
+    if (g_darling_usr1 && guest_sig_action_set(30 /* Darwin SIGUSR1 */)) { g_darling_usr1(sig, si, uc); return; }
     const int e = errno;
     sem_post(&g_memlog_sem);  // async-signal-safe
     errno = e;
@@ -796,9 +804,14 @@ static void start_memlog() {
             memlog_once(true);
         }
     }).detach();
-    struct sigaction su{};
+    struct sigaction su{}, cur{};
+    if (sigaction(SIGUSR1, nullptr, &cur) == 0 && (cur.sa_flags & SA_SIGINFO) && (void *)cur.sa_handler != SIG_DFL &&
+        (void *)cur.sa_handler != SIG_IGN && cur.sa_sigaction != on_usr1) {
+        g_darling_usr1 = cur.sa_sigaction;
+        su = cur;  // Darling's mask (all standard signals + SIGRTMIN), SA_ONSTACK (its sigaltstack) and restorer
+    } else su.sa_flags = SA_SIGINFO | SA_RESTART;
     su.sa_sigaction = on_usr1;
-    su.sa_flags = SA_SIGINFO | SA_RESTART;
+    su.sa_flags |= SA_SIGINFO;
     sigaction(SIGUSR1, &su, nullptr);
     const char *e = getenv("X86SIM_A64_MEMLOG");
     if (e && atoi(e) > 0) {
