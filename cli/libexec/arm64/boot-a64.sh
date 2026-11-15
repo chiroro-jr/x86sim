@@ -206,6 +206,11 @@ MIN="com.apple.cfprefsd.xpc.daemon com.apple.cfprefsd.xpc.daemon.system com.appl
 # the activities and shows them in SharingUIService's remote view (angel, on demand). Without them the sheet came up as an
 # empty card (no header, app row or actions) where Apple's simulator shows the link, Reminders / More, Copy and Add to
 # Reading List. sharingd is EAGER (mksimdevice.py): its extension cache must be primed before the first share.
+# gamecontrollerd (on demand) on iOS and visionOS too (Inputs 2): Apple's iOS / visionOS SimulatorHID add the same
+# virtual "Gamepad" as tvOS's, so GCController.controllers() lists it there as well. LocalAuthenticationUIService (angel,
+# on demand): the Face ID / Optic ID sheet; without it LAContext.evaluatePolicy failed at once ("unable to establish
+# connection to UI", -1000) where Apple's simulator waits for a (simulated) match. pointeruid (on demand): an iPad's
+# pointer (simhid's mouse, pointer capture); without it the mouse moved nothing visible.
 UI="com.apple.installcoordinationd com.apple.mobiletimerd com.apple.backboardd com.apple.SpringBoard com.apple.sleepd com.apple.TextInput.kbd com.apple.FileCoordination
 	com.apple.usernotificationsd com.apple.InputUI com.apple.assistantd com.apple.assetsd com.apple.geod com.apple.navd com.apple.Maps.mapssyncd
 	com.apple.campo com.apple.FileProvider com.apple.DesktopServicesHelper com.apple.PosterBoard com.apple.financed
@@ -215,7 +220,8 @@ UI="com.apple.installcoordinationd com.apple.mobiletimerd com.apple.backboardd c
 	com.apple.assistant_cdmd com.apple.nanoregistryd com.apple.nanotimekitcompaniond
 	com.apple.CoreAuthentication.daemon com.apple.storekitd com.apple.quicklook.ThumbnailsAgent com.apple.midiserver-sim
 	com.apple.locationd com.apple.pasteboard.pasted com.apple.wcd com.apple.voiced com.apple.accessibility.axassetsd com.apple.liveactivitiesd
-	com.apple.sharingd com.apple.sharinguiservice"
+	com.apple.sharingd com.apple.sharinguiservice com.apple.GameController.gamecontrollerd com.apple.LocalAuthenticationUIService
+	com.apple.PointerUI.pointeruid"
 UI_SLIM="com.apple.backboardd com.apple.SpringBoard com.apple.TextInput.kbd com.apple.FileCoordination com.apple.InputUI
 	com.apple.assistantd"
 FULLUI="com.apple.chronod"
@@ -241,6 +247,8 @@ TV_UI="com.apple.installcoordinationd com.apple.backboardd com.apple.Pineboard c
 	com.apple.voiced com.apple.accessibility.axassetsd com.apple.geod com.apple.mediaremoted
 	com.apple.GameController.gamecontrollerd"
 TV_UI_SLIM="com.apple.backboardd com.apple.Pineboard com.apple.TextInput.kbd com.apple.FileCoordination"
+# Inputs 2: watchgesturesd (on demand): the hand gestures (double tap, wrist flick) simhid's "gesture" hands to its
+# WatchGesturesSimulatorServer, as Apple's watchOS SimulatorHID does; without it they did nothing.
 # Platforms 1: watchOS. Carousel is watchOS's SpringBoard (the watch face, the app grid, notifications); the watch face
 # itself comes from nanotimekitd. nanoregistryd (+ its launch helper) holds the pairing state, unpaired for a watch booted
 # on its own. No PosterBoard on watchOS.
@@ -262,7 +270,7 @@ WATCH_UI="com.apple.installcoordinationd com.apple.backboardd com.apple.Carousel
 	com.apple.assetsubscriptiond com.apple.mobileassetd com.apple.geod com.apple.navd com.apple.Maps.mapssyncd
 	com.apple.CoreAuthentication.daemon com.apple.storekitd com.apple.quicklook.ThumbnailsAgent com.apple.voiced
 	com.apple.accessibility.axassetsd com.apple.wcd com.apple.locationd com.apple.healthd
-	com.apple.ctkd com.apple.syncdefaultsd com.apple.accountsd com.apple.amsaccountsd"
+	com.apple.ctkd com.apple.syncdefaultsd com.apple.accountsd com.apple.amsaccountsd com.apple.watchgesturesd"
 WATCH_UI_SLIM="com.apple.backboardd com.apple.Carousel com.apple.TextInput.kbd com.apple.FileCoordination
 	com.apple.nanoregistryd com.apple.nanotimekitd"
 # Platforms 2: visionOS. SurfBoard is its SpringBoard; vhmdd (the simulator's virtual head-mounted display,
@@ -281,7 +289,8 @@ XR_UI="com.apple.installcoordinationd com.apple.backboardd com.apple.SurfBoard c
 	com.apple.CoreAuthentication.daemon com.apple.storekitd com.apple.quicklook.ThumbnailsAgent com.apple.midiserver-sim
 	com.apple.pasteboard.pasted com.apple.wcd com.apple.voiced com.apple.accessibility.axassetsd
 	com.apple.ctkd com.apple.syncdefaultsd com.apple.accountsd com.apple.amsaccountsd
-	com.apple.locationd com.apple.FileProvider com.apple.devicemanagementclient.managedappsd"
+	com.apple.locationd com.apple.FileProvider com.apple.devicemanagementclient.managedappsd
+	com.apple.GameController.gamecontrollerd com.apple.LocalAuthenticationUIService"
 XR_UI_SLIM="com.apple.backboardd com.apple.SurfBoard com.apple.vhmdd com.apple.wakeboardd com.apple.RealityEnvironment com.apple.TextInput.kbd
 	com.apple.FileCoordination"
 # No fpsim2host on tvOS / watchOS: their FileProvider has no FPSimulatorSupportInterface (no Files app), so it exited 1
