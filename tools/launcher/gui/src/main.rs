@@ -283,9 +283,16 @@ impl App {
             Some(d) if inst.inner_active() => (d.ring.clone(), d.upright(), Some((d.id, d.rotation))),
             _ => (inst.ring.clone(), inst.screen, None),
         };
+        // Inputs 2: an iPhone / iPad turned to landscape (host/simhid "orientation" / "rotate", <device>/data/orientation)
+        // is shown turned, as Apple's Simulator turns its window; flat or unknown keeps the last turn
+        let orient = if inst.platform == "ios" { inst.orientation().and_then(|o| x86sim_core::hid::orientation_rot(&o)) } else { Some(0) };
         let v = self.viewers.get_mut(id)?;
+        if let Some(o) = orient {
+            v.orient = o;
+        }
+        let o = v.orient;
         v.set_ring(&ring);
-        v.set_display(screen, display);
+        v.set_display(screen, display, o);
         v.set_boot_time(bt);
         Some(v)
     }

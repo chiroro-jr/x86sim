@@ -228,6 +228,6 @@ pub fn side_button(ui: &mut egui::Ui, rect: Rect, id: egui::Id, live: bool) -> b
     ui.painter().rect_filled(rect, cr, fill);
     ui.painter().rect_stroke(rect, cr, Stroke::new(1.0_f32, if hot { pal().ink_3 } else { pal().border_strong }), StrokeKind::Inside);
     let c = resp.clicked();
-    resp.on_hover_text(if live { "Side button: sleep / wake the screen (F2)" } else { "Not running" });
+    resp.on_hover_text(if live { "Side button: Control Center, as Apple's simulator presses it (F2 sleeps / wakes the screen)" } else { "Not running" });
     c
 }

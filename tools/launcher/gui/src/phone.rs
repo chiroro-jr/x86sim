@@ -20,7 +20,7 @@ fn toolbar_w(platform: &str) -> f32 {
 }
 const GESTURES: &str ="Click the screen to tap, drag to swipe.\nDrag in from an edge for system gestures (Home, Control Center, back).\nCtrl + drag to pinch, Shift + drag to scroll with two fingers.\nF1 Home · F2 Lock · F3/F4 volume";
 const GESTURES_TV: &str = "The keyboard is the remote: arrow keys move, Return selects, Esc goes back.\nClick the screen or the clickpad's centre to select; the wheel over either moves the focus.\nF1 TV (home) · F2 play / pause · F3/F4 volume";
-const GESTURES_WATCH: &str = "Click the screen to tap, drag to swipe.\nThe mouse wheel (over the screen or the crown) or a drag on the crown turns it; a click on the crown presses it.\nF1 presses the crown (watch face / apps) · F2 the side button (sleep / wake)";
+const GESTURES_WATCH: &str = "Click the screen to tap, drag to swipe.\nThe mouse wheel (over the screen or the crown) or a drag on the crown turns it; a click on the crown presses it.\nF1 presses the crown (watch face / apps) · F2 sleeps / wakes the screen; the side button opens Control Center";
 
 impl App {
     pub fn phone_view(&mut self, ctx: &egui::Context, id: &str) {
@@ -354,8 +354,8 @@ impl App {
     }
 
     /// The tools, a vertical bar right of the screen: the hardware buttons Simulator has (Home, side button, volume,
-    /// Siri), Save Screen, the hinge of a two-screen phone, gesture help. Simulator's rotate and shake have no simhid
-    /// command (no orientation or motion events), so they are not offered. Platforms 1: an Apple TV gets a Siri Remote
+    /// Siri), Rotate Left / Right and Shake (Inputs 2: host/simhid "rotate" / "shake"), Save Screen, the hinge of a
+    /// two-screen phone, gesture help. Platforms 1: an Apple TV gets a Siri Remote
     /// and an Apple Watch its Digital Crown and side button (remote.rs), above the same Save Screen and help.
     fn screen_toolbar(&mut self, ui: &mut egui::Ui, id: &str, live: bool) {
         let name = self.inst(id).map(|i| i.name.clone()).unwrap_or_else(|| id.to_string());
@@ -398,6 +398,38 @@ impl App {
                         if let (Some(b), Some(v)) = (press, self.viewer(id)) {
                             v.press(b);
                         }
+                        // Inputs 2: Device > Rotate Left / Right (iPhone, iPad) and Shake, as in Apple's simulator
+                        ui.add_space(S2);
+                        let (mut rot, mut shake) = (None, false);
+                        if platform == "ios" {
+                            if tool(ui, icon::ARROW_COUNTER_CLOCKWISE, "Rotate left (the screen image stays upright: landscape apps are drawn sideways)") {
+                                rot = Some(true);
+                            }
+                            if tool(ui, icon::ARROW_CLOCKWISE, "Rotate right") {
+                                rot = Some(false);
+                            }
+                        }
+                        if tool(ui, icon::VIBRATE, "Shake (e.g. Undo Typing)") {
+                            shake = true;
+                        }
+                        // Inputs 2: an iPad's pointer capture, as Apple's simulator (the iPad gets a mouse)
+                        if self.inst(id).is_some_and(|i| i.model_id.starts_with("iPad")) {
+                            let on = self.viewer(id).is_some_and(|v| v.pointer_mode);
+                            let tip = if on { "Pointer capture on: the mouse drives the iPad's pointer. Click to go back to touches" } else { "Pointer capture: the mouse drives the iPad's pointer (hover, click, scroll)" };
+                            if ui.add_enabled(live, if on { Btn::tinted("", pal().active) } else { Btn::ghost("") }.icon(icon::CURSOR)).on_hover_text(tip).clicked() {
+                                if let Some(v) = self.viewer(id) {
+                                    v.set_pointer_mode(!on);
+                                }
+                            }
+                        }
+                        if let Some(v) = self.viewer(id) {
+                            if let Some(left) = rot {
+                                v.rotate(left);
+                            }
+                            if shake {
+                                v.shake();
+                            }
+                        }
                         // a gap, not a rule, between the device's buttons and the launcher's own tools
                         ui.add_space(S3);
                     }
@@ -429,7 +461,8 @@ impl App {
     }
 
     /// Platforms 1: the Siri Remote. Clickpad (arrows / select as the keyboard's keys, held keys repeat); Back
-    /// (consumer 0x46, Menu Escape: one level back; 0x40 closed the app), TV (0x60: the home screen), play / pause
+    /// (Inputs 2: GenericDesktop 0x86, the Siri Remote's Menu in Apple's simulator, one level back; was consumer 0x46,
+    /// Menu Escape, which does the same; 0x40 closed the app), TV (0x60: the home screen), play / pause
     /// (0xcd), mute (0xe2), the volume rocker. No power or Siri button: holding power put the TV to sleep, which the
     /// simulator declines (WORKAROUNDS.md).
     fn tv_remote(&mut self, ui: &mut egui::Ui, id: &str, live: bool) {
@@ -473,8 +506,9 @@ impl App {
     }
 
     /// Platforms 1: the watch's right edge, placed as on an Apple Watch: the Digital Crown in the upper part of the case
-    /// (drag / scroll to turn, click to press: the watch face or the app grid), the long side button below it (sleep /
-    /// wake). Sized from the case's height. No volume buttons on a watch.
+    /// (drag / scroll to turn, click to press: the watch face or the app grid), the long side button below it (Inputs 2:
+    /// Apple's watch side button, consumer 0x95: Control Center; was 0x30, sleep / wake). Sized from the case's height.
+    /// No volume buttons on a watch.
     fn watch_controls(&mut self, ui: &mut egui::Ui, id: &str, live: bool, case: egui::Rect) {
         let h = case.height();
         let x = case.right();

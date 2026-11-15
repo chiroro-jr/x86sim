@@ -56,6 +56,12 @@ pub struct Viewer {
     shift_held: bool,
     /// Platforms 1: an Apple Watch: the mouse wheel turns its Digital Crown (host/simhid "crown")
     pub crown: bool,
+    /// Inputs 2: the device orientation's turn of the picture (0 / 90 / 180 / 270), kept while the device lies flat
+    pub orient: u32,
+    /// Inputs 2: an iPad's pointer capture (Apple's simulator: the Mac's pointer drives the iPad's mouse): hover moves
+    /// the iPad's pointer, a click clicks, the wheel scrolls (host/simhid "pointer ..."), instead of touches
+    pub pointer_mode: bool,
+    last_hover: Option<egui::Pos2>,
     /// Platforms 1: an Apple TV: no touchscreen; a click is the remote's select, the wheel moves focus (the Siri
     /// Remote's touch surface), F1 the TV button
     pub remote: bool,
@@ -124,6 +130,8 @@ fn convert(f: &x86sim_core::ring::Frame, step: usize, rot: u32, smooth: bool) ->
             }
             Img { w: h, h: w, pixels: px, seq: f.seq }
         }
+        // Inputs 2: upside down (portraitUpsideDown)
+        180 => Img { w, h, pixels: small.into_iter().rev().collect(), seq: f.seq },
         _ => Img { w, h, pixels: small, seq: f.seq },
     }
 }
@@ -140,13 +148,13 @@ impl Viewer {
             .spawn(move || {
                 let mut ring_path = sh.ring.lock().unwrap().clone();
                 let mut ring = Ring::new(&ring_path);
-                let mut last = (0u64, 0usize, 0u8);
+                let mut last = (0u64, 0usize, 0u8, 0u32);
                 loop {
                     let want = sh.ring.lock().unwrap().clone();
                     if want != ring_path {
                         ring = Ring::new(&want);
                         ring_path = want;
-                        last = (0, 0, 0);
+                        last = (0, 0, 0, 0);
                     }
                     let mode = sh.mode.load(Ordering::Relaxed);
                     if mode == OFF {
@@ -168,7 +176,7 @@ impl Viewer {
                                 _ => src_w / tw,
                             }
                             .max(1);
-                            if (f.seq, step, sc) != last {
+                            if (f.seq, step, sc, rot) != last {
                                 let boot = f64::from_bits(sh.boot_time.load(Ordering::Relaxed));
                                 if (f.t_ns as f64) / 1e9 >= boot - 2.0 {
                                     let img = convert(&f, step, rot, sc == SCALE_SMOOTH);
@@ -181,7 +189,7 @@ impl Viewer {
                                     fps.push(now);
                                     ctx.request_repaint();
                                 }
-                                last = (f.seq, step, sc);
+                                last = (f.seq, step, sc, rot);
                             }
                         }
                     }
@@ -198,6 +206,9 @@ impl Viewer {
             crown: inst.model_id.starts_with("Watch"),
             remote: inst.model_id.starts_with("AppleTV"),
             wheel_acc: egui::Vec2::ZERO,
+            orient: 0,
+            pointer_mode: false,
+            last_hover: None,
             corner: if inst.model_id.starts_with("AppleTV") { 0.0 } else if inst.model_id.starts_with("Watch") { 0.22 } else { 0.11 } }
     }
 
@@ -212,11 +223,15 @@ impl Viewer {
         }
     }
 
-    /// Models 2: the screen shown and touched: its upright size and, for a second display, (SFB id, rotation)
-    pub fn set_display(&mut self, screen: (u32, u32), display: Option<(u32, u32)>) {
-        self.screen = screen;
-        self.hid.display = display;
-        self.shared.rot.store(display.map(|d| d.1).unwrap_or(0), Ordering::Relaxed);
+    /// Models 2: the screen shown and touched: its upright size and, for a second display, (SFB id, rotation).
+    /// Inputs 2: `orient`, the device orientation's turn (hid::orientation_rot), turns the picture and the touches
+    /// further, as Apple's Simulator turns its window when the device rotates; `screen` is the size before it.
+    pub fn set_display(&mut self, screen: (u32, u32), display: Option<(u32, u32)>, orient: u32) {
+        self.screen = if orient % 180 == 90 { (screen.1, screen.0) } else { screen };
+        let panel = display.map(|d| d.1).unwrap_or(0);
+        self.hid.display = display.map(|(id, r)| (id, (r + orient) % 360));
+        self.hid.main_rot = orient;
+        self.shared.rot.store((panel + orient) % 360, Ordering::Relaxed);
     }
 
     /// Models 2: move the hinge of a two-screen phone (degrees, 0 folded .. 180 flat)
@@ -304,10 +319,59 @@ impl Viewer {
         rect
     }
 
+    /// Inputs 2: pointer capture on or off (off takes the iPad's mouse away again, as Apple's simulator does)
+    pub fn set_pointer_mode(&mut self, on: bool) {
+        if self.pointer_mode && !on {
+            self.hid.send("pointer remove");
+        }
+        self.pointer_mode = on;
+        self.last_hover = None;
+    }
+
+    /// Inputs 2: the host mouse as the iPad's mouse: the pointer kept under the cursor, buttons, the wheel as scroll
+    fn pointer_input(&mut self, ctx: &egui::Context, resp: &egui::Response, screen: egui::Rect) {
+        let (pressed, released, hover, delta) = ctx.input(|i| (i.pointer.primary_pressed(), i.pointer.primary_released(), i.pointer.hover_pos(), i.raw_scroll_delta));
+        let Some(p) = hover.filter(|p| screen.contains(*p)) else {
+            self.last_hover = None;
+            return;
+        };
+        // the pointer placed under the host's cursor (host/simhid "pointer at": an absolute pointer event, in the
+        // interface's orientation as the picture shows it; relative moves are sped up by the iPad and drift)
+        if self.last_hover != Some(p) {
+            let (x, y) = (((p.x - screen.left()) / screen.width()).clamp(0.0, 1.0), ((p.y - screen.top()) / screen.height()).clamp(0.0, 1.0));
+            self.hid.send(&format!("pointer at {x:.5} {y:.5}"));
+        }
+        self.last_hover = Some(p);
+        // device points a screen pixel of the picture (the device's pixels are 2 a point), for the wheel
+        let k = self.screen.0 as f32 / screen.width() / 2.0;
+        if pressed && resp.rect.contains(p) {
+            self.hid.send("pointer button down");
+        }
+        if released {
+            self.hid.send("pointer button up");
+        }
+        if delta != egui::Vec2::ZERO {
+            // the wheel turned down (egui: negative y) scrolls the page down: simhid's positive dy
+            self.hid.send(&format!("pointer scroll {:.2} {:.2}", -delta.x * k, -delta.y * k));
+        }
+        ctx.output_mut(|o| o.cursor_icon = egui::CursorIcon::None);
+    }
+
     fn input(&mut self, ui: &mut egui::Ui, resp: &egui::Response, screen: egui::Rect, live: bool) {
         let ctx = ui.ctx().clone();
+        if live && self.pointer_mode {
+            if ctx.input(|i| i.pointer.primary_pressed()) {
+                let p = ctx.input(|i| i.pointer.interact_pos());
+                self.focused = p.is_some_and(|p| resp.rect.contains(p));
+                if self.focused {
+                    ui.memory_mut(|m| m.request_focus(resp.id));
+                }
+            }
+            self.pointer_input(&ctx, resp, screen);
+        }
         let (pressed, released, pos, moving, shift, ctrl) = ctx.input(|i| (i.pointer.primary_pressed(), i.pointer.primary_released(), i.pointer.interact_pos().or(i.pointer.latest_pos()), i.pointer.is_moving(), i.modifiers.shift, i.modifiers.ctrl));
         let norm = |p: egui::Pos2| ((p.x - screen.left()) / screen.width(), (p.y - screen.top()) / screen.height());
+        let pressed = pressed && !(live && self.pointer_mode);
         if pressed {
             if let Some(p) = pos {
                 if resp.rect.contains(p) {
@@ -392,7 +456,7 @@ impl Viewer {
             }
         }
         // mouse wheel / touchpad scroll over the screen: a finger dragging the content (lifted after a short pause)
-        if live && !self.touching && !self.crown && !self.remote {
+        if live && !self.touching && !self.crown && !self.remote && !self.pointer_mode {
             let (delta, hover) = ctx.input(|i| (i.raw_scroll_delta, i.pointer.hover_pos()));
             let over = hover.is_some_and(|p| screen.contains(p));
             if delta != egui::Vec2::ZERO && over {
@@ -444,7 +508,8 @@ impl Viewer {
                         }
                         match *key {
                             // Platforms 1: an Apple TV's F1 is the TV button, F2 play/pause (its power button only
-                            // sleeps the TV); a watch's F1 presses the crown, F2 the side button
+                            // sleeps the TV); a watch's F1 presses the crown, F2 sleep / wake (power, 0x30; its side button,
+                            // Apple's 0x95, is the button beside the screen)
                             egui::Key::F1 if remote => buttons.push(("tv", *pressed)),
                             egui::Key::F2 if remote => buttons.push(("playpause", *pressed)),
                             egui::Key::F1 => buttons.push(("home", *pressed)),
@@ -545,6 +610,17 @@ impl Viewer {
 
     pub fn hold(&self, button: &str, ms: u64) {
         self.hid.hold(button, ms);
+    }
+
+    /// Inputs 2: Device > Shake (host/simhid "shake")
+    pub fn shake(&mut self) {
+        self.hid.shake();
+    }
+
+    /// Inputs 2: Rotate Left / Right (host/simhid "rotate"): the device orientation; the frame stays the panel's own
+    /// (landscape content is drawn sideways in it, as in Apple's framebuffer)
+    pub fn rotate(&mut self, left: bool) {
+        self.hid.rotate(left);
     }
 
     /// Platforms 1: the Digital Crown turned by `delta` (host/simhid "crown"; positive scrolls towards the bottom)
@@ -716,6 +792,24 @@ mod tests {
         assert_eq!((r.w, r.h), (2, 3));
         assert_eq!([r.pixels[0].r(), r.pixels[2].r(), r.pixels[4].r()], [20, 100, 180]);
         assert_eq!(convert(&ramp, 2, 270, false).pixels.iter().map(|p| p.r()).collect::<Vec<_>>(), [0, 0, 80, 80, 160, 160]);
+    }
+
+    #[test]
+    fn turned_picture_matches_touches() {
+        // Inputs 2: for every turn the viewer shows, the pixel at an upright point is the framebuffer pixel that
+        // hid::unrotate sends a touch at that point to (so a tap lands on what is drawn under the pointer)
+        let (w, h) = (6usize, 4usize);
+        let f = frame(w as u32, h as u32, |x, y| (y * 6 + x) as u8 * 10);
+        for rot in [0u32, 90, 180, 270] {
+            let img = convert(&f, 1, rot, false);
+            for yo in 0..img.h {
+                for xo in 0..img.w {
+                    let (fx, fy) = x86sim_core::hid::unrotate((xo as f32 + 0.5) / img.w as f32, (yo as f32 + 0.5) / img.h as f32, rot);
+                    let (fx, fy) = ((fx * w as f32) as usize, (fy * h as f32) as usize);
+                    assert_eq!(img.pixels[yo * img.w + xo].r(), ((fy * 6 + fx) * 10) as u8, "rot {rot} at {xo},{yo}");
+                }
+            }
+        }
     }
 
     #[test]
