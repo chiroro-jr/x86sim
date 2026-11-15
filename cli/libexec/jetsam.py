@@ -104,6 +104,16 @@ RESIDENT = set(os.environ.get("X86SIM_JETSAM_RESIDENT", "UserFontManager,fontser
 # kills in 20 idle minutes, at 30, 60, 120, ... s). iOS reclaims it for good (no face holds it there).
 if "/watchos-" in os.environ.get("X86SIM_RUNTIME", "") and "X86SIM_JETSAM_RESIDENT" not in os.environ:
     RESIDENT.add("chronod")
+# Idle 1: daemons a client asks for again within a second of every kill, so the INSTANT rule below kept them after
+# their second kill anyway (two kill + relaunch rounds a boot, ~0.5-1 CPU s each, for nothing): gamecontrollerd on every
+# platform (simhid's virtual gamepad is attached for the whole boot), visionOS pointeruid (the look-and-pinch pointer),
+# watchOS healthd. Apple's simulator runs all three at idle.
+if "X86SIM_JETSAM_RESIDENT" not in os.environ:
+    RESIDENT.add("gamecontrollerd")
+    if "/xros-" in os.environ.get("X86SIM_RUNTIME", ""):
+        RESIDENT.add("pointeruid")
+    if "/watchos-" in os.environ.get("X86SIM_RUNTIME", ""):
+        RESIDENT.add("healthd")
 # RAM 4: on-demand daemons that stay dirty (an XPC transaction nobody ends) with nothing to do: reclaimed once CPU-idle for
 # X86SIM_JETSAM_DIRTY_IDLE s anyway, as a device's jetsam takes dirty background daemons under pressure. siriactionsd: a
 # relaunch by a launch event (LaunchServices / Biome / defaults notifications) leaves it dirty for good (~80 MB).
@@ -142,6 +152,9 @@ START = time.time()
 # HeadBoard home screen): always up, so with them "the app in the foreground" every idle daemon waited 600 s, not 30.
 NEVER = ("SpringBoard.app/", "PosterBoard.app/", "InputUI.app/", "Campo.app/", "Carousel.app/", "ClockFace.app/",
          "PineBoard.app/", "HeadBoard.app/",
+         # tvOS's system overlay service (an angel, as InputUI / Campo): up from boot, it read as "the app in the
+         # foreground" and every idle daemon waited 600 s, not 30 (TV home at 120 s: nothing reclaimed yet)
+         "TVSystemUIService.app/",
          # Platforms 2: visionOS's SpringBoard (it has no visible scene until the compositor runs: killed at 90 s)
          "SurfBoard.app/", "RealityEnvironment.app/",
          # visionOS's system shell runs as separate apps (keyboard, notifications, HUD, Home View, ...), off screen
@@ -186,7 +199,23 @@ INSTANT = float(os.environ.get("X86SIM_JETSAM_INSTANT", "5"))
 _seen = {}        # (dpid, start) -> {"bg": since, "clean": since, "cpu": [(t, cpu s)]}
 
 
+_ns = {"ns": None, "t": 0.0}
+
+
 def container_ns():
+    """container_ns_scan(), kept for NS_KEEP s once found (Idle 1: the scan reads every host process's stat, comm and
+    cmdline, ~6 of a sweep's ~8 ms: ~0.3% of a core per device at idle; the namespace stays for the boot)."""
+    now = time.time()
+    # (rescanned every sweep in the first minute: the boot's init helper can be alone in its own namespace first)
+    if _ns["ns"] is None or now - _ns["t"] > NS_KEEP or now - START < NS_KEEP:
+        _ns["ns"], _ns["t"] = container_ns_scan(), now
+    return _ns["ns"]
+
+
+NS_KEEP = 60.0
+
+
+def container_ns_scan():
     """The pid namespace of X86SIM_DPREFIX's container (its darlingserver's children), or None. Several containers can
     run at once (two phones): their Darling pids overlap."""
     prefix = os.path.realpath(PREFIX)
