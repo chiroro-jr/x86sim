@@ -13,6 +13,26 @@
     cli/libexec/simtouch.py key <usage> | text <ascii>
     cli/libexec/simtouch.py crown <delta> [steps]          Apple Watch: turn the Digital Crown (<delta> per step, positive =
                                                       down / towards the bottom; default 8 steps of 30 ms)
+    cli/libexec/simtouch.py button <name> [hold_ms]        press a hardware button as Apple's simulator does: home lock side
+                                                      volup voldown siri action wallet playpause tv select menu back
+                                                      mute (per platform, docs/protocols/SIMHID.md; hold default 100 ms)
+    cli/libexec/simtouch.py shake                          Device > Shake (UIKit's motion event)
+    cli/libexec/simtouch.py rotate left|right              Rotate Left / Right (iPhone, iPad)
+    cli/libexec/simtouch.py orientation [name]             set (portrait portraitUpsideDown landscapeLeft landscapeRight
+                                                      faceUp faceDown) and/or print the device orientation
+    cli/libexec/simtouch.py biometric enroll|unenroll|match|nomatch [face|touch|optic]
+                                                      Face ID / Touch ID / Optic ID: enrolled, a matching or
+                                                      non-matching face / finger
+    cli/libexec/simtouch.py gamepad press <b> | <b> down|up | stick left|right <x> <y>
+                                                      the simulated game controller (b: up down left right a b x y l1
+                                                      r1 l2 r2; sticks -1..1)
+    cli/libexec/simtouch.py pointer move <dx> <dy> | at <nx> <ny> | click | button down|up | scroll <dx> <dy> | remove
+                                                      an iPad's mouse (pointer capture; points), a Vision Pro's pointer
+    cli/libexec/simtouch.py trackpad on|off                an iPad's trackpad device (Apple's Simulate Trackpad)
+    cli/libexec/simtouch.py appswitcher | standby show|hide   iPhone / iPad: App Switcher (home pressed twice); StandBy
+                                                      (shown when the phone is locked and in landscape)
+    cli/libexec/simtouch.py gesture doubletap|wristflick   Apple Watch hand gestures
+    cli/libexec/simtouch.py memwarn                        Simulate Memory Warning (every process's memory-pressure event)
     cli/libexec/simtouch.py raw "<line>" ...               protocol lines (see host/simhid/simhid.m)
     cli/libexec/simtouch.py app <bundle id>                open an app (also ones the home screen doesn't show); as openurl
     cli/libexec/simtouch.py dismiss [rounds]               answer permission prompts on screen (location: "Allow While Using
@@ -20,7 +40,7 @@
     cli/libexec/simtouch.py openurl <url>                  open a URL (as `simctl openurl`); needs the boot's openurl job:
                                                       com.x86sim.openurl (the phone's boot starts it; log:
                                                       var/device/data/var/log/x86sim-openurl.log)"""
-import os, socket, struct, sys, time
+import json, os, socket, struct, sys, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lib"))
@@ -58,6 +78,21 @@ KEYS.update({c: (0x1e + i, False) for i, c in enumerate("1234567890")})
 KEYS.update({" ": (0x2c, False), "\n": (0x28, False), "-": (0x2d, False), "=": (0x2e, False), ".": (0x37, False),
              ",": (0x36, False), "/": (0x38, False), ";": (0x33, False), "'": (0x34, False), "@": (0x1f, True),
              "!": (0x1e, True), "?": (0x38, True), ":": (0x33, True), "_": (0x2d, True)})
+
+
+def feature_on(fid):
+    """A device feature's state (<device>/features.json over cli/libexec/arm64/features-def.json's default)."""
+    dev = os.path.dirname(os.path.dirname(SOCK))
+    try:
+        d = {f["id"]: f.get("default", False) for f in json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                                                                  "arm64/features-def.json")))["features"]}
+    except (OSError, ValueError, KeyError):
+        d = {}
+    try:
+        d.update(json.load(open(os.path.join(dev, "features.json"))).get("features", {}))
+    except (OSError, ValueError):
+        pass
+    return bool(d.get(fid))
 
 
 def connect():
@@ -162,6 +197,11 @@ def main(a):
             f.write(("app " if a[0] == "app" else "") + " ".join(a[1:]) + "\n")
         os.rename(q + ".new", q)
         return
+    if a[0] == "memwarn":
+        # Inputs 2: as Apple's SimDevice simulateMemoryWarning: the simulator's libdispatch watches $SIMULATOR_MEMORY_WARNINGS
+        # (NOTE_ATTRIB) and reports memory pressure to every process (see cli/libexec/jetsam.py memory_warning)
+        os.utime(os.path.join(os.path.dirname(SOCK), "var/run/memory_warning_simulation"))
+        return
     s = connect()
     if a[0] == "tap":
         x, y = float(a[1]), float(a[2])
@@ -211,6 +251,34 @@ def main(a):
         touch2("up", pts(1))
     elif a[0] in ("home", "lock"):
         send(s, "button %s down" % a[0]); time.sleep(0.1); send(s, "button %s up" % a[0])
+    elif a[0] == "button":
+        hold = float(a[2]) if len(a) > 2 else 100
+        send(s, "button %s down" % a[1]); time.sleep(hold / 1000); send(s, "button %s up" % a[1])
+    elif a[0] in ("shake", "rotate", "biometric", "gamepad", "pointer", "gesture", "appswitcher", "standby", "trackpad"):
+        send(s, " ".join(a))
+        if a[:2] == ["standby", "show"] and not feature_on("wallpaper"):
+            # StandBy's backdrop (the blurred widgets) comes from PosterBoard's posterboardservices endpoint, which only
+            # exists while PosterBoard runs; the "wallpaper" feature (off by default) is what runs it
+            print("simtouch: StandBy shows on a black backdrop: turn on the \"wallpaper\" feature (PosterBoard) and restart "
+                  "for the blurred widgets of Apple's simulator", file=sys.stderr)
+    elif a[0] == "orientation":
+        f = os.path.join(os.path.dirname(SOCK), "orientation")
+        try:
+            before = os.stat(f).st_mtime_ns
+        except OSError:
+            before = 0
+        send(s, " ".join(a))
+        for _ in range(40):   # simhid writes the orientation it ends up in
+            time.sleep(0.05)
+            try:
+                if os.stat(f).st_mtime_ns != before:
+                    break
+            except OSError:
+                pass
+        try:
+            print(open(f).read().strip())
+        except OSError:
+            sys.exit("simtouch: no orientation reported (this device has none, or an older simhid)")
     elif a[0] == "crown":
         # Platforms 1: host/simhid's crown service (Apple Watch models)
         for _ in range(int(a[2]) if len(a) > 2 else 8):

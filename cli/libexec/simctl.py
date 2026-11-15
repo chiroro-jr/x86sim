@@ -18,6 +18,7 @@ answer is the log line "result <id> <json>" in <data>/var/log/x86sim-openurl.log
   addmedia <file>...                    (images and videos into the Photos library)
   log stream [--app <bundle id>] [--process NAME] [--match TEXT]
   io screenshot [out.png] | io recordVideo [--codec h264|hevc] [--secs N] [--fps N] <out.mp4>
+  spawn [--env K=V]... [--timeout S] <program> [args...]   a simulator binary run in the device, output and status
 """
 import json, os, shutil, signal, subprocess, sys, time, tty, uuid
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lib"))
@@ -505,7 +506,57 @@ def record(a):
     print("x86sim: wrote %s (%d frames, %.1f s)" % (out, n, n / fps), file=sys.stderr)
 
 
-CMDS = {"launch": cmd_launch, "terminate": cmd_terminate, "get_app_container": cmd_container, "listapps": cmd_listapps,
+def cmd_spawn(a):
+    """Inputs 2: x86sim spawn [--env K=V]... [--timeout S] PROGRAM [args...]: run a simulator binary inside the device
+    (as simctl spawn), print its output and exit with its status. The program is copied into the device's tmp."""
+    env, timeout = {}, 120
+    while a and a[0].startswith("--"):
+        if a[0] == "--env":
+            k, _, v = a[1].partition("="); env[k] = v; a = a[2:]
+        elif a[0] == "--timeout":
+            timeout = float(a[1]); a = a[2:]
+        else:
+            die("x86sim spawn: unknown option %s" % a[0], 2)
+    if not a:
+        die("usage: x86sim spawn [--env K=V]... [--timeout S] PROGRAM [args...]", 2)
+    for k, v in os.environ.items():   # as simctl: SIMCTL_CHILD_NAME=value -> NAME=value
+        if k.startswith("SIMCTL_CHILD_"):
+            env.setdefault(k[len("SIMCTL_CHILD_"):], v)
+    rid = uuid.uuid4().hex[:8]
+    prog = os.path.join(DATA, "tmp", "x86sim-spawn-%s-%s" % (rid, os.path.basename(a[0])))
+    shutil.copy(a[0], prog)
+    os.chmod(prog, 0o755)
+    out = "tmp/x86sim-spawn-%s.out" % rid
+    r = check(request("spawn", path=os.path.relpath(prog, DATA), args=a[1:], env=env, stdout=out), "spawn")
+    exitf, outf = os.path.join(DATA, out + ".exit"), os.path.join(DATA, out)
+    pos, end = 0, time.monotonic() + timeout
+    st = None
+    while True:
+        done = os.path.exists(exitf)
+        try:
+            with open(outf, "rb") as f:
+                f.seek(pos)
+                b = f.read()
+                pos += len(b)
+                sys.stdout.write(b.decode(errors="replace")); sys.stdout.flush()
+        except OSError:
+            pass
+        if done:
+            st = int(open(exitf).read().strip() or 0)
+            break
+        if time.monotonic() > end:
+            print("x86sim spawn: still running after %d s (pid %s)" % (timeout, r.get("pid")), file=sys.stderr)
+            break
+        time.sleep(0.2)
+    for p in (prog, outf, exitf):
+        try:
+            os.unlink(p)
+        except OSError:
+            pass
+    sys.exit(1 if st is None else (st >> 8) & 0xff if st & 0x7f == 0 else 128 + (st & 0x7f))
+
+
+CMDS = {"spawn": cmd_spawn, "launch": cmd_launch, "terminate": cmd_terminate, "get_app_container": cmd_container, "listapps": cmd_listapps,
         "push": cmd_push, "pidof": cmd_pidof, "location": cmd_location, "addmedia": cmd_addmedia, "log": cmd_log, "io": cmd_io}
 
 if __name__ == "__main__":

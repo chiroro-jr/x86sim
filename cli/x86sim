@@ -29,7 +29,23 @@ Display and input
                        newest frame as PNG (fb2png.py; default ./x86sim-<time>.png, full size)
   tap X Y | swipe X1 Y1 X2 Y2 [ms] | pinch CX CY R1 R2 [ms] | pan2 X1 Y1 X2 Y2 [ms]
   type TEXT | key USAGE | home | lock | openurl URL | app BUNDLEID | dismiss [rounds] | raw LINE...
-  crown DELTA [steps]  Apple Watch: turn the Digital Crown
+  crown DELTA [steps]  Apple Watch / Vision Pro: turn the Digital Crown
+  button NAME [ms]     a hardware button as Apple's simulator presses it: home lock side volup voldown siri action
+                       wallet (Apple Pay) playpause tv select menu back mute (per platform; see docs/protocols/SIMHID.md)
+  shake | rotate left|right | orientation [NAME] | memwarn
+                       Device > Shake, Rotate Left / Right, set or print the orientation (portrait portraitUpsideDown
+                       landscapeLeft landscapeRight faceUp faceDown), Simulate Memory Warning
+  biometric enroll|unenroll|match|nomatch [face|touch|optic]
+                       Face ID / Touch ID / Optic ID enrollment and a matching / non-matching attempt
+  gamepad press B | B down|up | stick left|right X Y
+                       the simulated game controller (B: up down left right a b x y l1 r1 l2 r2)
+  appswitcher | standby show|hide | gesture doubletap|wristflick
+                       App Switcher (home pressed twice), StandBy (when locked in landscape), the watch's hand gestures
+  pointer move DX DY | at NX NY | click | button down|up | scroll DX DY | remove
+                       an iPad's mouse as in Apple's pointer capture (added at the first command; move: points,
+                       at: a place on the screen, 0..1 as shown), a Vision Pro's pointer
+  trackpad on|off      an iPad's trackpad device (Apple's Simulate Trackpad; Settings shows Trackpad). Its gestures
+                       are not simulated (see docs/protocols/SIMHID.md): pinch / pan2 / swipe from an edge instead
                        input through the SimulatorHID stand-in (simtouch.py; device pixels). Apple TV: the arrow keys,
                        return (select) and escape (back) are the remote
   fps [secs]           delivered frames per second (fpsmeter.py)
@@ -55,6 +71,8 @@ Apps (as xcrun simctl install/uninstall/launch)
   log stream [--app BUNDLEID] [--process NAME] [--match TEXT]
                        os_log of an app (relaunched; libsimshim formats os_log into a file) or of a process
   pidof BUNDLEID       pid of the running app (inside Darling)
+  spawn [--env K=V] [--timeout S] PROGRAM [args...]
+                       run a simulator binary in the device (as simctl spawn): its output, its exit status
   io screenshot [out.png] | io recordVideo [--codec h264|hevc] [--secs N] OUT.mp4
                        as simctl io: newest frame / MP4 from the frame ring until Ctrl-C
 
@@ -105,11 +123,12 @@ case $c in
 	logs) cmd_logs "$@" ;;
 	view) cmd_view "$@" ;;
 	screenshot|shot) cmd_screenshot "$@" ;;
-	tap|swipe|pinch|pan2|key|home|lock|crown|openurl|app|dismiss|raw) exec python3 "$L/simtouch.py" "$c" "$@" ;;
+	tap|swipe|pinch|pan2|key|home|lock|crown|openurl|app|dismiss|raw|button|shake|rotate|orientation|biometric|gamepad|memwarn|pointer|gesture|appswitcher|standby|trackpad)
+		exec python3 "$L/simtouch.py" "$c" "$@" ;;
 	type|text) exec python3 "$L/simtouch.py" text "$*" ;;
 	fps) exec python3 "$L/fpsmeter.py" "${1:-10}" ;;
 	install|uninstall) exec "$L/appinstall.sh" "$c" "$@" ;;
-	launch|terminate|get_app_container|listapps|push|location|addmedia|log|io|pidof)
+	launch|terminate|get_app_container|listapps|push|location|addmedia|log|io|pidof|spawn)
 		# simctl-style leading <device> (x86sim launch apps com.foo): a phone's name/folder/dir
 		. "$X/cli/lib/pickdevice.sh"
 		if [ $# -ge 1 ] && { [ $# -ge 2 ] || [ "$c" = listapps ]; } && pick_device "$1"; then shift; export X86SIM_DEVICE; fi
