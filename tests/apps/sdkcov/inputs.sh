@@ -2,12 +2,13 @@
 # x86Sim sdkcov: the host-driven input checks (checks/Inputs.swift) on a running device: each check runs alone (run.sh
 # --only) with SDKCOV_INPUT_WAIT set, while this script sends its input every few seconds through the x86sim CLI
 # (host/simhid), as Apple's simulator would (DeviceHub's Shake / Rotate / Face ID menus, a game controller).
-# Usage: tests/apps/sdkcov/inputs.sh <device> [--no-build] [shake|orientation|biometric|gamepad ...]   (default: all
-# the device's platform has)
+# Usage: tests/apps/sdkcov/inputs.sh <device> [--no-build] [shake|orientation|biometric|gamepad|memwarn|pointer|keyboard|drag
+# ...]   (default: all the device's platform has; pointer / keyboard / drag: iPad, checks/More_iPadOS.swift)
 # On Apple's simulator the same inputs are: notifyutil -p com.apple.UIKit.SimulatorShake (simctl spawn), devicectl
 # device orientation set, notifyutil -s com.apple.BiometricKit.enrollmentChanged 1 + devicectl device simulate
 # biometrics --success, an Indigo game controller message (SimulatorKit IndigoHIDMessageForGameControllerEvent) and
-# SimDevice simulateMemoryWarning.
+# SimDevice simulateMemoryWarning; on an iPad, Indigo keyboard (IndigoHIDMessageForKeyboardArbitrary) and touch
+# (IndigoHIDMessageForMouseNSEvent, target 0x32) messages; the pointer needs Simulator's pointer capture.
 set -u
 X86SIM_ROOT=${X86SIM_ROOT:-$(cd "$(dirname "$0")/../../.." && pwd)}
 . "$X86SIM_ROOT/cli/lib/config.sh"
@@ -20,7 +21,8 @@ build=; want=
 for a in "$@"; do case $a in --no-build) build=--no-build ;; *) want="$want $a" ;; esac; done
 rt=$(cat "$X86SIM_DEVICE/runtime" 2>/dev/null); plat=${rt%%-*}
 case $plat in
-	ios) all="shake orientation biometric gamepad memwarn" ;; xros) all="shake biometric gamepad memwarn" ;; tvos) all="gamepad memwarn" ;;
+	ios) all="shake orientation biometric gamepad memwarn"
+		case $(cat "$X86SIM_DEVICE/model" 2>/dev/null) in iPad*) all="$all pointer keyboard drag" ;; esac ;; xros) all="shake biometric gamepad memwarn" ;; tvos) all="gamepad memwarn" ;;
 	*) echo "inputs: no input checks for $plat" >&2; exit 0 ;;
 esac
 xs() { "$X86SIM_ROOT/cli/x86sim" "$@"; }
@@ -33,6 +35,14 @@ for k in ${want:-$all}; do
 		biometric) id=func:LocalAuthentication.input-biometric; send() { xs biometric enroll; xs biometric match; } ; undo() { xs biometric unenroll; } ;;
 		gamepad) id=func:GameController.input-gamepad; send() { xs gamepad press a; } ; undo() { :; } ;;
 		memwarn) id=func:UIKit.input-memory-warning; send() { xs memwarn; } ; undo() { :; } ;;
+		# iPad: the pointer-capture mouse over the check's full-window view; ⌘K on the hardware keyboard (attached at
+		# the first key); a long press on the drag source (0.25, 0.5 of the screen) moved onto the drop target (0.75, 0.5)
+		pointer) id=func:UIKit.ipad-pointer-hover; send() { xs pointer at 0.5 0.5; xs pointer move 30 20; xs pointer move -30 -20; } ; undo() { xs pointer remove; } ;;
+		keyboard) id=func:UIKit.ipad-key-commands; send() { xs raw "key down 227" "key down 14" "key up 14" "key up 227"; } ; undo() { :; } ;;
+		drag) id=func:UIKit.ipad-drag-drop; send() {
+			xs raw "touch down 0.25 0.5"; timeout 1.2 tail -f /dev/null
+			for i in 1 2 3 4 5 6 7 8 9 10; do xs raw "touch move 0.$((25 + i * 5)) 0.5"; done
+			timeout 0.5 tail -f /dev/null; xs raw "touch up 0.75 0.5"; } ; undo() { :; } ;;
 		*) echo "inputs: unknown check $k" >&2; exit 2 ;;
 	esac
 	OUT=$X86SIM_SCRATCH/apps/sdkcov-$plat-inputs-$k; rm -rf "$OUT"

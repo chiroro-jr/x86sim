@@ -2,40 +2,45 @@
 # x86Sim sdkcov: the reference run on Apple's own simulator, on the Mac ($X86SIM_MAC, over ssh). Same app, same
 # runtime build where the Mac has it: what fails there too is Apple's behavior, not an x86Sim bug.
 # A temporary simulator device (sdkcov-ref-<platform>) is created, used and deleted; other devices are not touched.
-# Usage: tests/apps/sdkcov/ref-mac.sh [ios|tvos|watchos|xros] [--no-build] [--only ID[,ID...]]   (default ios)
+# Usage: tests/apps/sdkcov/ref-mac.sh [ios|ipad|tvos|watchos|xros] [--no-build] [--only ID[,ID...]]   (default ios)
+#   ipad     the iOS app on an iPad (iPad Air 11-inch (M3), as x86Sim's cov-ipad) instead of an iPhone 17 Pro
 #   --only   one launch running just the checks whose id contains one of these (as run.sh --only); their results
 #            are printed (the app's stderr is OUT/sdkcov-1.err), no report
-# Env: RUNTIME (simctl runtime id, default the Mac's newest of the platform), SECS (default 900),
+# Env: RUNTIME (simctl runtime id, default the Mac's newest of the platform), DEVTYPE (simctl device type id, default
+#      per platform above), SECS (default 900),
 #      OUT (default $X86SIM_SCRATCH/apps/sdkcov-<platform>-ref-<time>). Then report.py's report.md is in OUT.
 set -u
 X86SIM_ROOT=${X86SIM_ROOT:-$(cd "$(dirname "$0")/../../.." && pwd)}
 . "$X86SIM_ROOT/cli/lib/config.sh"
 S=$X86SIM_ROOT/tests/apps/sdkcov
 plat=${1:-ios}; [ "${1:-}" ] && shift
+name=$plat   # the temp device's and OUT's name: ipad runs the ios app
 build=1 only=
 while [ $# -gt 0 ]; do case $1 in --no-build) build=0 ;; --only) only=$2; shift ;;
 	*) echo "ref-mac: unknown option $1" >&2; exit 2 ;; esac; shift; done
 MAC=${X86SIM_MAC:?set X86SIM_MAC (ssh host of a Mac with Xcode) in x86sim.env}
 case $plat in
 	ios) rtname=iOS; dtype=com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro ;;
+	ipad) plat=ios; rtname=iOS; dtype=com.apple.CoreSimulator.SimDeviceType.iPad-Air-11-inch-M3 ;;
 	tvos) rtname=tvOS; dtype=com.apple.CoreSimulator.SimDeviceType.Apple-TV-4K-3rd-generation-1080p ;;
 	watchos) rtname=watchOS; dtype=com.apple.CoreSimulator.SimDeviceType.Apple-Watch-Series-11-46mm ;;
 	xros) rtname=visionOS,xrOS;   # simctl's platform name, by Xcode version
 		dtype=com.apple.CoreSimulator.SimDeviceType.Apple-Vision-Pro-4K ;;
 	*) echo "ref-mac: unknown platform $plat" >&2; exit 2 ;;
 esac
-OUT=${OUT:-$X86SIM_SCRATCH/apps/sdkcov-$plat-ref-$(date +%Y%m%d-%H%M%S)}; mkdir -p "$OUT"
+dtype=${DEVTYPE:-$dtype}
+OUT=${OUT:-$X86SIM_SCRATCH/apps/sdkcov-$name-ref-$(date +%Y%m%d-%H%M%S)}; mkdir -p "$OUT"
 [ "$build" = 1 ] && { "$S/build.sh" "$plat" >/dev/null 2>&1 || { echo "ref-mac: build failed" >&2; exit 1; }; }
 APP=$X86SIM_SCRATCH/apps/sdkcov-$plat.app
 # the whole run happens on the Mac in one ssh session: the app goes over as a tar on stdin, the results come back
 # (the remote script is an argument: stdin carries the app)
 read -r -d '' REMOTE <<'MAC'
-plat=$1 rtname=$2 dtype=$3 rt=$4 secs=$5 only=$6
+plat=$1 rtname=$2 dtype=$3 rt=$4 secs=$5 only=$6 name=$7
 set -u
 W=$(mktemp -d /tmp/sdkcov-ref.XXXXXX); cd "$W"; tar xf - -C "$W"
 exec 3>&1 1>&2
 [ -n "$rt" ] || rt=$(xcrun simctl list runtimes -j | python3 -c "import json,sys; r=[x for x in json.load(sys.stdin)['runtimes'] if x['platform'] in '$rtname'.split(',') and x['isAvailable']]; print(sorted(r, key=lambda x: [int(p) for p in x['version'].split('.')])[-1]['identifier'])")
-dev=$(xcrun simctl create "sdkcov-ref-$plat" "$dtype" "$rt") || exit 1
+dev=$(xcrun simctl create "sdkcov-ref-$name" "$dtype" "$rt") || exit 1
 cleanup() { xcrun simctl shutdown "$dev" >/dev/null 2>&1; xcrun simctl delete "$dev" >/dev/null 2>&1; rm -rf "$W"; }
 trap cleanup EXIT
 echo "ref-mac: $rt on $dev"
@@ -78,7 +83,7 @@ xcrun simctl io "$dev" screenshot "$W/screen.png" >/dev/null 2>&1
 cd "$W" && tar cf - results.txt coverage.json screen.png sdkcov-*.err 2>/dev/null >&3
 MAC
 tar cf - -C "$(dirname "$APP")" "$(basename "$APP")" |
-	ssh -o BatchMode=yes "$MAC" "bash -c $(printf '%q' "$REMOTE") ref $plat $rtname $dtype '${RUNTIME:-}' ${SECS:-900} '$only'" > "$OUT/ref.tar"
+	ssh -o BatchMode=yes "$MAC" "bash -c $(printf '%q' "$REMOTE") ref $plat $rtname $dtype '${RUNTIME:-}' ${SECS:-900} '$only' $name" > "$OUT/ref.tar"
 (cd "$OUT" && tar xf ref.tar && rm ref.tar)
 if [ -n "$only" ]; then
 	tr -d '\r' < "$OUT/sdkcov-1.err" | grep "^X86TEST" | grep -v -e " only " -e " done " | cut -d' ' -f3-
