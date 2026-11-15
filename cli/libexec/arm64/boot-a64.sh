@@ -418,9 +418,11 @@ fi
 # A64_KEEP_WIDGETS=1 leaves IconState alone (full profile / wallpaper experiments).
 # Platforms 1: SpringBoard's (iOS) only
 if [ "${A64_KEEP_WIDGETS:-0}" != 1 ] && [ "$A64_PLATFORM" = ios ]; then
-	python3 - "$D/data/Library/SpringBoard" <<'PY'
+	python3 - "$D/data/Library/SpringBoard" "$(sed -n 's/^SIMULATOR_LEGACY_ASSET_SUFFIX=//p' "$D/sim.env")" \
+		"$X86SIM_RUNTIME/System/Library/CoreServices/SpringBoard.app" <<'PY'
 import os, sys, plistlib
 d = sys.argv[1]
+suffix, sbapp = sys.argv[2], sys.argv[3]
 os.makedirs(d, exist_ok=True)
 
 def strip(obj):
@@ -462,9 +464,23 @@ if not os.path.exists(seed):
 			["com.apple.Fitness", "com.apple.Bridge", "com.apple.reminders", "com.apple.DocumentsApp", "com.apple.Preview", utilities,
 			"com.apple.MobileAddressBook"]],
 		"ignored": ["com.apple.TVRemoteApp"], "listUniqueIdentifiers": [u(), u()], "today": [], "uniqueIdentifier": u()}
+	# iPad: SpringBoard's iPad default (DefaultIconState~ipad.plist: Files, Reminders, Maps, News, Settings on the first
+	# page, Messages / Safari / Calendar / Photos / Siri in the dock, as Apple's iPad simulator shows them), without its
+	# widgets ("today", and the "small" / "medium" / "large" slots of its first page). The iPhone layout above on an iPad
+	# put iPhone's first page and a two-app dock on the iPad's home screen.
+	ipad = os.path.join(sbapp, "DefaultIconState~ipad.plist")
+	if suffix == "ipad" and os.path.exists(ipad):
+		with open(ipad, "rb") as f:
+			dflt = plistlib.load(f)
+		# apps and folders only: widget slots are names ("small" ...) or custom elements (stacks, the Files suggestion)
+		lists = [[x for x in l if (isinstance(x, str) and x not in ("small", "medium", "large", "extraLarge"))
+			or (isinstance(x, dict) and x.get("listType") == "folder")] for l in dflt.get("iconLists", [])]
+		layout = {"buttonBar": dflt.get("buttonBar", []), "defaultDisplayName": "Folder", "displayName": "Folder",
+			"iconLists": [l for l in lists if l], "ignored": dflt.get("ignored", []), "today": [], "uniqueIdentifier": u()}
+		layout["listUniqueIdentifiers"] = [u() for _ in layout["iconLists"]]
 	with open(seed, "wb") as f:
 		plistlib.dump(layout, f)
-	print("  seeded a widget-free IconState.plist (fresh device)", flush=True)
+	print("  seeded a widget-free IconState.plist (fresh %s)" % (suffix or "device"), flush=True)
 
 for name in ("IconState.plist", "DesiredIconState.plist"):
 	path = os.path.join(d, name)
