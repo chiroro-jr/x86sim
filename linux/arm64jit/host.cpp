@@ -905,6 +905,17 @@ static void file_trim_once() {
         const u64 n = (q.e - q.s) >> 12;
         if (pread(q.pm, ent, n * 8, (off_t)(q.s >> 12) * 8) != (ssize_t)(n * 8)) { q.ok = false; return; }
         auto file = [&](u64 k) { return (ent[k] >> 63 & 1) && (ent[k] >> 61 & 1); };
+        // Idle 1: a whole 2 MB-aligned chunk with no page to keep (no private page, nothing swapped) goes in one
+        // madvise. The kernel frees a page table (CONFIG_PT_RECLAIM) only when one MADV_DONTNEED covers all of it, so
+        // the per-run zaps below left the page table of every chunk ever touched: 2.5-4.5 MB of page tables per
+        // process (a trivial daemon: 3.5 MB of page tables for 1 MB of present pages; ~150 MB on an idle iPhone),
+        // memory that no PSS shows. Chunks with nothing present go too (the kernel's own reclaim of clean file pages
+        // also leaves their tables).
+        if (n == 0x200 && !(q.s & 0x1fffff)) {
+            bool keep = false;
+            for (u64 i = 0; i < n && !keep; i++) keep = ((ent[i] >> 63 & 1) && !(ent[i] >> 61 & 1)) || (ent[i] >> 62 & 1);
+            if (!keep) { madvise((void *)q.s, 0x200000, MADV_DONTNEED); return; }
+        }
         for (u64 i = 0; i < n;) {
             if (!file(i)) { i++; continue; }
             u64 j = i;
@@ -952,8 +963,8 @@ static void file_trim_once() {
         }
         for (const V &m : w) {
             st.ok = true;
-            for (u64 s = m.a; s < m.b && st.ok; s += 0x200000) {
-                st.s = s; st.e = std::min(m.b, s + 0x200000);
+            for (u64 s = m.a; s < m.b && st.ok; s = st.e) {  // 2 MB-aligned chunks (a page table each)
+                st.s = s; st.e = std::min(m.b, (s | 0x1fffff) + 1);
                 if (m.kind == 4) { std::lock_guard t(g_text_patch_mu); step(&st); }
                 else step(&st);
             }
@@ -962,8 +973,8 @@ static void file_trim_once() {
     for (const V &m : v) {
         if (m.kind == 1) { madvise((void *)m.a, m.b - m.a, MADV_DONTNEED); continue; }
         st.ok = true;
-        for (u64 s = m.a; s < m.b && st.ok; s += 0x200000) {
-            st.s = s; st.e = std::min(m.b, s + 0x200000);
+        for (u64 s = m.a; s < m.b && st.ok; s = st.e) {
+            st.s = s; st.e = std::min(m.b, (s | 0x1fffff) + 1);
             if (m.kind == 0) { std::lock_guard g(g_text_patch_mu); step(&st); }
             else if (!with_shared_code_lock(step, &st)) break;
         }
