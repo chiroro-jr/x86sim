@@ -579,9 +579,12 @@ extension Registry {
         c.append(check("UIKit", "device-screen-openurl", timeout: 20) {
             try await onMain {
                 let d = UIDevice.current, s = UIScreen.main
-                try expect(d.systemName == "iOS" && d.userInterfaceIdiom == .phone, "\(d.systemName) idiom \(d.userInterfaceIdiom.rawValue)")
+                // iPhone 17 Pro (cov-iphone, ref-mac.sh ios) or iPad Air 11-inch (M3) (cov-ipad, ref-mac.sh ipad): an iPad says iPadOS
+                let pad = d.userInterfaceIdiom == .pad
+                try expect(pad ? d.systemName == "iPadOS" : (d.systemName == "iOS" && d.userInterfaceIdiom == .phone), "\(d.systemName) idiom \(d.userInterfaceIdiom.rawValue)")
                 try expect(d.systemVersion.hasPrefix("27."), "systemVersion \(d.systemVersion)")
-                try expect(s.scale == 3 && s.nativeBounds.width == 1206 && s.nativeBounds.height == 2622, "screen \(s.bounds) native \(s.nativeBounds) @\(s.scale)")
+                let (sc, nw, nh): (CGFloat, CGFloat, CGFloat) = pad ? (2, 1640, 2360) : (3, 1206, 2622)
+                try expect(s.scale == sc && s.nativeBounds.width == nw && s.nativeBounds.height == nh, "screen \(s.bounds) native \(s.nativeBounds) @\(s.scale)")
                 d.isBatteryMonitoringEnabled = true
                 let batt = "\(d.batteryState.rawValue) \(d.batteryLevel)"
                 d.isBatteryMonitoringEnabled = false
@@ -1051,7 +1054,8 @@ extension Registry {
             func s(_ k: String) -> String { copy(k as CFString).map { "\($0.takeRetainedValue())" } ?? "nil" }
             let ver = s("ProductVersion"), cls = s("DeviceClass"), name = s("ProductName"), build = s("BuildVersion")
             try expect(ver == UIDevice.current.systemVersion, "ProductVersion \(ver) vs UIDevice \(UIDevice.current.systemVersion)")
-            try expect(cls == "iPhone" && name == "iPhone OS", "DeviceClass \(cls), ProductName \(name)")
+            // an iPad's DeviceClass is iPad; ProductName stays "iPhone OS" on Apple's iPad simulator too
+            try expect(cls == (UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone") && name == "iPhone OS", "DeviceClass \(cls), ProductName \(name)")
             try expect(build == ProcessInfo.processInfo.operatingSystemVersionString.components(separatedBy: "Build ").last?.dropLast().description, "BuildVersion \(build)")
             return "ProductType \(s("ProductType")), \(cls) \(name) \(ver) (\(build)), HWModel \(s("HWModelStr")), DeviceName \(s("DeviceName"))"
         })
