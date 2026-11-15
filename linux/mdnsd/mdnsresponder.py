@@ -16,9 +16,12 @@ error code there. Replies: header (op = request op's reply op, client_context of
 index, error, then the operation's fields.
 
 Answered: GetAddrInfo, QueryRecord (any type, via dnspython, so TTLs, CNAMEs and raw rdata are the server's),
-GetProperty (DaemonVersion), GetPID. Accepted without results (they must not fail): Register (the reply confirms
-the name), RegisterRecord/AddRecord/UpdateRecord/RemoveRecord, Browse, Resolve (no multicast DNS here),
-EnumerateDomains ("local."), Reconfirm, SetDomain, NAT port mapping (reports unsupported), delegate connections.
+GetProperty (DaemonVersion), GetPID. Bonjour on the device itself (no multicast DNS on the host network): services
+registered through this daemon are found by Browse, answered by Resolve and by QueryRecord SRV / TXT of their full
+names, and the registering host's "<hostname>.local." resolves to loopback, so an app (or two apps) on one device can
+advertise, browse and connect as with the Mac's daemon. Accepted without results (they must not fail):
+RegisterRecord/AddRecord/UpdateRecord/RemoveRecord, Reconfirm, SetDomain, NAT port mapping (reports unsupported),
+EnumerateDomains ("local."), delegate connections.
 
 Usage: mdnsresponder.py <socket path>   (cli/libexec/arm64/boot-a64.sh starts it; X86SIM_MDNS_LOG=1 logs every request)
 """
@@ -50,7 +53,7 @@ F_MORE, F_ADD, F_DEFAULT = 0x1, 0x2, 0x4
 F_RETURN_INTERMEDIATES, F_SHARE, F_TIMEOUT = 0x1000, 0x4000, 0x10000
 ERR_NONE, ERR_UNKNOWN, ERR_NOSUCHNAME, ERR_BADPARAM, ERR_NOSUCHRECORD = 0, -65537, -65538, -65540, -65554
 ERR_NATPM_UNSUPPORTED, ERR_TIMEOUT = -65564, -65568
-T_A, T_AAAA, T_CNAME = 1, 28, 5
+T_A, T_AAAA, T_CNAME, T_TXT, T_SRV = 1, 28, 5, 16, 33
 IF_LOCALONLY = 0xFFFFFFFF
 LOG = os.environ.get("X86SIM_MDNS_LOG") == "1"
 
@@ -99,6 +102,33 @@ class Reader:
 
 def s(v):
     return v.encode() + b"\0"
+
+
+def norm_type(regtype):
+    """"_x._tcp" / "_x._tcp." -> "_x._tcp." (lower case: DNS names compare case-insensitively)"""
+    t = regtype.split(",")[0].lower()   # subtypes ("_x._tcp,_sub") are ignored
+    return t if t.endswith(".") else t + "."
+
+
+def norm_domain(domain):
+    d = (domain or "local.").lower()
+    return d if d.endswith(".") else d + "."
+
+
+def escape_label(name):
+    """DNSServiceConstructFullName's escaping of a service instance name"""
+    return "".join("\\" + c if c in ".\\" else c for c in name)
+
+
+def wire_name(name):
+    out = b""
+    for label in name.rstrip(".").split("."):
+        out += bytes([len(label.encode())]) + label.encode()
+    return out + b"\0"
+
+
+def local_host():
+    return socket.gethostname().split(".")[0] + ".local."
 
 
 class Connection(threading.Thread):
@@ -156,6 +186,7 @@ class Connection(threading.Thread):
         except Exception as e:  # never let one client take the daemon down
             log("connection error:", repr(e))
         self.closed = True
+        self.server.forget(self, None)
         try:
             self.sock.close()
         except OSError:
@@ -202,6 +233,7 @@ class Connection(threading.Thread):
         elif op == CANCEL:
             log("cancel", ctx.hex())
             self.cancelled.add(ctx)
+            self.server.forget(self, ctx)
         elif op == ADDRINFO:
             flags, ifindex, proto = r.u32(), r.u32(), r.u32()
             host = r.string()
@@ -229,10 +261,15 @@ class Connection(threading.Thread):
         elif op == REG_SERVICE:
             flags, ifindex = r.u32(), r.u32()
             name, regtype, domain, host = r.string(), r.string(), r.string(), r.string()
-            log("register", repr(name), regtype, domain, host)
+            port = r.raw(2)                      # network byte order, as the client stub copies it
+            txt = r.raw(r.u16()) if r.p + 2 <= len(r.d) else b""
+            log("register", repr(name), regtype, domain, host, struct.unpack(">H", port)[0], len(txt))
             answer_error(ERR_NONE)
+            name = name or socket.gethostname().split(".")[0]
+            self.server.register(self, ctx, {"name": name, "type": norm_type(regtype), "domain": norm_domain(domain),
+                                            "host": (host if host.endswith(".") else host + ".") if host else local_host(),
+                                            "port": port, "txt": txt or b"\0", "ifindex": ifindex})
             if not (ipc_flags & IPC_FLAGS_NOREPLY):
-                name = name or socket.gethostname().split(".")[0]
                 # as mDNSResponder, which answers a registration only once its name is probed (3 probes, 250 ms
                 # apart): an immediate reply raced a client that registers and cancels at once (MCNearbyService-
                 # Advertiser start + stop): it arrived for a registration already torn down and libsystem_dnssd
@@ -254,11 +291,19 @@ class Connection(threading.Thread):
         elif op == BROWSE:
             flags, ifindex = r.u32(), r.u32()
             regtype, domain = r.string(), r.string()
-            log("browse", regtype, domain)   # no multicast DNS on this host: nothing will be found
+            log("browse", regtype, domain)   # services registered through this daemon (no multicast DNS here)
             answer_error(ERR_NONE)
+            self.server.browse(self, ctx, norm_type(regtype), norm_domain(domain))
         elif op == RESOLVE:
-            log("resolve (no mDNS: no answer)")
+            flags, ifindex = r.u32(), r.u32()
+            name, regtype, domain = r.string(), r.string(), r.string()
+            reg = self.server.find(name, norm_type(regtype), norm_domain(domain))
+            log("resolve", repr(name), regtype, domain, "->", "found" if reg else "unknown")
             answer_error(ERR_NONE)
+            if reg:
+                full = escape_label(reg["name"]) + "." + reg["type"] + reg["domain"]
+                self.reply(REPLY[RESOLVE], ctx, 0, ifindex or reg["ifindex"], ERR_NONE,
+                           s(full) + s(reg["host"]) + reg["port"] + struct.pack(">H", len(reg["txt"])) + reg["txt"])
         elif op == ENUMERATION:
             flags, ifindex = r.u32(), r.u32()
             answer_error(ERR_NONE)
@@ -297,6 +342,13 @@ class Connection(threading.Thread):
             want.append(T_AAAA)
         iface = ifindex or self.server.ifindex
         hostdot = host if host.endswith(".") else host + "."
+        if hostdot.lower() in self.server.local_hosts():   # a registered service's target: this device
+            for t in want:
+                rdata = socket.inet_pton(socket.AF_INET, "127.0.0.1") if t == T_A else socket.inet_pton(socket.AF_INET6, "::1")
+                self.reply(REPLY[ADDRINFO], ctx, F_ADD, iface, ERR_NONE,
+                           s(hostdot) + struct.pack(">HHH", t, 1, len(rdata)) + rdata + struct.pack(">I", 120))
+            log("  ->", host, "local service host: loopback")
+            return
         for t in want:
             recs = self.lookup(host, t)
             got = [x for x in (recs or []) if x[1] == t]
@@ -322,6 +374,15 @@ class Connection(threading.Thread):
 
     def do_query(self, ctx, flags, ifindex, name, rrtype, rrclass):
         iface = ifindex or self.server.ifindex
+        local = self.server.local_records(name, rrtype)
+        if local is not None:
+            for rdata in local:
+                self.reply(REPLY[QUERY], ctx, F_ADD, iface, ERR_NONE,
+                           s(name if name.endswith(".") else name + ".") + struct.pack(">HHH", rrtype, rrclass, len(rdata))
+                           + rdata + struct.pack(">I", 120))
+            log("  ->", name, rrtype, len(local), "local answers")
+            if local or not flags & (F_RETURN_INTERMEDIATES | F_TIMEOUT):
+                return
         try:
             rdtype = dns.rdatatype.RdataType.make(rrtype)
         except ValueError:
@@ -355,7 +416,92 @@ class Server:
         self.sock.bind(path)
         os.chmod(path, 0o666)
         self.sock.listen(100)
+        self._init_registry()
         log("listening on", path, "default interface", self.ifindex)
+
+    # ---- Bonjour on this device: registrations and browses of every client connection
+    def _init_registry(self):
+        if not hasattr(self, "rlock"):
+            self.rlock = threading.Lock()
+            self.regs = {}       # (conn, ctx) -> registration dict
+            self.browses = {}    # (conn, ctx) -> (type, domain)
+
+    def _notify(self, reg, add):
+        for (conn, ctx), (t, d) in list(self.browses.items()):
+            if t == reg["type"] and d == reg["domain"]:
+                conn.reply(REPLY[BROWSE], ctx, F_ADD if add else 0, reg["ifindex"] or self.ifindex, ERR_NONE,
+                           s(reg["name"]) + s(reg["type"]) + s(reg["domain"]))
+
+    def register(self, conn, ctx, reg):
+        self._init_registry()
+        with self.rlock:
+            self.regs[(conn, ctx)] = reg
+        # browsers hear of it once it would have been probed, as with the real daemon
+        t = threading.Timer(REG_PROBE_S, self._announce, (conn, ctx))
+        t.daemon = True
+        t.start()
+
+    def _announce(self, conn, ctx):
+        with self.rlock:
+            reg = self.regs.get((conn, ctx))
+            if reg:
+                reg["live"] = True
+                self._notify(reg, True)
+
+    def browse(self, conn, ctx, regtype, domain):
+        self._init_registry()
+        with self.rlock:
+            self.browses[(conn, ctx)] = (regtype, domain)
+            for reg in self.regs.values():
+                if reg.get("live") and reg["type"] == regtype and reg["domain"] == domain:
+                    conn.reply(REPLY[BROWSE], ctx, F_ADD, reg["ifindex"] or self.ifindex, ERR_NONE,
+                               s(reg["name"]) + s(reg["type"]) + s(reg["domain"]))
+
+    def forget(self, conn, ctx):
+        """a cancelled operation (ctx) or a closed connection (ctx None): its registrations go, browsers hear it"""
+        self._init_registry()
+        with self.rlock:
+            for k in [k for k in self.regs if k[0] is conn and (ctx is None or k[1] == ctx)]:
+                reg = self.regs.pop(k)
+                if reg.get("live"):
+                    self._notify(reg, False)
+            for k in [k for k in self.browses if k[0] is conn and (ctx is None or k[1] == ctx)]:
+                del self.browses[k]
+
+    def find(self, name, regtype, domain):
+        self._init_registry()
+        with self.rlock:
+            for reg in self.regs.values():
+                if reg["name"] == name and reg["type"] == regtype and reg["domain"] == domain:
+                    return reg
+        return None
+
+    def local_hosts(self):
+        self._init_registry()
+        with self.rlock:
+            return {reg["host"].lower() for reg in self.regs.values()}
+
+    def local_records(self, name, rrtype):
+        """rdata list for SRV / TXT of a registered service's full name, A / AAAA of a registering host; None if
+        the name is not ours"""
+        self._init_registry()
+        n = (name if name.endswith(".") else name + ".").lower()
+        with self.rlock:
+            for reg in self.regs.values():
+                full = (escape_label(reg["name"]) + "." + reg["type"] + reg["domain"]).lower()
+                if n == full:
+                    if rrtype == T_TXT:
+                        return [reg["txt"]]
+                    if rrtype == T_SRV:
+                        return [struct.pack(">HH", 0, 0) + reg["port"] + wire_name(reg["host"])]
+                    return []
+                if n == reg["host"].lower():
+                    if rrtype == T_A:
+                        return [socket.inet_pton(socket.AF_INET, "127.0.0.1")]
+                    if rrtype == T_AAAA:
+                        return [socket.inet_pton(socket.AF_INET6, "::1")]
+                    return []
+        return None
 
     def pool(self, fn, *args):
         threading.Thread(target=fn, args=args, daemon=True).start()
