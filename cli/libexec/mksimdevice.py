@@ -295,8 +295,11 @@ def main():
             # xpcproxy_sim prefixes program paths with the runtime root: climb exactly back out of it
             depth = runtime_climb_depth()
             program = "/.." * depth + darling(os.path.abspath(program))
+            # Idle 1: a job with MachServices (fpsim2host) starts at the first lookup, as Apple's on-demand jobs do
+            # (fpsim2host's NSXPCListener checks in; fileproviderd asks for it when Files opens): it ran at every
+            # idle home (~7 MB) where Apple's simulator runs nothing of the kind
             job_plist = {"Label": label, "ProgramArguments": [program] + args,
-                         "RunAtLoad": True, "StandardOutPath": log, "StandardErrorPath": log,
+                         "RunAtLoad": not mach, "StandardOutPath": log, "StandardErrorPath": log,
                          # X86SIM_KEEPALIVE=1: respawn every 10 s (to attach debuggers)
                          "KeepAlive": os.environ.get("X86SIM_KEEPALIVE") == "1", "ThrottleInterval": 10}
             if mach:
