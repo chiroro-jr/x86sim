@@ -79,6 +79,14 @@ extern IOHIDEventRef IOHIDEventCreateVendorDefinedEvent(CFAllocatorRef, uint64_t
 	const uint8_t* data, CFIndex length, IOOptionBits options);
 extern IOHIDEventRef IOHIDEventCreateButtonEvent(CFAllocatorRef, uint64_t ts, uint32_t buttonMask, IOHIDFloat pressure, IOOptionBits options);
 extern CFDataRef IOCFSerialize(CFTypeRef object, CFOptionFlags options);
+// Inputs 2: Apple's SimulatorHID turns the host's game controller state (IndigoHIDMessageForGameControllerEvent: 16 doubles
+// 0..1 / -1..1) into this, IOFixed (16.16) values in this order, controller type 1 (extended gamepad)
+extern IOHIDEventRef IOHIDEventCreateGameControllerEvent(CFAllocatorRef, uint64_t ts, uint32_t type, int32_t up, int32_t down,
+	int32_t left, int32_t right, int32_t x, int32_t y, int32_t a, int32_t b, int32_t lx, int32_t ly, int32_t rx, int32_t ry,
+	int32_t l1, int32_t l2, int32_t r1, int32_t r2, IOOptionBits options);
+#include <notify.h>
+#include <dlfcn.h>
+#include <math.h>
 
 #define kDigitizerTransducerHand 3
 #define kDigitizerRange 0x1
@@ -153,6 +161,13 @@ static VService gamepad_svc;
 // on visionOS. Commands: pointer move <dx> <dy> | pointer button down|up | pointer click
 static VService pointer_svc;
 static uint32_t pointer_buttons;
+// Inputs 2: the rest of Apple's virtual services (read with a probe of IOHIDEventSystemClientCopyServices in Xcode 27's
+// simulators, 2026-11-15; SimHIDVirtualServiceManager): the Apple TV's Siri Remote (buttons, touch surface, motion: Apple's
+// Bluetooth vendor 76, product 614, one PhysicalDeviceUniqueID; button presses are "source:externalAccessory" to
+// backboardd), the proximity sensor (iPhone, Vision Pro; never driven), the Vision Pro's Digital Crown (a Dial).
+static VService remote_digitizer_svc, remote_motion_svc, proximity_svc, dial_svc;
+static int platform;   // 0 iOS / iPadOS, 1 tvOS, 2 watchOS, 3 visionOS (SIMULATOR_MODEL_IDENTIFIER)
+enum { P_IOS, P_TV, P_WATCH, P_XR };
 // Platforms 2: visionOS's natural input as Xcode's simulator sends it (VisionDeviceKitExtension
 // IndigoHIDMessageForPalomaCollection -> SimulatorHID __IOHIDEventFromIndigoHIDData): a vendor-defined "collection"
 // (page 0xff00, usage 0x6f, version 0xd) with a child per hand (usage 0x70; payload {pinching, chirality 2 left /
@@ -251,6 +266,7 @@ static void paloma_send_hand(const float o[3], const float d[3], int pinch, floa
 }
 extern IOHIDEventRef IOHIDEventCreateRelativePointerEvent(CFAllocatorRef, uint64_t ts, IOHIDFloat x, IOHIDFloat y, IOHIDFloat z,
 	uint32_t buttonMask, uint32_t oldButtonMask, IOOptionBits options);
+
 static double hinge_deg, hinge_vel;
 static uint16_t hinge_phase = 2;
 // Models 2: CoreMotion's device state (the magic pose SpringBoard's SBFDevicePoseProvider combines with the angle:
@@ -344,11 +360,21 @@ static CFTypeRef v_copyProperty(void* t, void* r, CFStringRef key) {
 	CFTypeRef v = CFDictionaryGetValue(s->props, key);
 	return v ? CFRetain(v) : NULL;
 }
+static VService trackpad_svc;
 static Boolean v_setProperty(void* t, void* r, CFStringRef key, CFTypeRef value) {
 	// keyboard: logged (timestamped) to find when the hardware-keyboard session is up, see the settle in handle_line
 	if (t == &keyboard_svc && g_logf && key) {
 		char k[96] = ""; CFStringGetCString(key, k, sizeof k, kCFStringEncodingUTF8);
 		slog("v_setProperty keyboard %s", k);
+	}
+	// Inputs 2: an iPad's mouse / trackpad keeps what backboardd sets (pointer acceleration, tracking speed ...) and
+	// answers it back, as Apple's SimHIDVirtualServicePropertyProvider does for every service
+	VService* s = t;
+	if (s && key && value && (s == &pointer_svc || s == &trackpad_svc) && s->props) {
+		CFMutableDictionaryRef m = CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, s->props);
+		CFDictionarySetValue(m, key, value);
+		s->props = m;   // (the old one is not released: copyProperty may be reading it on another thread)
+		slog("v_setProperty %s %s = %s", s->name, [(__bridge NSString*)key UTF8String], [[(id)value description] UTF8String]);
 	}
 	return true;
 }
@@ -546,8 +572,244 @@ static void note_input(void) {
 	if (fd >= 0) { (void)!write(fd, "1\n", 2); close(fd); }
 }
 
+// --- Inputs 2: what Apple's simulator offers beyond touches and the basic buttons
+// Device orientation, as Xcode's in-device helper dthidd sets it for DeviceHub's Rotate Left / Right and devicectl device
+// orientation (BackBoardServices' automation call, UIDeviceOrientation values). We call it from backboardd itself. The
+// result also goes to <SIMULATOR_SHARED_RESOURCES_DIRECTORY>/orientation (its name) for the launcher and the CLI.
+static const char* const orient_names[7] = { "unknown", "portrait", "portraitUpsideDown", "landscapeLeft", "landscapeRight",
+	"faceUp", "faceDown" };
+static void (*bks_set_orientation)(int);
+static int (*bk_get_orientation)(void), (*bk_get_nonflat_orientation)(void);
+static bool load_bks(void) {
+	if (bks_set_orientation) return true;
+	void* h = dlopen("/System/Library/PrivateFrameworks/BackBoardServices.framework/BackBoardServices", RTLD_NOW);
+	bks_set_orientation = h ? dlsym(h, "BKSHIDServicesSetDeviceOrientationForAutomation") : NULL;
+	bk_get_orientation = h ? dlsym(h, "BKHIDServicesGetCurrentDeviceOrientation") : NULL;
+	bk_get_nonflat_orientation = h ? dlsym(h, "BKHIDServicesGetNonFlatDeviceOrientation") : NULL;
+	return bks_set_orientation && bk_get_orientation;
+}
+static void write_shared_file(const char* name, const char* text) {
+	const char* d = getenv("SIMULATOR_SHARED_RESOURCES_DIRECTORY");
+	if (!d) return;
+	char p[1100], t[1110];
+	snprintf(p, sizeof p, "%s/%s", d, name);
+	snprintf(t, sizeof t, "%s.tmp", p);
+	FILE* f = fopen(t, "w");
+	if (!f) return;
+	fprintf(f, "%s\n", text);
+	fclose(f);
+	rename(t, p);
+}
+static void note_orientation(void) {
+	int o = bk_get_orientation ? bk_get_orientation() : 0;
+	write_shared_file("orientation", orient_names[o >= 0 && o < 7 ? o : 0]);
+	slog("orientation now %d (%s)", o, orient_names[o >= 0 && o < 7 ? o : 0]);
+}
+// orientation <name|1..6> | rotate left|right   (iPhone, iPad: devicectl says "Device Orientation is not supported" for
+// Apple's Vision Pro, Apple TV and Apple Watch simulators). Rotate left turns the device counterclockwise: portrait ->
+// landscapeLeft -> portraitUpsideDown -> landscapeRight (devicectl device orientation rotate left).
+static void set_orientation(const char* arg, int rotate) {
+	if (platform != P_IOS) { slog("no orientation on this device"); return; }
+	if (!load_bks()) { slog("orientation: BackBoardServices calls not found"); return; }
+	int o = -1;
+	if (rotate) {
+		static const int left_of[7] = { 3, 3, 4, 2, 1, 3, 3 }, right_of[7] = { 4, 4, 3, 1, 2, 4, 4 };
+		int cur = bk_get_nonflat_orientation ? bk_get_nonflat_orientation() : bk_get_orientation();
+		if (cur < 0 || cur > 6) cur = 1;
+		o = rotate < 0 ? left_of[cur] : right_of[cur];
+	} else if (arg && *arg) {
+		for (int i = 1; i < 7; i++) if (!strcasecmp(arg, orient_names[i])) o = i;
+		if (o < 0 && arg[0] >= '1' && arg[0] <= '6' && !arg[1]) o = arg[0] - '0';
+		if (o < 0) { slog("unknown orientation %s", arg); return; }
+	}
+	if (o > 0) { bks_set_orientation(o); slog("orientation -> %d (%s)", o, orient_names[o]); usleep(50000); }
+	note_orientation();
+}
+
+// Biometrics as SimulatorCoreDevicePlugin does them for DeviceHub's Face ID / Touch ID / Optic ID menus and devicectl device
+// simulate biometrics: enrollment is the state of the darwin notification com.apple.BiometricKit.enrollmentChanged
+// (1 enrolled), a finger / face / eyes presented is com.apple.BiometricKit_Sim.<fingerTouch|pearl|oyster>.<match|nomatch>.
+static void biometric(const char* what, const char* kind) {
+	if (!strcmp(what, "enroll") || !strcmp(what, "unenroll")) {
+		int tok;
+		if (notify_register_check("com.apple.BiometricKit.enrollmentChanged", &tok) == NOTIFY_STATUS_OK) {
+			notify_set_state(tok, !strcmp(what, "enroll"));
+			notify_cancel(tok);
+		}
+		notify_post("com.apple.BiometricKit.enrollmentChanged");
+		slog("biometric %s", what);
+		return;
+	}
+	bool match = !strcmp(what, "match");
+	if (!match && strcmp(what, "nomatch")) { slog("biometric: enroll|unenroll|match|nomatch, not %s", what); return; }
+	// the kind the device has: an explicit face|touch|optic, else every kind this platform's BiometricKit knows (it only
+	// listens for its own)
+	const char* kinds[3] = { NULL, NULL, NULL };
+	if (kind && !strcmp(kind, "face")) kinds[0] = "pearl";
+	else if (kind && !strcmp(kind, "touch")) kinds[0] = "fingerTouch";
+	else if (kind && !strcmp(kind, "optic")) kinds[0] = "oyster";
+	else if (platform == P_XR) kinds[0] = "oyster";
+	else { kinds[0] = "pearl"; kinds[1] = "fingerTouch"; }
+	for (int i = 0; i < 3 && kinds[i]; i++) {
+		char n[96];
+		snprintf(n, sizeof n, "com.apple.BiometricKit_Sim.%s.%s", kinds[i], match ? "match" : "nomatch");
+		notify_post(n);
+		slog("biometric: posted %s", n);
+	}
+}
+
+// The simulated game controller (gamepad_svc): Indigo's order, as DeviceKit fills IndigoHIDMessageForGameControllerEvent
+// from a GCExtendedGamepad: up down left right A B X Y L1 R1 L2 R2 LX LY RX RY (buttons 0..1, sticks -1..1, y up)
+static double pad[16];
+static const char* const pad_names[12] = { "up", "down", "left", "right", "a", "b", "x", "y", "l1", "r1", "l2", "r2" };
+static void gamepad_send(void) {
+	int32_t f[16];
+	for (int i = 0; i < 16; i++) f[i] = (int32_t)(pad[i] * 65536.0);
+	dispatch_event(&gamepad_svc, IOHIDEventCreateGameControllerEvent(kCFAllocatorDefault, mach_absolute_time(), 1,
+		f[0], f[1], f[2], f[3], f[6], f[7], f[4], f[5], f[12], f[13], f[14], f[15], f[8], f[10], f[9], f[11], 0));
+}
+// gamepad <button> down|up | gamepad press <button> | gamepad stick left|right <x> <y> | gamepad state <16 values>
+static void gamepad_line(const char* line) {
+	if (!gamepad_svc.service) { slog("no game controller on this device"); return; }
+	char a[16] = "", b[16] = "";
+	double x, y;
+	if (sscanf(line, "gamepad stick %15s %lf %lf", a, &x, &y) == 3) {
+		int i = !strcmp(a, "right") ? 14 : 12;
+		pad[i] = x; pad[i + 1] = y;
+	} else if (!strncmp(line, "gamepad state", 13)) {
+		const char* p = line + 13;
+		for (int i = 0; i < 16; i++) {
+			int used = 0;
+			if (sscanf(p, " %lf%n", &pad[i], &used) != 1) break;
+			p += used;
+		}
+	} else if (sscanf(line, "gamepad %15s %15s", a, b) == 2) {
+		bool press = !strcmp(a, "press");
+		const char* name = press ? b : a;
+		int i = -1;
+		for (int k = 0; k < 12; k++) if (!strcasecmp(name, pad_names[k])) i = k;
+		if (i < 0) { slog("unknown gamepad button %s", name); return; }
+		if (press) {
+			pad[i] = 1; gamepad_send();
+			pthread_mutex_unlock(&cmd_mu); usleep(100000); pthread_mutex_lock(&cmd_mu);
+			pad[i] = 0;
+		} else pad[i] = !strcmp(b, "down") ? 1 : 0;
+	} else { slog("bad gamepad command: %s", line); return; }
+	gamepad_send();
+	note_input();
+	slog("gamepad %s", line + 8);
+}
+
+// The buttons Apple's simulator presses (backboardd's names in brackets, read from its log with Indigo button messages
+// sent to Xcode 27's simulators): page << 16 | usage, per platform where they differ
+static uint32_t button_usage(const char* n) {
+	struct { const char* name; uint32_t ios, tv, watch, xr; } t[] = {
+		{ "home", 0xc0040, 0xc0040, 0xc0040, 0xc0040 },        // [Home] Home button; watch: crown press; Vision Pro: crown press
+		{ "lock", 0xc0030, 0xc0030, 0xc0030, 0xc0030 },        // [Lock] side / sleep button; tvOS [Power]
+		{ "power", 0xc0030, 0xc0030, 0xc0030, 0xc0030 },
+		// the Watch's side button is its own usage (CoreDevice ConsumerPage.watchSideButton, Carousel's "pill");
+		// an iPhone's side button is Lock
+		{ "side", 0xc0030, 0xc0030, 0xc0095, 0xc0030 },
+		{ "volup", 0xc00e9, 0xc00e9, 0xc00e9, 0xc00e9 },
+		{ "voldown", 0xc00ea, 0xc00ea, 0xc00ea, 0xc00ea },
+		{ "siri", 0xc00cf, 0xc0004, 0xc00cf, 0xc00cf },        // [VoiceCommand]; the Siri Remote's is [Microphone]
+		{ "action", 0xb002d, 0, 0xff010200, 0xb002d },         // [Action]: iPhone 15 Pro+ (Telephony), Watch Ultra (Apple vendor)
+		{ "wallet", 0xc01ba, 0, 0xc01ba, 0xc01ba },            // [DigitalWallet] (Apple Pay double click)
+		{ "playpause", 0xc00cd, 0xc00cd, 0xc00cd, 0xc00cd },   // [PlayOrPause]
+		{ "tv", 0xc0060, 0xc0060, 0xc0060, 0xc0060 },          // [TV] the Siri Remote's TV / Control Center button
+		{ "select", 0xc0080, 0xc0080, 0xc0080, 0xc0080 },      // [Select] the Siri Remote's click
+		{ "mute", 0xc00e2, 0xc00e2, 0xc00e2, 0xc00e2 },
+		{ "back", 0xc0224, 0xc0224, 0xc0224, 0xc0224 },        // [ACBack]
+		// the Siri Remote's Back is GenericDesktop 0x86 [Menu] in Apple's simulator (one level back, as Menu Escape 0x46,
+		// which this was until Inputs 2); elsewhere Menu Escape
+		{ "menu", 0xc0046, 0x10086, 0xc0046, 0xc0046 },
+	};
+	for (size_t i = 0; i < sizeof t / sizeof t[0]; i++)
+		if (!strcmp(n, t[i].name))
+			return platform == P_TV ? t[i].tv : platform == P_WATCH ? t[i].watch : platform == P_XR ? t[i].xr : t[i].ios;
+	return 0;
+}
+
+// Apple Watch hand gestures, as Apple's watchOS SimulatorHID does with an Indigo watch gesture message: WatchGestures'
+// -[WAGSimulatorServerInterface handleGestureType:] (backboardd then delivers a GenericGesture event to the focused
+// app / Carousel). Types seen in Apple's watchOS 27.2 simulator: 0 opens the Smart Stack from the watch face (double
+// tap), 1 closes it again (wrist flick); 2 and 3 did nothing visible.
+static void watch_gesture(int type) {
+	static id wag;
+	if (!wag) {
+		dlopen("/System/Library/PrivateFrameworks/WatchGestures.framework/WatchGestures", RTLD_NOW);
+		Class c = objc_getClass("WAGSimulatorServerInterface");
+		wag = c ? [[c alloc] init] : nil;
+	}
+	if (!wag) { slog("gesture: no WAGSimulatorServerInterface"); return; }
+	((void (*)(id, SEL, long))objc_msgSend)(wag, sel_registerName("handleGestureType:"), type);
+	slog("gesture %d", type);
+}
+
+static bool handle_inputs2(char* line) {
+	char a[32] = "", b[32] = "";
+	if (!strcmp(line, "appswitcher")) {
+		// DeviceHub's App Switcher: the home button pressed twice in quick succession (SpringBoard counts the presses
+		// itself for a sender without press counting: "SpringBoard is providing emulation"), also on Face ID models
+		uint32_t u = button_usage("home");
+		for (int i = 0; i < 2; i++) {
+			send_key(&buttons_svc, u >> 16, u & 0xffff, true);
+			pthread_mutex_unlock(&cmd_mu); usleep(60000); pthread_mutex_lock(&cmd_mu);
+			send_key(&buttons_svc, u >> 16, u & 0xffff, false);
+			if (!i) { pthread_mutex_unlock(&cmd_mu); usleep(80000); pthread_mutex_lock(&cmd_mu); }
+		}
+		note_input();
+		slog("appswitcher");
+		return true;
+	}
+	if (sscanf(line, "standby %31s", a) == 1) {
+		// iPhone StandBy, as SimulatorCoreDevicePlugin's StandBy show / hide: the state of the darwin notification
+		// com.apple.springboard.ambient.presentation (1 showing) + a post; SpringBoard presents it when the phone is
+		// locked and in landscape (Apple's simulator too)
+		if (platform != P_IOS) { slog("no StandBy on this device"); return true; }
+		int tok;
+		if (notify_register_check("com.apple.springboard.ambient.presentation", &tok) == NOTIFY_STATUS_OK) {
+			notify_set_state(tok, !strcmp(a, "show"));
+			notify_cancel(tok);
+		}
+		notify_post("com.apple.springboard.ambient.presentation");
+		slog("standby %s", a);
+		return true;
+	}
+	if (sscanf(line, "gesture %31s", a) == 1) {
+		if (platform != P_WATCH) { slog("no hand gestures on this device"); return true; }
+		watch_gesture(!strcmp(a, "doubletap") ? 0 : !strcmp(a, "wristflick") ? 1 : atoi(a));
+		note_input();
+		return true;
+	}
+	if (!strcmp(line, "shake")) {
+		// as DeviceHub's Shake (SimFeatureUIKitShakeDarwinNotification): UIKit turns it into a motion event for the key window
+		notify_post("com.apple.UIKit.SimulatorShake");
+		note_input();
+		slog("shake");
+		return true;
+	}
+	if (sscanf(line, "rotate %31s", a) == 1) {
+		set_orientation(NULL, !strcmp(a, "left") ? -1 : 1);
+		note_input();
+		return true;
+	}
+	if (!strncmp(line, "orientation", 11) && (line[11] == 0 || line[11] == ' ')) {
+		sscanf(line + 11, " %31s", a);
+		set_orientation(a, 0);
+		return true;
+	}
+	if (sscanf(line, "biometric %31s %31s", a, b) >= 1) {
+		biometric(a, *b ? b : NULL);
+		return true;
+	}
+	if (!strncmp(line, "gamepad ", 8)) { gamepad_line(line); return true; }
+	return false;
+}
+
 static void handle_line(char* line, Client* cl) {
 	unsigned scr;
+	if (handle_inputs2(line)) return;
 	int skip = 0;
 	if (line[0] == '@' && sscanf(line, "@%u %n", &scr, &skip) == 1 && skip > 0) {   // Models 2: another display's touch
 		if (scr != 1 && (!inner_touch_svc.service || scr != inner_display_id)) { slog("no touchscreen for display %u", scr); return; }
@@ -708,10 +970,80 @@ static void handle_line(char* line, Client* cl) {
 		note_input();
 		return;
 	}
+	if (!strcmp(line, "trackpad on") || !strcmp(line, "trackpad off")) {
+		// Inputs 2: an iPad's trackpad, as Apple's "Simulate Trackpad" adds it (IndigoHIDMessageToCreatePointerService,
+		// target 0x35; read with a probe after that message): Digitizer Touch Pad with the Apple vendor and mouse usages,
+		// not built in. iPadOS then shows Settings > General > Trackpad. Not driven: Apple's simulator gets trackpad
+		// gestures from the Mac's own trackpad events, and none of the ones built here (scroll / scale / rotation /
+		// dock-swipe events, alone or as children of finger frames; the same through Apple's Indigo trackpad message)
+		// moved anything in Apple's iPad simulator or here. Pinch / two-finger pan / edge swipes are touch gestures.
+		const char* model = getenv("SIMULATOR_MODEL_IDENTIFIER");
+		const bool on = !strcmp(line, "trackpad on");
+		if (on && !trackpad_svc.service && platform == P_IOS && model && !strncmp(model, "iPad", 4) && hid_system) {
+			trackpad_svc = (VService){ "trackpad", 0x7863000000000010ull, (CFDictionaryRef)[@{
+				@"DeviceUsagePairs": @[ @{ @"DeviceUsagePage": @13, @"DeviceUsage": @12 }, @{ @"DeviceUsagePage": @0xff00, @"DeviceUsage": @1 },
+					@{ @"DeviceUsagePage": @0xff00, @"DeviceUsage": @12 }, @{ @"DeviceUsagePage": @1, @"DeviceUsage": @1 },
+					@{ @"DeviceUsagePage": @1, @"DeviceUsage": @2 }, @{ @"DeviceUsagePage": @13, @"DeviceUsage": @5 } ],
+				@"PrimaryUsagePage": @13, @"PrimaryUsage": @12, @"Built-In": @NO } retain] };
+			add_service(hid_system, &trackpad_svc);
+		} else if (!on && trackpad_svc.service && hid_system) {
+			_IOHIDEventSystemRemoveService(hid_system, trackpad_svc.service);
+			_IOHIDServiceTerminate(trackpad_svc.service);
+			CFRelease(trackpad_svc.service);
+			trackpad_svc.service = NULL;
+			slog("trackpad removed");
+		} else if (on && !trackpad_svc.service) slog("no trackpad on this device");
+		return;
+	}
 	if (!strncmp(line, "pointer ", 8)) {
+		// Inputs 2: an iPad's mouse, as Apple's simulator adds it when the host captures its pointer
+		// (IndigoHIDMessageToCreateMouseService, target 0x36: GenericDesktop Mouse with the Pointer usage too, not built in;
+		// read with a probe after that message). Added at the first pointer command;
+		// iPadOS then draws its pointer. "pointer remove" takes it away again (IndigoHIDMessageToRemovePointerService).
+		const char* model = getenv("SIMULATOR_MODEL_IDENTIFIER");
+		if (!strcmp(line, "pointer remove")) {
+			if (platform == P_IOS && pointer_svc.service && hid_system) {
+				_IOHIDEventSystemRemoveService(hid_system, pointer_svc.service);
+				_IOHIDServiceTerminate(pointer_svc.service);
+				CFRelease(pointer_svc.service);
+				pointer_svc.service = NULL;
+				slog("mouse removed");
+			}
+			return;
+		}
+		if (!pointer_svc.service && platform == P_IOS && model && !strncmp(model, "iPad", 4) && hid_system) {
+			pointer_svc = (VService){ "mouse", 0x786300000000000full, (CFDictionaryRef)[@{
+				@"DeviceUsagePairs": @[ @{ @"DeviceUsagePage": @1, @"DeviceUsage": @1 }, @{ @"DeviceUsagePage": @1, @"DeviceUsage": @2 } ],
+				@"PrimaryUsagePage": @1, @"PrimaryUsage": @2, @"Built-In": @NO } retain] };
+			add_service(hid_system, &pointer_svc);
+		}
 		if (!pointer_svc.service) { slog("no pointer on this device: %s", line); return; }
 		double dx = 0, dy = 0;
 		uint32_t old = pointer_buttons;
+		if (sscanf(line, "pointer at %lf %lf", &dx, &dy) == 2) {
+			// Inputs 2: the pointer put at a point of the display (normalized 0..1, the panel's own orientation): the pointer
+			// event with kIOHIDEventOptionIsAbsolute (bit 0), which backboardd takes as a position, without the speed-up it
+			// gives relative moves (one +300 moved the iPad's pointer 450 points, 30 moves of 10 305). The launcher's pointer
+			// capture uses it so the pointer stays under the host's cursor.
+			dispatch_event(&pointer_svc, IOHIDEventCreateRelativePointerEvent(kCFAllocatorDefault, mach_absolute_time(), dx, dy, 0,
+				pointer_buttons, pointer_buttons, 1));
+			note_input();
+			return;
+		}
+		if (sscanf(line, "pointer scroll %lf %lf", &dx, &dy) == 2) {
+			// the wheel / two-finger scroll: Apple's SimulatorHID makes a scroll event with the host event's phase (and
+			// momentum); a UIKit scroll view follows only a phased one: Began, the deltas in a few Changed, Ended
+			static const uint16_t ph[5] = { 1, 2, 2, 2, 4 };
+			for (int i = 0; i < 5; i++) {
+				const double f = ph[i] == 2 ? 1.0 / 3 : 0;
+				IOHIDEventRef e = IOHIDEventCreateScrollEvent(kCFAllocatorDefault, mach_absolute_time(), dx * f, dy * f, 0, 0);
+				IOHIDEventSetPhase(e, ph[i]);
+				dispatch_event(&pointer_svc, e);
+				pthread_mutex_unlock(&cmd_mu); usleep(16000); pthread_mutex_lock(&cmd_mu);
+			}
+			note_input();
+			return;
+		}
 		if (sscanf(line, "pointer move %lf %lf", &dx, &dy) == 2) {
 		} else if (sscanf(line, "pointer button %15s", a) == 1) {
 			pointer_buttons = !strcmp(a, "down") ? 1 : 0;
@@ -732,10 +1064,12 @@ static void handle_line(char* line, Client* cl) {
 	double delta;
 	int nf = sscanf(line, "crown %lf %15s", &delta, a);
 	if (nf >= 1) {
-		if (!crown_svc.service) { slog("no digital crown on this device: %s", line); return; }
+		// Inputs 2: a Vision Pro's crown is the Dial service (IndigoHIDMessageForDigitalDialEvent: the same scroll event)
+		VService* cs = crown_svc.service ? &crown_svc : &dial_svc;
+		if (!cs->service) { slog("no digital crown on this device: %s", line); return; }
 		note_input();
 		const char axis = nf == 2 ? a[0] : 'y';
-		dispatch_event(&crown_svc, IOHIDEventCreateScrollEvent(kCFAllocatorDefault, mach_absolute_time(),
+		dispatch_event(cs, IOHIDEventCreateScrollEvent(kCFAllocatorDefault, mach_absolute_time(),
 			axis == 'x' ? delta : 0, axis == 'y' ? delta : 0, axis == 'z' ? delta : 0, 0));
 		slog("crown %.2f (%c)", delta, axis);
 		return;
@@ -752,13 +1086,11 @@ static void handle_line(char* line, Client* cl) {
 		// consumer page: 0x40 menu (home), 0x30 power (lock), 0xe9/0xea volume.
 		// Platforms 1: on tvOS "menu" is the Siri Remote's Back: 0x46 (Menu Escape) goes back one level, as the
 		// keyboard's Escape does; 0x40 (Menu) closed the app from any depth. 0x60 is its TV button (PineBoard's home;
-		// found by trying usages, see SIMHID.md), 0xcd play / pause. On a watch 0x40 is the crown's press and 0x30 the
-		// side button ("side").
-		uint32_t u = !strcmp(a, "menu") ? 0x46 : !strcmp(a, "home") ? 0x40 : !strcmp(a, "lock") || !strcmp(a, "side") ? 0x30
-			: !strcmp(a, "volup") ? 0xe9 : !strcmp(a, "voldown") ? 0xea : !strcmp(a, "tv") ? 0x60
-			: !strcmp(a, "playpause") ? 0xcd : 0;
-		if (u) send_key(&buttons_svc, 0x0c, u, down);
-		else slog("unknown button: %s", a);
+		// found by trying usages, see SIMHID.md), 0xcd play / pause. On a watch 0x40 is the crown's press.
+		// Inputs 2: the table is button_usage (Apple's usages per platform)
+		uint32_t u = button_usage(a);
+		if (u) { send_key(&buttons_svc, u >> 16, u & 0xffff, down); slog("button %s %s (0x%x/0x%x)", a, b, u >> 16, u & 0xffff); }
+		else slog("unknown button on this device: %s", a);
 		return;
 	}
 	if (*line) slog("unknown command: %s", line);
@@ -879,13 +1211,54 @@ static void* listen_thread(void* arg) {
 			@"SupportsInk": @NO,
 			@"displayUUID": @"x86Sim-main-display",
 		}) };
-	buttons_svc = (VService){ "buttons", 0x7863000000000002ull, make_props(@"x86Sim buttons", 0x0c, 0x01, nil) };
+	const char* model = getenv("SIMULATOR_MODEL_IDENTIFIER");
+	platform = !model ? P_IOS : !strncmp(model, "AppleTV", 7) ? P_TV : !strncmp(model, "Watch", 5) ? P_WATCH
+		: !strncmp(model, "RealityDevice", 13) ? P_XR : P_IOS;
+	// Inputs 2: the buttons service with the properties of Apple's per platform: "MainScreenButtonsService" (Telephony
+	// page, built in, authenticated; backboardd counts home presses for iPhone / Vision Pro), on an Apple TV the Siri
+	// Remote's buttons (no main-screen buttons there). Was: consumer page 1, Transport Virtual, vendor 0x5ac, everywhere.
+	NSDictionary* tel = @{ @"DeviceUsagePairs": @[ @{ @"DeviceUsagePage": @11, @"DeviceUsage": @1 } ],
+		@"PrimaryUsagePage": @11, @"PrimaryUsage": @1, @"Built-In": @YES, @"Authenticated": @YES };
+	NSDictionary* remote = @{ @"VendorID": @76, @"ProductID": @614, @"PhysicalDeviceUniqueID": @"DF45F209-BE9E-43D0-8B43-792D8E0A698B" };
+	NSMutableDictionary* bp = [NSMutableDictionary dictionaryWithDictionary:platform == P_TV ? remote : tel];
+	if (platform == P_TV)
+		[bp addEntriesFromDictionary:@{ @"DeviceUsagePairs": @[ @{ @"DeviceUsagePage": @12, @"DeviceUsage": @1 } ],
+			@"PrimaryUsagePage": @12, @"PrimaryUsage": @1 }];
+	else if (platform != P_WATCH) {
+		const bool xr = platform == P_XR;
+		[bp addEntriesFromDictionary:@{ @"PressCountTrackingEnabled": @(xr), @"PressCountUsagePairs": @[ @0xc0040 ],
+			@"PressCountDoublePressTimeout": @(xr ? 2000000 : 0), @"PressCountTriplePressTimeout": @(xr ? 2000000 : 0) }];
+	}
+	buttons_svc = (VService){ "buttons", 0x7863000000000002ull, (CFDictionaryRef)[bp retain] };
 	keyboard_svc = (VService){ "keyboard", 0x7863000000000003ull, make_props(@"x86Sim keyboard", 0x01, 0x06, nil) };
 	add_service(system, &touch_svc);
 	add_service(system, &buttons_svc);
 	{
-		const char* model = getenv("SIMULATOR_MODEL_IDENTIFIER");
-		if (model && !strncmp(model, "RealityDevice", 13)) {
+		if (platform == P_TV) {   // the Siri Remote's touch surface and motion, beside its buttons
+			NSMutableDictionary* d = [NSMutableDictionary dictionaryWithDictionary:remote];
+			[d addEntriesFromDictionary:@{ @"DeviceUsagePairs": @[ @{ @"DeviceUsagePage": @13, @"DeviceUsage": @5 },
+				@{ @"DeviceUsagePage": @13, @"DeviceUsage": @12 } ], @"PrimaryUsagePage": @13, @"PrimaryUsage": @5 }];
+			remote_digitizer_svc = (VService){ "remote-digitizer", 0x786300000000000bull, (CFDictionaryRef)[d retain] };
+			d = [NSMutableDictionary dictionaryWithDictionary:remote];
+			[d addEntriesFromDictionary:@{ @"DeviceUsagePairs": @[ @{ @"DeviceUsagePage": @0xff00, @"DeviceUsage": @0x10 } ],
+				@"PrimaryUsagePage": @0xff00, @"PrimaryUsage": @0x10 }];
+			remote_motion_svc = (VService){ "remote-motion", 0x786300000000000cull, (CFDictionaryRef)[d retain] };
+			add_service(system, &remote_digitizer_svc);
+			add_service(system, &remote_motion_svc);
+		}
+		if (platform == P_IOS || platform == P_XR) {
+			proximity_svc = (VService){ "proximity", 0x786300000000000dull, (CFDictionaryRef)[@{
+				@"DeviceUsagePairs": @[ @{ @"DeviceUsagePage": @0xff00, @"DeviceUsage": @8 } ],
+				@"PrimaryUsagePage": @0xff00, @"PrimaryUsage": @8, @"Built-In": @YES } retain] };
+			add_service(system, &proximity_svc);
+		}
+		if (platform == P_XR) {
+			dial_svc = (VService){ "dial", 0x786300000000000eull, (CFDictionaryRef)[@{
+				@"DeviceUsagePairs": @[ @{ @"DeviceUsagePage": @1, @"DeviceUsage": @0x37 } ],
+				@"PrimaryUsagePage": @1, @"PrimaryUsage": @0x37, @"Built-In": @YES } retain] };
+			add_service(system, &dial_svc);
+		}
+		if (platform == P_XR) {
 			pointer_svc = (VService){ "pointer", 0x7863000000000007ull,
 				make_props(@"x86Sim pointer", 0x01, 0x02, @{ @"Transport": @"Virtual-AssistiveTouch", @"Built-In": @NO }) };
 			add_service(system, &pointer_svc);
@@ -893,14 +1266,15 @@ static void* listen_thread(void* arg) {
 			add_service(system, &paloma_svc);
 			_dyld_register_func_for_add_image(hmd_hook);
 		}
-		if (model && !strncmp(model, "AppleTV", 7)) {
+		// Inputs 2: Apple's iOS and visionOS SimulatorHID add the same game controller (not watchOS)
+		if (platform != P_WATCH) {
 			gamepad_svc = (VService){ "gamepad", 0x786300000000000aull, (CFDictionaryRef)[@{
 				@"DeviceUsagePairs": @[ @{ @"DeviceUsagePage": @1, @"DeviceUsage": @5 } ],
 				@"PrimaryUsagePage": @1, @"PrimaryUsage": @5,
 				@"PhysicalDeviceUniqueID": @"SimulatedGamepad", @"GameControllerType": @1, @"Product": @"Gamepad" } retain] };
 			add_service(system, &gamepad_svc);
 		}
-		if (model && !strncmp(model, "Watch", 5)) {
+		if (platform == P_WATCH) {
 			crown_svc = (VService){ "crown", 0x7863000000000006ull,
 				make_props(@"com.apple.SimulatorHID.MainScreenDigitalCrownService", 0xff0b, 0x01, nil) };
 			add_service(system, &crown_svc);
