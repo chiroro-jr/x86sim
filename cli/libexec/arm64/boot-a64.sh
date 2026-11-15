@@ -210,7 +210,9 @@ MIN="com.apple.cfprefsd.xpc.daemon com.apple.cfprefsd.xpc.daemon.system com.appl
 # virtual "Gamepad" as tvOS's, so GCController.controllers() lists it there as well. LocalAuthenticationUIService (angel,
 # on demand): the Face ID / Optic ID sheet; without it LAContext.evaluatePolicy failed at once ("unable to establish
 # connection to UI", -1000) where Apple's simulator waits for a (simulated) match. pointeruid (on demand): an iPad's
-# pointer (simhid's mouse, pointer capture); without it the mouse moved nothing visible.
+# pointer (simhid's mouse, pointer capture); without it the mouse moved nothing visible. DragUI.druid (on demand): drag
+# and drop (com.apple.DragUI.druid.source / .destination); without it a long press on a UIDragInteraction view asked
+# for its items and nothing lifted: no drag preview, no drop session reached any target (sdkcov func:UIKit.ipad-drag-drop).
 UI="com.apple.installcoordinationd com.apple.mobiletimerd com.apple.backboardd com.apple.SpringBoard com.apple.sleepd com.apple.TextInput.kbd com.apple.FileCoordination
 	com.apple.usernotificationsd com.apple.InputUI com.apple.assistantd com.apple.assetsd com.apple.geod com.apple.navd com.apple.Maps.mapssyncd
 	com.apple.campo com.apple.FileProvider com.apple.DesktopServicesHelper com.apple.PosterBoard com.apple.financed
@@ -221,7 +223,7 @@ UI="com.apple.installcoordinationd com.apple.mobiletimerd com.apple.backboardd c
 	com.apple.CoreAuthentication.daemon com.apple.storekitd com.apple.quicklook.ThumbnailsAgent com.apple.midiserver-sim
 	com.apple.locationd com.apple.pasteboard.pasted com.apple.wcd com.apple.voiced com.apple.accessibility.axassetsd com.apple.liveactivitiesd
 	com.apple.sharingd com.apple.sharinguiservice com.apple.GameController.gamecontrollerd com.apple.LocalAuthenticationUIService
-	com.apple.PointerUI.pointeruid"
+	com.apple.PointerUI.pointeruid com.apple.DragUI.druid"
 UI_SLIM="com.apple.backboardd com.apple.SpringBoard com.apple.TextInput.kbd com.apple.FileCoordination com.apple.InputUI
 	com.apple.assistantd"
 FULLUI="com.apple.chronod"
