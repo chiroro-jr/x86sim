@@ -92,7 +92,7 @@ profiles: the install's own `.bin` files and the shipped `cli/libexec/arm64/trai
 3. stops this prefix's previous container (its own processes only, found by exact checks), then starts
    `linux/mdnsd/mdnsresponder.py`, `cli/libexec/jetsam.py` and, with `X86SIM_AUDIO=1`, `cli/libexec/simaudio.py`;
 4. runs `cli/libexec/arm64/boot-inner.sh` inside the systemd scope of `cli/libexec/limited.sh` (IO cap and memory cap
-   `X86SIM_MEM_MAX`), which moves this phone's Darling processes into the scope and runs `darling shell` with
+   `X86SIM_MEM_MAX`; without a systemd user manager, uncapped and outside any scope), which moves this phone's Darling processes into the scope and runs `darling shell` with
    `host/simhost/simhost`, which execs the runtime's `launchd_sim` with the device's environment.
 
 `mksimdevice.py` writes the device the way CoreSimulator does on a Mac: `<device>/data` (the device's home),

@@ -195,7 +195,7 @@ pub fn checks() -> Vec<Check> {
     });
     // tools the scripts run
     let mut miss = vec![];
-    for t in ["python3", "curl", "openssl", "setsid", "systemd-run"] {
+    for t in ["python3", "curl", "openssl", "setsid"] {
         if !on_path(t) {
             miss.push(t);
         }
@@ -206,9 +206,22 @@ pub fn checks() -> Vec<Check> {
         }
     }
     v.push(if miss.is_empty() {
-        check("Programs", Level::Ok, "python3, curl, openssl, systemd, ipsw, 7-Zip", "")
+        check("Programs", Level::Ok, "python3, curl, openssl, ipsw, 7-Zip", "")
     } else {
         check("Programs", Level::Fail, format!("missing: {}", miss.join(", ")), "Install them with your package manager (ipsw and 7-Zip come with the AppImage).")
+    });
+    // systemd is optional: with a user manager each phone runs in a scope with a disk IO cap, low CPU weight and the
+    // optional memory cap (cli/libexec/limited.sh); without one (no systemd, or a session without a user manager)
+    // phones run uncapped
+    v.push(if crate::sim::user_systemd() {
+        check("Resource limits", Level::Ok, "systemd user manager: phones get a disk IO cap and low CPU priority", "")
+    } else {
+        check(
+            "Resource limits",
+            Level::Warn,
+            "no systemd user manager: phones run without the disk IO cap, CPU weight or X86SIM_MEM_MAX",
+            "Optional. A cold boot may make the desktop stutter while it reads the runtime from disk.",
+        )
     });
     // Python's dnspython (phones' DNS): the AppImage carries it
     let pylib = std::env::var("X86SIM_PYLIB").unwrap_or_default();

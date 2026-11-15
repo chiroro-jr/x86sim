@@ -5,7 +5,13 @@
 # X86SIM_IO_MAX bytes/s (default 40M; 0 = no scope), X86SIM_IO_IOPS (default 4000), X86SIM_IO_DEV (default: the
 # block device holding the repo), X86SIM_CPU_WEIGHT (default 40; desktop apps are 100).
 # Delegate=yes: the scope owns its controllers so a later cgroup.procs join (arm64 boot moves darlingserver in) works.
-if [ "${X86SIM_IO_MAX:-40M}" = 0 ] || ! command -v systemd-run >/dev/null; then exec "$@"; fi
+# systemd is optional: without a reachable user manager (no systemd, or an ssh / container / sudo -u session without
+# one) the command runs as it is, uncapped.
+if [ "${X86SIM_IO_MAX:-40M}" = 0 ]; then exec "$@"; fi
+if ! command -v systemd-run >/dev/null || ! systemctl --user show-environment >/dev/null 2>&1; then
+	[ -n "${X86SIM_MEM_MAX:-}" ] && echo "x86sim: no systemd user manager: X86SIM_MEM_MAX=$X86SIM_MEM_MAX not applied (no disk IO cap either)" >&2
+	exec "$@"
+fi
 dev=${X86SIM_IO_DEV:-$(df --output=source "$(dirname "$0")" | tail -1)}
 io=${X86SIM_IO_MAX:-40M}
 exec systemd-run --user --scope --quiet --collect --unit="x86sim-$$" \

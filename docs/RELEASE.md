@@ -103,8 +103,8 @@ it stays in the sidebar afterwards. The same steps from a terminal: `x86sim.AppI
 
 1. **This computer**: CPU (x86-64 with SSE4.1/POPCNT/CX16), kernel (overlayfs; 6.11+ noted), memory (16 GB
    recommended, 8 minimum), disk (45 GB free for a download, 10 GB with a runtime), Vulkan (loader, a driver JSON,
-   a GPU node; else a warning: software rendering), programs (python3, curl, openssl, setsid, systemd-run, ipsw, 7z),
-   dnspython.
+   a GPU node; else a warning: software rendering), programs (python3, curl, openssl, setsid, ipsw, 7z),
+   dnspython, resource limits (a systemd user manager; else a warning: phones run uncapped).
 2. **Darling**: ready (userns) or Install/Update (system, one password).
 3. **Get iOS**: Download iOS 27.2 (the existing fetch with progress, Cancel, Resume — curl `-C -`, tested), or
    "use this folder" to link a runtime already on disk (a checkout's `runtimes/ios-27.2-24B8117-arm64`; relative link).
