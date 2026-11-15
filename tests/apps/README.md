@@ -51,6 +51,12 @@ it. Results, coverage JSON, `report.md` (`report.py`), the app's stdout / stderr
 `$X86SIM_SCRATCH/apps/sdkcov-<platform>-<time>/`. `--only func:Metal,load:UIKit` runs just those checks once and
 prints their results (stderr only; the results file is left alone).
 
+The host-driven input checks (`checks/Inputs.swift`: Shake, Rotate, Face ID / Optic ID enrollment and a match, the
+simulated game controller, Simulate Memory Warning) only report state in a normal run; with
+`SDKCOV_INPUT_WAIT=<s>` in the app's environment each waits for its input. `tests/apps/sdkcov/inputs.sh <device>
+[--no-build] [shake|orientation|biometric|gamepad|memwarn ...]` runs them one at a time and sends the input with the
+x86sim CLI meanwhile (Apple's equivalents are in its header).
+
 watchOS and visionOS build against Xcode's own simulator SDKs, copied from the Mac to `sdks/WatchSimulator-xcode.sdk` and
 `sdks/XRSimulator-xcode.sdk` (`sdks/XRSimulator.sdk` is sim-sdk.py's substitute, which has iOS's framework list).
 `ref-mac.sh xros` needs a visionOS simulator runtime installed on the Mac. `ref-mac.sh <platform> --only ID[,ID...]` runs

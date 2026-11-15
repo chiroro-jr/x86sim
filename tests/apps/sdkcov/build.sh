@@ -57,6 +57,7 @@ for p in ${*:-ios tvos watchos xros}; do
 <key>NSHealthShareUsageDescription</key><string>sdkcov checks HealthKit</string>
 <key>NSHomeKitUsageDescription</key><string>sdkcov checks HomeKit</string>
 <key>NSMotionUsageDescription</key><string>sdkcov checks Core Motion</string>
+<key>NSFaceIDUsageDescription</key><string>sdkcov checks biometrics</string>
 <key>NSBluetoothAlwaysUsageDescription</key><string>sdkcov checks Core Bluetooth</string>
 <key>NSLocalNetworkUsageDescription</key><string>sdkcov checks Network on loopback</string>
 <key>NSBonjourServices</key><array><string>_sdkcov._tcp</string></array>
