@@ -4,17 +4,21 @@
 // attachments, Core Data batch operations / history / fetched results.
 import Foundation
 import Synchronization
-#if os(iOS) || os(visionOS)
-import UIKit
 import SwiftUI
-import WebKit
-import PDFKit
 import CoreData
 import UserNotifications
 import UniformTypeIdentifiers
+#if canImport(UIKit)
+import UIKit
+#endif
+#if os(iOS) || os(visionOS)   // WebKit and PDFKit are not in the tvOS / watchOS SDKs
+import WebKit
+import PDFKit
+#endif
 
 // MARK: helpers
 
+#if !os(watchOS)   // watchOS apps have no UIWindow: views go on screen through Runner.overlay
 @MainActor private func m2Scene() throws -> UIWindowScene {
     guard let ws = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else { throw Fail("no window scene") }
     return ws
@@ -26,6 +30,7 @@ import UniformTypeIdentifiers
     w.rootViewController = vc; w.isHidden = false; w.layoutIfNeeded()
     return { w.isHidden = true; w.rootViewController = nil }
 }
+#endif
 private func m2Pixel(_ img: CGImage, _ x: Int, _ y: Int) -> [Int] {
     let ctx = bitmap(img.width, img.height); ctx.draw(img, in: CGRect(x: 0, y: 0, width: img.width, height: img.height))
     return pixel(ctx, x, y).map(Int.init)
@@ -40,6 +45,7 @@ private func m2WaitMain(_ secs: Double, _ cond: @escaping @MainActor () -> Bool)
 private func m2A<T>(_ f: @escaping @MainActor () async throws -> T) async throws -> T { try await Task { @MainActor in try await f() }.value }
 private func m2Near(_ p: [Int], _ q: [Int], _ tol: Int = 12) -> Bool { zip(p.prefix(3), q).allSatisfy { abs($0 - $1) <= tol } }
 
+#if os(iOS) || os(visionOS)
 /// a WKWebView in its own window with a navigation delegate, message handlers and a custom URL scheme (sdkcov-x:)
 @MainActor private final class M2Web: NSObject, WKNavigationDelegate, WKScriptMessageHandler, WKScriptMessageHandlerWithReply, WKURLSchemeHandler {
     var wv: WKWebView!
@@ -90,6 +96,8 @@ private func m2Near(_ p: [Int], _ q: [Int], _ tol: Int = 12) -> Bool { zip(p.pre
     }
 }
 
+#endif
+
 private final class M2NotifDelegate: NSObject, UNUserNotificationCenterDelegate {
     func userNotificationCenter(_ c: UNUserNotificationCenter, willPresent n: UNNotification) async -> UNNotificationPresentationOptions { [.list, .banner] }
 }
@@ -125,7 +133,6 @@ private func m2Model() -> NSManagedObjectModel {
     e.properties = [attr("name", .stringAttributeType), attr("value", .integer64AttributeType), attr("group", .stringAttributeType)]
     m.entities = [e]; return m
 }
-#endif
 
 extension Registry {
     static var more2_ui: [Check] {
@@ -281,7 +288,10 @@ extension Registry {
             return "canvas \(o["canvas"]!), WebGL \(o["renderer"] ?? "?"), wasm 42, subtle SHA-256, Intl, rAF \(raf)/0.5 s"
         })
 
+        #endif
+
         // MARK: text
+        #if !os(watchOS)   // no UITextView / TextKit 1 on watchOS
         c.append(check("UIKit", "textkit2-vs-textkit1-layout-hit-test") {
             try await onMain {
                 let text = String(repeating: "x86Sim lays out paragraphs with TextKit 2 the same way TextKit 1 does. ", count: 6) + "\nSecond paragraph: 漢字 and 🦊."
@@ -321,6 +331,8 @@ extension Registry {
                 return "\(lines2) lines in 240 pt (TK2 = TK1), height \(Int(height2)), hit test, UITextView \(Int(fit.height))"
             }
         })
+        #endif
+        #if os(iOS) || os(visionOS)   // printing (UIPrintPageRenderer) and PDFKit: not on tvOS / watchOS
         c.append(check("UIKit", "attributed-html-import-print-renderer", timeout: 90) {
             try await onMain {
                 // HTML -> NSAttributedString (WebKit's importer): text, bold, colour, link, list
@@ -355,6 +367,8 @@ extension Registry {
                 return "HTML import bold/red/link/list + export; print renderer \(pr.numberOfPages) pages"
             }
         })
+
+        #endif
 
         // MARK: SwiftUI by pixels and timing
         c.append(check("SwiftUI", "layout-stacks-grid-custom-layout-pixels") {
@@ -393,8 +407,13 @@ extension Registry {
             // a 0.4 s linear animation on screen: the Animatable modifier sees intermediate values in order, the
             // completion runs after ~0.4 s
             let m = await onMain { M2AnimModel() }
+            #if os(watchOS)
+            await onMain { Runner.shared.overlay = AnyView(M2AnimView(m: m)) }
+            defer { Task { @MainActor in Runner.shared.overlay = nil } }
+            #else
             let close = try await onMain { try m2Show(UIHostingController(rootView: M2AnimView(m: m))) }
             defer { Task { @MainActor in close() } }
+            #endif
             try await Task.sleep(for: .milliseconds(400))
             let done = Mutex<Date?>(nil), t0 = Date()
             await onMain { m.seen = []; withAnimation(.linear(duration: 0.4)) { m.x = 100 } completion: { done.withLock { $0 = Date() } } }
@@ -423,13 +442,18 @@ extension Registry {
         })
 
         // MARK: accessibility
+        #if !os(watchOS)   // UIKit views and UIAccessibilityCustomAction targets: not on watchOS
         c.append(check("UIKit", "accessibility-elements-actions-swiftui-tree", timeout: 40) {
             final class Target: NSObject { var hits = 0; @objc func act(_ a: UIAccessibilityCustomAction) -> Bool { hits += 1; return true } }
             return try await m2A { () async throws -> String in
                 let t = Target()
                 let vc = UIViewController(); vc.view.backgroundColor = .white
                 let b = UIButton(type: .system); b.setTitle("Play", for: .normal); b.frame = CGRect(x: 20, y: 100, width: 100, height: 44)
+                #if os(tvOS)   // no UISwitch on tvOS: a second (focusable) button
+                let sw = UIButton(type: .system); sw.setTitle("Mute", for: .normal); sw.frame = CGRect(x: 20, y: 160, width: 100, height: 44)
+                #else
                 let sw = UISwitch(frame: CGRect(x: 20, y: 160, width: 60, height: 30)); sw.isOn = true
+                #endif
                 let lbl = UILabel(frame: CGRect(x: 20, y: 200, width: 200, height: 30)); lbl.text = "Volume"; lbl.accessibilityValue = "11"
                 lbl.accessibilityCustomActions = [UIAccessibilityCustomAction(name: "Louder", target: t, selector: #selector(Target.act(_:)))]
                 let hidden = UILabel(); hidden.text = "secret"; hidden.isAccessibilityElement = false
@@ -462,6 +486,8 @@ extension Registry {
                 return "UIKit button/label + custom action; SwiftUI \(els.count) elements: Start game (button, hint), Scores (header)"
             }
         })
+
+        #endif
 
         // MARK: localization
         c.append(check("Foundation", "bundle-localization-stringsdict-plurals") {
@@ -500,13 +526,18 @@ extension Registry {
         })
 
         // MARK: notifications
+        #if !os(tvOS)   // tvOS has no notification categories, actions or attachments (badges only)
         c.append(check("UserNotifications", "categories-actions-attachment-delivered", timeout: 180) {
             let nc = UNUserNotificationCenter.current()
             let granted = try await more2Stage("requestAuthorization", 100) { try await nc.requestAuthorization(options: [.alert, .sound, .badge, .provisional]) }
             try expect(granted, "authorization refused")
             let reply = UNTextInputNotificationAction(identifier: "reply", title: "Reply", options: [], textInputButtonTitle: "Send", textInputPlaceholder: "…")
             let like = UNNotificationAction(identifier: "like", title: "Like", options: [.foreground], icon: UNNotificationActionIcon(systemImageName: "heart"))
+            #if os(watchOS)   // no hidden-previews placeholder on watchOS
+            let cat = UNNotificationCategory(identifier: "sdkcov.msg", actions: [like, reply], intentIdentifiers: [], options: [.customDismissAction])
+            #else
             let cat = UNNotificationCategory(identifier: "sdkcov.msg", actions: [like, reply], intentIdentifiers: [], hiddenPreviewsBodyPlaceholder: "hidden", options: [.customDismissAction])
+            #endif
             nc.setNotificationCategories([cat])
             var cats: Set<UNNotificationCategory> = []
             for _ in 0..<20 { cats = await nc.notificationCategories(); if cats.contains(where: { $0.identifier == "sdkcov.msg" }) { break }; try await Task.sleep(for: .milliseconds(100)) }
@@ -546,10 +577,17 @@ extension Registry {
             let a = n.request.content.attachments.first
             try expect(a?.identifier == "img" && a?.type == UTType.png.identifier && n.request.content.categoryIdentifier == "sdkcov.msg" && n.request.content.threadIdentifier == "t1" && (n.request.content.userInfo["k"] as? String) == "v", "delivered content: attachment \(String(describing: a)) category \(n.request.content.categoryIdentifier)")
             try expect(!FileManager.default.fileExists(atPath: f.path), "the attachment file stays where it was (should move into the store)")
+            #if os(watchOS)   // watchOS apps have no badge
+            nc.setNotificationCategories([])
+            return "category with text input round trip, attachment moved into the store, delivered"
+            #else
             try await nc.setBadgeCount(2); try await nc.setBadgeCount(0)
             nc.setNotificationCategories([])
             return "category with text input round trip, attachment moved into the store, delivered, badge"
+            #endif
         })
+
+        #endif
 
         // MARK: Core Data
         c.append(check("CoreData", "batch-insert-update-delete-history-frc", timeout: 60) {
@@ -622,7 +660,6 @@ extension Registry {
             try expect(seen == 1, "background save merged into the view context: \(seen)")
             return "batch insert 3000, sum \(sum), FRC 3 sections, batch update 1000 / delete 500 merged, \(txs) history transactions"
         })
-        #endif
         return c
     }
 }

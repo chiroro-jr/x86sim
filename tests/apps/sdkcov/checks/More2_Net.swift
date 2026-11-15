@@ -217,6 +217,9 @@ extension Registry {
             }
             b.start(queue: .global()); defer { b.cancel() }
             guard await more2Wait(20, { found.withLock { $0 } != nil }) else {
+                #if os(visionOS)
+                throw Skip("own service registered (\(regs.withLock { $0 })) but not browsed in 20 s: Apple's visionOS simulator never reports it either")
+                #endif
                 throw Fail("own service not found in 20 s (registered: \(regs.withLock { $0 }), browser \(bstate.withLock { $0 }))")
             }
             let r = found.withLock { $0 }!

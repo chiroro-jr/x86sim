@@ -245,12 +245,17 @@ extension Registry {
             }) }
             for t in ts { pthread_join(t, nil) }
             try expect(q.taken == 10000 && q.sum == 50_005_000, "producer/consumer took \(q.taken), sum \(q.sum)")
-            // a timed wait times out after ~100 ms
+            // a timed wait times out after ~100 ms; wakeups before the deadline are legal (spurious), so like correct code
+            // the wait loops on its predicate (nothing is ever queued here) until ETIMEDOUT
             pthread_mutex_lock(&q.m)
-            var ts100 = timespec(tv_sec: 0, tv_nsec: 100_000_000)
-            let t0 = Date(); let rc = pthread_cond_timedwait_relative_np(&q.notEmpty, &q.m, &ts100); let el = Date().timeIntervalSince(t0)
+            var tv = timeval(); gettimeofday(&tv, nil)
+            let dl = Int(tv.tv_usec) * 1000 + 100_000_000
+            var abs = timespec(tv_sec: tv.tv_sec + dl / 1_000_000_000, tv_nsec: dl % 1_000_000_000)
+            let t0 = Date(); var rc: Int32 = 0, wakeups = 0
+            while q.items.isEmpty && rc == 0 { rc = pthread_cond_timedwait(&q.notEmpty, &q.m, &abs); if rc == 0 { wakeups += 1 } }
+            let el = Date().timeIntervalSince(t0)
             pthread_mutex_unlock(&q.m)
-            try expect(rc == ETIMEDOUT && el > 0.08 && el < 0.8, "timedwait rc \(rc) after \(el) s")
+            try expect(rc == ETIMEDOUT && el > 0.08 && el < 0.8 && wakeups < 1000, "timedwait rc \(rc) after \(el) s, \(wakeups) early wakeups")
             // rwlock: readers share, a writer is alone
             var rw = pthread_rwlock_t(); pthread_rwlock_init(&rw, nil)
             let inside = Atomic<Int>(0), maxReaders = Atomic<Int>(0), writerSaw = Atomic<Int>(-1)
@@ -450,10 +455,19 @@ extension Registry {
             // ITIMER_REAL -> SIGALRM after 50 ms
             var al = sigaction(); al.__sigaction_u.__sa_handler = { _ in more2SigAlrm.add(1, ordering: .relaxed) }; al.sa_mask = 0; al.sa_flags = 0
             sigaction(SIGALRM, &al, &oldAl); defer { sigaction(SIGALRM, &oldAl, nil) }
-            let a0 = more2SigAlrm.load(ordering: .relaxed), t0 = Date()
-            var it = itimerval(it_interval: timeval(), it_value: timeval(tv_sec: 0, tv_usec: 50000))
-            try expect(setitimer(ITIMER_REAL, &it, nil) == 0, "setitimer errno \(errno)")
-            let fired = await more2Wait(3) { more2SigAlrm.load(ordering: .relaxed) > a0 }
+            // (process-directed: the kernel picks any thread that does not block it, so the timer is armed and waited
+            // for on a thread with an empty mask; the app's other threads may all block SIGALRM, as seen on Apple's tvOS)
+            let a0 = more2SigAlrm.load(ordering: .relaxed), t0 = Date(), itErr = Atomic<Int32>(0)
+            let at = try more2Thread {
+                var none: sigset_t = 0; pthread_sigmask(SIG_SETMASK, &none, nil)
+                var it = itimerval(it_interval: timeval(), it_value: timeval(tv_sec: 0, tv_usec: 50000))
+                if setitimer(ITIMER_REAL, &it, nil) != 0 { itErr.store(errno, ordering: .relaxed); return }
+                let end = Date().addingTimeInterval(3)
+                while more2SigAlrm.load(ordering: .relaxed) == a0 && Date() < end { usleep(5000) }
+            }
+            pthread_join(at, nil)
+            try expect(itErr.load(ordering: .relaxed) == 0, "setitimer errno \(itErr.load(ordering: .relaxed))")
+            let fired = more2SigAlrm.load(ordering: .relaxed) > a0
             let el = Date().timeIntervalSince(t0)
             try expect(fired && el > 0.04, "SIGALRM fired \(fired) after \(el) s")
             // a dispatch signal source (EVFILT_SIGNAL) counts SIGUSR2 sent with kill() while the signal is ignored
