@@ -122,6 +122,7 @@ static void openViaLS(NSURL* url, NSString* u) {
 //              through a UNUserNotificationCenter for that bundle (entitlement ...usernotifications.notification-simulator)
 //   location   {lat, lon} or {clear}: CLSimulationManager (locationd's simulation interface)
 //   addmedia   {paths}: PHPhotoLibrary performChangesAndWait: creationRequestForAssetFrom{Image,Video}AtFileURL:
+//   spawn      {path, args, env, stdout, stderr}: run a program in the device (simctl spawn), see spawnProgram
 static NSString* home_;
 
 static void answer(NSString* rid, NSDictionary* r) {
@@ -131,6 +132,57 @@ static void answer(NSString* rid, NSDictionary* r) {
 }
 
 static NSString* devPath(NSString* p) { return [p hasPrefix:@"/"] ? p : [home_ stringByAppendingPathComponent:p]; }
+
+// Inputs 2: simctl spawn. {path, args, env, stdout, stderr}: posix_spawn in the device (this job's bootstrap, so the
+// program reaches the device's services), stdout / stderr to those files (device paths, relative to the data
+// directory); when it ends, "<stdout>.exit" gets its wait status. Answer: pid (at once: requests are handled one at a
+// time). The program's entitlements come from its own __TEXT,__entitlements, as for any simulator binary.
+// (tvOS / watchOS headers mark posix_spawn unavailable; libsystem has it in every simulator runtime)
+#undef __API_UNAVAILABLE
+#define __API_UNAVAILABLE(...)
+#include <spawn.h>
+#include <sys/wait.h>
+extern char** environ;
+static NSDictionary* spawnProgram(NSDictionary* q) {
+	NSString* path = q[@"path"];
+	if (![path isKindOfClass:NSString.class]) return @{ @"ok": @NO, @"error": @"no path" };
+	path = devPath(path);
+	NSMutableArray* argv = [NSMutableArray arrayWithObject:path];
+	for (id a in q[@"args"]) [argv addObject:[a description]];
+	NSMutableDictionary* env = [NSMutableDictionary new];
+	for (char** e = environ; *e; e++) {
+		NSString* s = @(*e); NSRange r = [s rangeOfString:@"="];
+		if (r.location != NSNotFound) env[[s substringToIndex:r.location]] = [s substringFromIndex:r.location + 1];
+	}
+	[env addEntriesFromDictionary:q[@"env"] ?: @{}];
+	NSString* out = devPath(q[@"stdout"] ?: @"tmp/x86sim-spawn.out"), *err = devPath(q[@"stderr"] ?: q[@"stdout"] ?: @"tmp/x86sim-spawn.out");
+	unlink([out stringByAppendingString:@".exit"].UTF8String);
+	posix_spawn_file_actions_t fa;
+	posix_spawn_file_actions_init(&fa);
+	posix_spawn_file_actions_addopen(&fa, 0, "/dev/null", O_RDONLY, 0);
+	posix_spawn_file_actions_addopen(&fa, 1, out.UTF8String, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+	if ([err isEqual:out]) posix_spawn_file_actions_adddup2(&fa, 1, 2);
+	else posix_spawn_file_actions_addopen(&fa, 2, err.UTF8String, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+	size_t n = argv.count, m = env.count, i = 0;
+	char** av = calloc(n + 1, sizeof(char*)); char** ev = calloc(m + 1, sizeof(char*));
+	for (i = 0; i < n; i++) av[i] = strdup([argv[i] UTF8String]);
+	i = 0;
+	for (NSString* k in env) ev[i++] = strdup([NSString stringWithFormat:@"%@=%@", k, env[k]].UTF8String);
+	pid_t pid = 0;
+	int rc = posix_spawn(&pid, path.UTF8String, &fa, NULL, av, ev);
+	posix_spawn_file_actions_destroy(&fa);
+	for (i = 0; i < n; i++) free(av[i]);
+	for (i = 0; i < m; i++) free(ev[i]);
+	free(av); free(ev);
+	if (rc) return @{ @"ok": @NO, @"error": [NSString stringWithFormat:@"posix_spawn %@: %s", path, strerror(rc)] };
+	NSString* exitFile = [out stringByAppendingString:@".exit"];
+	dispatch_async(dispatch_get_global_queue(0, 0), ^{
+		int st = 0;
+		waitpid(pid, &st, 0);
+		[[NSString stringWithFormat:@"%d\n", st] writeToFile:exitFile atomically:YES encoding:NSUTF8StringEncoding error:nil];
+	});
+	return @{ @"ok": @YES, @"pid": @(pid) };
+}
 
 static NSDictionary* rbsTerminate(NSString* bid) {
 	dlopen("/System/Library/PrivateFrameworks/RunningBoardServices.framework/RunningBoardServices", RTLD_NOW);
@@ -373,6 +425,7 @@ static void request(NSString* rest) {
 	else if ([c isEqual:@"location"]) r = location(q);
 	else if ([c isEqual:@"xpcping"]) r = xpcPing(q[@"service"]);
 	else if ([c isEqual:@"addmedia"]) r = addMedia(q[@"paths"]);
+	else if ([c isEqual:@"spawn"]) r = spawnProgram(q);
 	else r = @{ @"ok": @NO, @"error": [NSString stringWithFormat:@"unknown cmd %@", c] };
 	answer(rid, r);
 }
