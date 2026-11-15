@@ -202,11 +202,26 @@ pub struct Manifest {
 pub struct Paths {
     pub jc: PathBuf,
     pub aot: PathBuf,
+    /// AOT cache 1: the placement table a plan / build uses: J/placement.txt, or a staged table (an app install's,
+    /// committed only once an image for it exists, see appcache.rs). The builders run with its directory as their
+    /// jitcache dir (libarm64jit maps the placed files from the table it finds there).
+    pub place: PathBuf,
 }
 
 impl Paths {
     pub fn new(jc: &Path) -> Paths {
-        Paths { jc: jc.to_path_buf(), aot: jc.join("aot") }
+        Paths { jc: jc.to_path_buf(), aot: jc.join("aot"), place: jc.join("placement.txt") }
+    }
+    /// The same cache dir with a staged placement table (`<dir>/placement.txt`).
+    pub fn staged(jc: &Path, dir: &Path) -> Paths {
+        Paths { place: dir.join("placement.txt"), ..Paths::new(jc) }
+    }
+    pub fn is_staged(&self) -> bool {
+        self.place != self.jc.join("placement.txt")
+    }
+    /// The builders' jitcache dir: where the table is.
+    pub fn builder_jc(&self) -> PathBuf {
+        self.place.parent().map(Path::to_path_buf).unwrap_or_else(|| self.jc.clone())
     }
     pub fn default_jc() -> PathBuf {
         std::env::var("X86SIM_A64_JITCACHE_DIR").map(PathBuf::from).unwrap_or_else(|_| scratch().join("jitcache"))
@@ -224,7 +239,7 @@ impl Paths {
         self.aot.join("chunks")
     }
     pub fn placement(&self) -> PathBuf {
-        self.jc.join("placement.txt")
+        self.place.clone()
     }
     pub fn load_config(&self) -> Config {
         let c: Config = std::fs::read(self.config()).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
@@ -264,6 +279,9 @@ pub struct PlanChunk {
     pub want: u64,
     pub feature: Option<String>,
     pub placed_path: Option<PathBuf>,
+    /// AOT cache 1: an app chunk of another phone (its file is not under this build's device data): kept in the image
+    /// when built, never built here
+    pub foreign: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -398,9 +416,30 @@ pub fn plan(p: &Paths, cfg: &Config) -> Result<Plan> {
     let mut placed_paths = HashMap::new();
     let placements = discover::read_placement(&p.placement());
     let mut placed_deps: Vec<String> = Vec::new();
+    // AOT cache 1: the cache dir (and its image) is shared by every phone of the runtime, so an app key resolves under
+    // any phone's data: before, an update run for one phone left every other phone's apps out of the image. Only the
+    // phone the builders run for (cfg.device) can have its apps' chunks built; another phone's built chunks are kept.
+    let datas = app_data_dirs(cfg.device.as_deref());
+    let mut foreign: HashSet<String> = HashSet::new();
     for pl in &placements {
-        let Some(path) = discover::placed_path(pl, &cfg.runtime_root, cfg.device.as_deref()) else { continue };
-        if let Some(pf) = discover::placed_source(pl, &path)? {
+        let resolved = if pl.key.starts_with("Containers/") {
+            let mut hit = None;
+            for (i, d) in datas.iter().enumerate() {
+                let path = d.join(&pl.key);
+                if let Some(pf) = discover::placed_source(pl, &path)? {
+                    if i > 0 || cfg.device.is_none() {
+                        foreign.insert(pl.key.clone());
+                    }
+                    hit = Some((path, pf));
+                    break;
+                }
+            }
+            hit
+        } else {
+            let Some(path) = discover::placed_path(pl, &cfg.runtime_root, cfg.device.as_deref()) else { continue };
+            discover::placed_source(pl, &path)?.map(|pf| (path, pf))
+        };
+        if let Some((path, pf)) = resolved {
             if let Ok(data) = std::fs::read(&path) {
                 if let Some(img) = crate::macho::FileImage::parse(&data) {
                     placed_deps.extend(img.header.dylibs.iter().cloned());
@@ -455,6 +494,7 @@ pub fn plan(p: &Paths, cfg: &Config) -> Result<Plan> {
                 key: key::chunk_key(&src.name, &src.ident, src.addr),
                 feature: features::feature_of_chunk(&src.name),
                 placed_path: placed_paths.get(&src.name).cloned(),
+                foreign: foreign.contains(&src.name),
                 src,
                 hot: h,
                 est_hot,
@@ -504,6 +544,28 @@ pub fn plan(p: &Paths, cfg: &Config) -> Result<Plan> {
         }
     }
     Ok(Plan { image_name: key::image_name(&uuid, build), cache_uuid: uuid, build, chunks, hot, cfg: cfg.clone() })
+}
+
+/// Data dirs an app key ("Containers/...") can resolve under: this build's phone first, then every phone of the repo
+/// (var/device-*/data), each once.
+pub fn app_data_dirs(device: Option<&Path>) -> Vec<PathBuf> {
+    let mut v: Vec<PathBuf> = device.map(|d| d.join("data")).into_iter().collect();
+    let mut all: Vec<PathBuf> = std::fs::read_dir(repo_root().join("var"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().starts_with("device"))
+        .map(|e| e.path().join("data"))
+        .filter(|d| d.is_dir())
+        .collect();
+    all.sort();
+    let canon = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    for d in all {
+        if !v.iter().any(|x| canon(x) == canon(&d)) {
+            v.push(d);
+        }
+    }
+    v
 }
 
 pub const COLD_SUFFIX: &str = "#cold";
@@ -694,6 +756,11 @@ impl Plan {
                 continue;
             }
             let (state, reasons) = chunk_state(p, &m, c);
+            if c.foreign && state != "up-to-date" {
+                // another phone's app: built by that phone's install / update, not by this one
+                st.dropped += 1;
+                continue;
+            }
             match state.as_str() {
                 "up-to-date" => st.up_to_date += 1,
                 "stale" => st.stale += 1,
@@ -713,10 +780,13 @@ impl Plan {
             });
         }
         st.total = st.chunks.len();
+        // AOT cache 1: and no chunk was built after the image (an update that failed after building some chunks left
+        // the image without them while the count still matched: "up to date", so they never reached it)
+        let recs = self.built_records(&m);
         st.image_current = st.image_present
             && st.stale == 0
             && st.missing == 0
-            && m.image.as_ref().is_some_and(|i| i.file == self.image_name && i.chunks == self.built_records(&m).len());
+            && m.image.as_ref().is_some_and(|i| i.file == self.image_name && i.chunks == recs.len() && recs.iter().all(|r| r.built_at <= i.built_at));
         st
     }
 
@@ -793,6 +863,9 @@ pub struct Progress {
     pub workers: usize,
     pub pid: u32,
     pub updated: u64,
+    /// AOT cache 1: chunks whose builder failed (left out of this image; the next update retries them)
+    #[serde(default)]
+    pub failed: Vec<String>,
 }
 
 pub struct BuildOpts {
@@ -806,12 +879,15 @@ pub struct BuildOpts {
     /// Speed 32: rebuild the --only chunks even when up to date (a translator change that only affects some
     /// libraries' code, e.g. a MemoryReadCode substitution at an entry point)
     pub force: bool,
+    /// AOT cache 1: build nothing, assemble the image for the current placement from the chunks that are up to date
+    /// (seconds: brings back an image after its key changed without one, e.g. a placement edit)
+    pub assemble_only: bool,
 }
 
 impl Default for BuildOpts {
     fn default() -> Self {
         let n = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2);
-        BuildOpts { workers: (n / 2).max(1), full: false, measure: false, cancel: Arc::new(AtomicBool::new(false)), only: None, force: false }
+        BuildOpts { workers: (n / 2).max(1), full: false, measure: false, cancel: Arc::new(AtomicBool::new(false)), only: None, force: false, assemble_only: false }
     }
 }
 
@@ -844,8 +920,63 @@ fn write_entries(path: &Path, c: &PlanChunk, statics: &[u64]) -> Result<()> {
 /// (a fresh pool): every update adds constants, so a long-lived image eventually fills it, and the launcher's
 /// automatic update then failed for good ("the constant pool is nearly full: run a full rebuild").
 pub fn build(p: &Paths, cfg: &Config, opts: &BuildOpts, on_progress: &mut dyn FnMut(&Progress)) -> Result<Progress> {
+    let _lock = Lock::acquire(&jc_lock_path(p), "the AOT cache")?;
+    let r = build_locked(p, cfg, opts, on_progress)?;
+    // AOT cache 1: every finished update collects what no image, placement or phone uses any more (appcache.rs)
+    if r.state == "done" && !opts.measure && !p.is_staged() {
+        if let Err(e) = crate::appcache::collect(p, cfg, true) {
+            eprintln!("x86sim-aot: cache cleanup: {e:#}");
+        }
+    }
+    Ok(r)
+}
+
+/// `build` for a caller that holds the cache dir's lock (jc_lock_path). AOT cache 1: chunks whose builder failed are
+/// retried once; if they fail again the image is assembled from every chunk that is up to date, so only the failed
+/// chunks are skipped (translated live until a later update builds them) and a failed app chunk never costs the system
+/// tier its image (2026-11-14: a failed install left every iOS 27.2 phone translating everything live for 1.5 h).
+pub fn build_locked(p: &Paths, cfg: &Config, opts: &BuildOpts, on_progress: &mut dyn FnMut(&Progress)) -> Result<Progress> {
+    let mut r = build_pool(p, cfg, opts, on_progress)?;
+    if opts.measure || opts.assemble_only || r.state != "error" {
+        return Ok(r);
+    }
+    if !r.failed.is_empty() {
+        eprintln!("x86sim-aot: {} chunk(s) failed ({}): retrying once", r.failed.len(), short_list(&r.failed));
+        r = build_pool(p, cfg, opts, on_progress)?;
+        if r.state != "error" {
+            return Ok(r);
+        }
+    }
+    let failed = r.failed.clone();
+    if failed.is_empty() {
+        // nothing was built (no builder ran): what there is stays
+        return Ok(r);
+    }
+    let name = plan(p, cfg)?.image_name;
+    // the chunks that did finish are recorded; a chunk whose rebuild failed keeps its previous build when its key
+    // did not change (feedback rebuilds), else it is left out: only the failed ones are skipped
+    eprintln!("x86sim-aot: {} chunk(s) failed twice ({}): assembling {name} without them", failed.len(), short_list(&failed));
+    let a = BuildOpts { workers: opts.workers, cancel: opts.cancel.clone(), assemble_only: true, ..Default::default() };
+    let mut r2 = build_once(p, cfg, &a, on_progress)?;
+    if r2.state == "done" {
+        r2.message = format!("{} ({} chunk(s) left out, translated live until the next update: {})", r2.message, failed.len(), short_list(&failed));
+        r2.failed = failed;
+        let _ = write_json(&p.progress(), &r2);
+    }
+    Ok(r2)
+}
+
+fn short_list(v: &[String]) -> String {
+    let mut s = v.iter().take(4).map(|n| n.rsplit('/').next().unwrap_or(n)).collect::<Vec<_>>().join(", ");
+    if v.len() > 4 {
+        s += &format!(" and {} more", v.len() - 4);
+    }
+    s
+}
+
+fn build_pool(p: &Paths, cfg: &Config, opts: &BuildOpts, on_progress: &mut dyn FnMut(&Progress)) -> Result<Progress> {
     match build_once(p, cfg, opts, on_progress) {
-        Err(e) if !opts.full && !opts.measure && e.to_string().contains(POOL_FULL) => {
+        Err(e) if !opts.full && !opts.measure && !opts.assemble_only && e.to_string().contains(POOL_FULL) => {
             eprintln!("x86sim-aot: {POOL_FULL}: rebuilding everything");
             let full = BuildOpts {
                 workers: opts.workers,
@@ -854,10 +985,67 @@ pub fn build(p: &Paths, cfg: &Config, opts: &BuildOpts, on_progress: &mut dyn Fn
                 cancel: opts.cancel.clone(),
                 only: None,
                 force: false,
+                assemble_only: false,
             };
             build_once(p, cfg, &full, on_progress)
         }
         r => r,
+    }
+}
+
+/// AOT cache 1: one writer per cache dir. Every change of the placement table, the chunks, the manifest or the image
+/// (builds, app installs / uninstalls, cleanup) holds this lock; readers (status, phones) need none: each of those
+/// files is replaced by a rename.
+pub fn jc_lock_path(p: &Paths) -> PathBuf {
+    p.jc.join("aot").join("lock")
+}
+
+fn prefix_lock_path(cfg: &Config) -> PathBuf {
+    PathBuf::from(format!("{}.aot-lock", cfg.test_prefix.display()))
+}
+
+/// An exclusive flock on a lock file, released on drop (the descriptor is close-on-exec: builders don't inherit it).
+pub struct Lock(#[allow(dead_code)] std::fs::File);
+
+impl Lock {
+    fn open(path: &Path) -> Result<std::fs::File> {
+        if let Some(d) = path.parent() {
+            std::fs::create_dir_all(d)?;
+        }
+        std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(path).with_context(|| format!("opening {}", path.display()))
+    }
+    pub fn acquire(path: &Path, what: &str) -> Result<Lock> {
+        use std::os::fd::AsRawFd;
+        let f = Self::open(path)?;
+        if unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+            eprintln!("x86sim-aot: waiting for {what} (another build or install holds {})", path.display());
+            while unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX) } != 0 {
+                if std::io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
+                    bail!("locking {}: {}", path.display(), std::io::Error::last_os_error());
+                }
+            }
+        }
+        Ok(Lock(f))
+    }
+    pub fn try_acquire(path: &Path) -> Result<Option<Lock>> {
+        use std::os::fd::AsRawFd;
+        let f = Self::open(path)?;
+        Ok((unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0).then_some(Lock(f)))
+    }
+}
+
+/// Deletes the images of other keys (and every derived file of theirs: .map / .idx / .prelude / .lock): once the
+/// placement table names `keep`, no process looks for them again. Processes that have one mapped keep their mapping.
+pub fn drop_other_images(p: &Paths, keep: &str) {
+    let Ok(rd) = std::fs::read_dir(&p.jc) else { return };
+    for e in rd.flatten() {
+        let n = e.file_name().to_string_lossy().into_owned();
+        if n.starts_with(keep) || n.contains(".tmp.") || n.len() <= 40 || n.as_bytes()[32] != b'-' {
+            continue;
+        }
+        if n.ends_with(".aot") || n.contains(".aot.") {
+            let _ = std::fs::remove_file(e.path());
+        }
     }
 }
 
@@ -889,6 +1077,7 @@ fn build_once(p: &Paths, cfg: &Config, opts: &BuildOpts, on_progress: &mut dyn F
         .filter(|c| c.want > 0 || opts.measure)
         .filter(|c| opts.only.as_ref().is_none_or(|o| o.iter().any(|n| c.src.name.contains(n.as_str()))))
         .filter(|c| opts.measure || (opts.force && opts.only.is_some()) || chunk_state(p, &man, c).0 != "up-to-date")
+        .filter(|c| !c.foreign && !opts.assemble_only)
         .collect();
     prog.chunks_total = todo.len();
     if todo.is_empty() && !opts.measure && plan.status(p).image_current {
@@ -1088,7 +1277,7 @@ fn build_once(p: &Paths, cfg: &Config, opts: &BuildOpts, on_progress: &mut dyn F
         // during an --only (app install) update.
         // Speed 35: not after a full build's trim, and never past FULL_LIVE_ROOM_MB below the slab end (re-admitted
         // chunks filled a trimmed full build back to 1336 MB).
-        if opts.only.is_none() && evicted.is_empty() && !opts.full {
+        if opts.only.is_none() && evicted.is_empty() && !opts.full && !opts.assemble_only {
             let mut back: Vec<&PlanChunk> = plan
                 .chunks
                 .iter()
@@ -1203,6 +1392,10 @@ fn build_once(p: &Paths, cfg: &Config, opts: &BuildOpts, on_progress: &mut dyn F
     }
 
     let repo = repo_root();
+    // AOT cache 1: every runtime's builders run in the one test prefix, and each build ends with `darling shutdown` of
+    // it: two builds at once (two runtimes, or before the cache dir lock, two phones' app installs) killed each other's
+    // builders ("only 0 of 1 chunks finished"). One build at a time per prefix.
+    let prefix_lock = if jobs.iter().any(|j| !j.chunks.is_empty()) { Some(Lock::acquire(&prefix_lock_path(cfg), "the builders' test prefix")?) } else { None };
     let mut children: Vec<(Child, PathBuf, usize)> = vec![];
     for (i, j) in jobs.iter().enumerate() {
         if j.chunks.is_empty() {
@@ -1216,6 +1409,11 @@ fn build_once(p: &Paths, cfg: &Config, opts: &BuildOpts, on_progress: &mut dyn F
         }
         s += &format!("region {}\n", pool_base + POOL_REGION * i as u64);
         for (name, off, size) in &j.chunks {
+            // X86SIM_AOT_DEBUG_FAIL=<substring>: chunks whose name contains it are not handed to the builder, as if
+            // it had died on them (tests the retry / skip-only-the-failed-chunk path)
+            if std::env::var("X86SIM_AOT_DEBUG_FAIL").is_ok_and(|f| !f.is_empty() && name.contains(&f)) {
+                continue;
+            }
             let c = by_name[name.as_str()];
             let out = out_dir.join(format!("{}.{}.aotc", key::name_id(name), c.key));
             s += &format!("chunk {} {} {} {} {}\n", name.replace(' ', "%20"), off, size, out.display(), ent_paths[name].display());
@@ -1236,7 +1434,7 @@ fn build_once(p: &Paths, cfg: &Config, opts: &BuildOpts, on_progress: &mut dyn F
             .env("X86SIM_A64_AOT_BUILD", "1")
             .env("X86SIM_A64_AOT_DEVICE_DATA", cfg.device.as_ref().map(|d| d.join("data")).unwrap_or_default())
             .env("X86SIM_A64_AOT_JOB", &jp)
-            .env("X86SIM_A64_JITCACHE_DIR", &p.jc)
+            .env("X86SIM_A64_JITCACHE_DIR", p.builder_jc())
             .env("X86SIM_A64_CODECACHE_MB", SLAB_MB.to_string())
             .stdin(Stdio::null())
             .stdout(log.try_clone()?)
@@ -1263,6 +1461,7 @@ fn build_once(p: &Paths, cfg: &Config, opts: &BuildOpts, on_progress: &mut dyn F
     let mut measured: Vec<serde_json::Value> = vec![];
     let mut codegen_checked = false;
     let mut cancelled = false;
+    let mut finished: HashSet<String> = HashSet::new();
     loop {
         let mut alive = 0;
         for (ch, pp, i) in children.iter_mut() {
@@ -1323,6 +1522,7 @@ fn build_once(p: &Paths, cfg: &Config, opts: &BuildOpts, on_progress: &mut dyn F
                                 "code": c.src.code_bytes, "hot": c.hot.len(), "secs": v["secs"], "kind": c.src.kind}));
                             let _ = std::fs::remove_file(out_dir.join(format!("{}.{}.aotc", key::name_id(&name), c.key)));
                         } else if state == "done" || state == "empty" {
+                            finished.insert(name.clone());
                             let (off, size) = slots[&name];
                             let file = (state == "done").then(|| format!("{}.{}.aotc", key::name_id(&name), c.key));
                             // drop the replaced chunk file
@@ -1393,7 +1593,10 @@ fn build_once(p: &Paths, cfg: &Config, opts: &BuildOpts, on_progress: &mut dyn F
             let _ = ch.wait();
         }
     }
-    shutdown_test_prefix(cfg);
+    if prefix_lock.is_some() {
+        shutdown_test_prefix(cfg);
+    }
+    drop(prefix_lock);
     if cancelled {
         prog.state = "cancelled".into();
         prog.message = format!("cancelled after {} of {} chunks (resume picks up the rest)", prog.chunks_done, prog.chunks_total);
@@ -1414,7 +1617,8 @@ fn build_once(p: &Paths, cfg: &Config, opts: &BuildOpts, on_progress: &mut dyn F
         publish(&mut prog, on_progress);
         return Ok(prog);
     }
-    if prog.chunks_done < prog.chunks_total {
+    if prog.chunks_done < prog.chunks_total || finished.len() < todo.len() {
+        prog.failed = todo.iter().filter(|c| !finished.contains(&c.src.name)).map(|c| c.src.name.clone()).collect();
         prog.state = "error".into();
         if prog.message.is_empty() || !prog.message.starts_with("chunk") {
             prog.message = format!("only {} of {} chunks finished: see {}", prog.chunks_done, prog.chunks_total, work.display());
@@ -1427,10 +1631,14 @@ fn build_once(p: &Paths, cfg: &Config, opts: &BuildOpts, on_progress: &mut dyn F
     let prev_chunks = man.image.as_ref().map(|i| i.chunks);
     let img = assemble(p, &plan, &mut man)?;
     write_json(&p.manifest(), &man)?;
+    if !p.is_staged() {
+        drop_other_images(p, &img.file);
+    }
     // 2026-11-13: an image with fewer chunks than the one it replaces cost every process ~50 MB (the 3 stub-dylib
     // chunks left out after an install, see stub_sources). An --only update (an app install) should never shrink it:
     // say so if one does.
-    if opts.only.is_some() && prev_chunks.is_some_and(|n| img.chunks < n) {
+    // (not for a staged table: an install that prunes a replaced / uninstalled app's rows has fewer chunks by design)
+    if opts.only.is_some() && !p.is_staged() && prev_chunks.is_some_and(|n| img.chunks < n) {
         eprintln!(
             "x86sim-aot: this --only image has {} chunks, the one before had {}: run `x86sim-aot update` (processes on an incomplete image use more memory)",
             img.chunks,
@@ -1628,14 +1836,11 @@ pub fn assemble(p: &Paths, plan: &Plan, man: &mut Manifest) -> Result<Image> {
     drop(w);
     std::fs::rename(&tmp, &out)?;
     let size = std::fs::metadata(&out)?.len();
-    // the old image's derived files (.map/.idx/.prelude of any layout) and images of other keys
+    // the replaced image's derived files (.map/.idx/.prelude of any layout); images of other keys go once the
+    // placement that names this image is the current one (drop_other_images)
     for e in std::fs::read_dir(&p.jc)?.flatten() {
         let n = e.file_name().to_string_lossy().into_owned();
-        let ours = n.starts_with(&plan.image_name);
-        let derived = ours && n != plan.image_name;
-        let other_image = n.ends_with(".aot") && !ours && n.len() > 40 && n.as_bytes()[32] == b'-';
-        let other_derived = !ours && n.len() > 40 && n.as_bytes().get(32) == Some(&b'-') && n.contains(".aot.");
-        if derived || other_image || other_derived {
+        if n.starts_with(&plan.image_name) && n != plan.image_name && !n.contains(".tmp.") {
             let _ = std::fs::remove_file(e.path());
         }
     }

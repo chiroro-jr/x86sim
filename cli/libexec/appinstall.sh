@@ -31,49 +31,29 @@ install)
 	S=$D/tmp/x86sim-install; mkdir -p "$S"; rm -rf "$S/$(basename "$app")"
 	cp -a "$app" "$S/" || exit 1
 	request "install tmp/x86sim-install/$(basename "$app")" "^install .*$(basename "$app")" 120 || exit 1
-	# Speed 31 (X86SIM_APP_AOT; Speed 32: opt-in after a full slab left placement and image apart; Speed 33: transactional): translate the app ahead of time. Its Mach-Os get placement slots
-	# (placeapp.py: existing slots never move) and the AOT image gets their chunks (x86sim-aot update: the app's
-	# chunks only, plus any library chunk with new .live training). Processes started from now on use them; until
-	# the update has finished, new processes find no image for the new key and translate live.
+	# Speed 31 (X86SIM_APP_AOT): translate the app ahead of time. AOT cache 1: one transaction in x86sim-aot, under the
+	# cache dir's lock (concurrent installs on phones of one runtime wait for each other): the app's Mach-Os get slots
+	# in a staged copy of placement.txt (placeapp.py: stale app rows pruned, freed ranges reused, least recently used
+	# apps evicted when the window is full; system slots never move), its chunks are built, the image for the staged
+	# table is assembled, and only then is the table committed. On any failure the last good table and image stay
+	# (the app runs live); a chunk that fails twice is left out of an image that is otherwise complete.
 	if [ "${X86SIM_APP_AOT:-1}" = 1 ]; then
 		J=$(sed -n 's/^X86SIM_A64_JITCACHE_DIR=//p' "$X86SIM_DEVICE/sim.env")
 		inst=$(ls -td "$D"/Containers/Bundle/Application/*/"$(basename "$app")" 2>/dev/null | head -1)
 		if [ -n "$J" ] && [ -n "$inst" ]; then
-			# Speed 33: transactional. placement.txt is the image key, so it is committed only together with an image
-			# built for it: on any failure the previous placement comes back (the previous image still matches it).
-			# Only this app's chunks are built here (--only: its container UUID); library feedback (.live) rebuilds
-			# stay with the boot-time update, so an install costs its own app only. A full slab evicts the coldest
-			# library chunks instead of failing (x86sim-aot).
-			P=$J/placement.txt; B=$J/placement.txt.pre-install
-			cp -p "$P" "$B" 2>/dev/null
-			u=$(basename "$(dirname "$inst")")
-			if python3 "$X86SIM_ROOT/cli/libexec/arm64/placeapp.py" "$J" "$inst" &&
-				{ cmp -s "$P" "$B" || "$X86SIM_ROOT/tools/launcher/target/release/x86sim-aot" --jc "$J" --device "$X86SIM_DEVICE" update --only "$u" | tail -1; } &&
-				[ "${PIPESTATUS[0]}" = 0 ]; then
-				:
-			else
-				echo "appinstall: AOT update failed; placement restored, $(basename "$app") runs live" >&2
-				[ -f "$B" ] && cp -p "$B" "$P"
-			fi
+			"$X86SIM_ROOT/tools/launcher/target/release/x86sim-aot" --jc "$J" --device "$X86SIM_DEVICE" app install "$inst" | tail -1
+			[ "${PIPESTATUS[0]}" = 0 ] || echo "appinstall: no AOT image for $(basename "$app"): it runs live (placement and image unchanged)" >&2
 		fi
 	fi ;;
 uninstall)
 	[ -n "$1" ] || { echo "usage: x86sim uninstall <bundle id>" >&2; exit 2; }
 	request "uninstall $1" "^uninstall $1:" 60 || exit 1
-	# Speed 35: the uninstalled app's placement rows (and image chunks) go too, transactionally as on install: the
-	# pruned placement.txt is kept only together with an image updated for it (assembly only: no chunk changes).
+	# Speed 35 / AOT cache 1: the uninstalled app's placement rows and chunks go too, as one transaction (x86sim-aot)
 	if [ "${X86SIM_APP_AOT:-1}" = 1 ]; then
 		J=$(sed -n 's/^X86SIM_A64_JITCACHE_DIR=//p' "$X86SIM_DEVICE/sim.env")
-		P=$J/placement.txt; B=$J/placement.txt.pre-uninstall
-		if [ -n "$J" ] && [ -f "$P" ]; then
-			cp -p "$P" "$B"
-			python3 "$X86SIM_ROOT/cli/libexec/arm64/placeapp.py" --prune "$J" "$D"; rc=$?
-			if [ $rc = 0 ]; then
-				"$X86SIM_ROOT/tools/launcher/target/release/x86sim-aot" --jc "$J" --device "$X86SIM_DEVICE" update | tail -1
-				[ "${PIPESTATUS[0]}" = 0 ] || { echo "appinstall: AOT update after uninstall failed; placement restored" >&2; cp -p "$B" "$P"; }
-			elif [ $rc != 3 ]; then
-				cp -p "$B" "$P"
-			fi
+		if [ -n "$J" ] && [ -f "$J/placement.txt" ]; then
+			"$X86SIM_ROOT/tools/launcher/target/release/x86sim-aot" --jc "$J" --device "$X86SIM_DEVICE" app prune "$D" | tail -1
+			[ "${PIPESTATUS[0]}" = 0 ] || echo "appinstall: AOT update after uninstall failed; placement and image unchanged" >&2
 		fi
 	fi ;;
 *) echo "appinstall.sh install|uninstall" >&2; exit 2 ;;

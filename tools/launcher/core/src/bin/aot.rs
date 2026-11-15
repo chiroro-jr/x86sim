@@ -5,6 +5,10 @@
 //!   x86sim-aot [--jc DIR] build [--full] [--workers N] [--only NAME]
 //!   x86sim-aot [--jc DIR] measure [--workers N]         every chunk of the scope, unlimited, sizes only
 //!   x86sim-aot [--jc DIR] config [KEY VALUE]            scope (hot|loaded|all), budget_mb, follow_features, training
+//!   x86sim-aot [--jc DIR] --device D app install APP...  place an installed app and build its chunks (one transaction)
+//!   x86sim-aot [--jc DIR] --device D app prune [DATA]     drop the rows / chunks of apps that exist on no phone
+//!   x86sim-aot [--jc DIR] maintain                        boot upkeep: an image for the current placement, cleanup
+//!   x86sim-aot [--jc DIR] gc                              the cleanup alone (AOT cache 1: appcache.rs)
 //!   x86sim-aot features list|get ID|set ID on|off|preset full|lean|minimal [--device DIR]
 //!   x86sim-aot sim status|start|stop|restart|show [--device DIR|NAME]   status: every phone
 //!   x86sim-aot setup check|install-darling|link-runtime DIR|done [--json]   the launcher's setup steps (docs/RELEASE.md)
@@ -140,6 +144,23 @@ fn run() -> Result<()> {
             if r.state != "done" {
                 bail!("{}: {}", r.state, r.message);
             }
+        }
+        // AOT cache 1 (appcache.rs): the app tier's transactions and the cache dir's upkeep, run by `x86sim install`,
+        // `x86sim uninstall` and boot-a64.sh; never needed by hand
+        "app" => {
+            let sub = if args.is_empty() { String::new() } else { args.remove(0) };
+            let workers = take(&mut args, "--workers").map(|w| w.parse()).transpose()?.unwrap_or(2);
+            let msg = match sub.as_str() {
+                "install" if !args.is_empty() => x86sim_core::appcache::app_install(&p, &cfg, &args.iter().map(PathBuf::from).collect::<Vec<_>>(), workers)?,
+                "prune" => x86sim_core::appcache::app_prune(&p, &cfg, args.first().map(std::path::Path::new), workers)?,
+                _ => bail!("app install APP... | app prune [DATA_DIR]"),
+            };
+            println!("{msg}");
+        }
+        "maintain" => println!("{}", x86sim_core::appcache::maintain(&p, &cfg)?),
+        "gc" => {
+            let _l = aot::Lock::acquire(&aot::jc_lock_path(&p), "the AOT cache")?;
+            println!("{}", x86sim_core::appcache::collect(&p, &cfg, true)?);
         }
         // export-training [--out FILE] [--merge FILE]... [DIR...]: the shipped training file from this cache dir's
         // profiles (and DIRs), with earlier training files folded in
