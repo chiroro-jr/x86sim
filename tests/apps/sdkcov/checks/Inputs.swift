@@ -4,6 +4,7 @@
 // input and fails without it; the host sends it meanwhile (tests/apps/sdkcov/inputs.sh: `x86sim shake` ... here,
 // notifyutil / Indigo messages on the Mac). Without it a check only reports the state it would wait on.
 import Foundation
+import notify
 import Synchronization
 #if canImport(UIKit)
 import UIKit
@@ -47,6 +48,9 @@ extension Registry {
             let wait = inputWait
             let edit = await onMain { UIApplication.shared.applicationSupportsShakeToEdit }
             guard wait > 0 else { return "shake to edit \(edit) (SDKCOV_INPUT_WAIT unset: no shake awaited)" }
+            // with --only the check starts as the app does, before its scene may be connected (it failed "no window" at
+            // once): wait for a key window first
+            _ = await inUntil(20) { UIApplication.shared.connectedScenes.contains { ($0 as? UIWindowScene)?.keyWindow != nil } }
             let (v, w) = try await onMain { () -> (ShakeView, UIWindow) in
                 guard let ws = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
                       let key = ws.windows.first(where: { $0.isKeyWindow }) ?? ws.windows.first else { throw Fail("no window") }
@@ -57,9 +61,23 @@ extension Registry {
             }
             defer { Task { @MainActor in v.resignFirstResponder(); v.removeFromSuperview() } }
             let first = await onMain { v.isFirstResponder }
+            // on failure, tell a lost darwin notification from UIKit dropping it: UIKit's own handler sends the motion
+            // event only while -[UIMotionEvent _isDetectingMotionEvents] (accelerometer events on: app did become active)
+            let posted = Mutex(0)
+            var tok: Int32 = 0
+            notify_register_dispatch("com.apple.UIKit.SimulatorShake", &tok, .global()) { _ in posted.withLock { $0 += 1 } }
+            defer { notify_cancel(tok) }
             let ok = await inUntil(wait) { v.shakes > 0 }
             let n = await onMain { v.shakes }
-            try expect(ok, "no shake in \(Int(wait)) s (first responder \(first), window key \(w.isKeyWindow))")
+            let detecting = await onMain { () -> String in
+                let sel = NSSelectorFromString("_isDetectingMotionEvents")
+                guard let me = UIApplication.shared.perform(NSSelectorFromString("_motionEvent"))?.takeUnretainedValue() as? NSObject,
+                      me.responds(to: sel) else { return "?" }
+                typealias B = @convention(c) (AnyObject, Selector) -> Bool
+                return "\(unsafeBitCast(me.method(for: sel), to: B.self)(me, sel))"
+            }
+            let state = await onMain { UIApplication.shared.applicationState.rawValue }
+            try expect(ok, "no shake in \(Int(wait)) s (first responder \(first), window key \(w.isKeyWindow), \(posted.withLock { $0 }) SimulatorShake notifications, UIKit detecting motion \(detecting), app state \(state))")
             return "\(n) shake motion events at the first responder"
         })
         #endif
