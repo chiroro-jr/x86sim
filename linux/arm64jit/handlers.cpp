@@ -66,7 +66,7 @@ static void h_key_delete(GuestThread &t, u32 i) {
 // Threads the guest creates start in thread_start(): pthread_exit on them unwinds back here (longjmp) and the thread
 // returns from its start routine instead. Darling's own pthread_exit killed the whole process (SIGABRT) when called
 // from a thread running guest code (backboardd).
-struct StartArg { u64 fn, arg; };
+struct StartArg { u64 fn, arg, stack; };
 // __builtin_setjmp/longjmp: glibc's fortified longjmp (__longjmp_chk) aborted on Darling's thread stacks
 using ExitJmp = void *[5];
 static thread_local ExitJmp *t_exit_jmp;
@@ -78,7 +78,7 @@ static void *thread_start(void *p) {
     ExitJmp *outer = t_exit_jmp;
     t_exit_jmp = &jb;
     u64 r;
-    if (__builtin_setjmp(jb) == 0) r = GuestThread::self().call(a.fn, {a.arg});
+    if (__builtin_setjmp(jb) == 0) { GuestThread &g = GuestThread::self(); g.ensure_stack(a.stack); r = g.call(a.fn, {a.arg}); }
     else {
         r = t_exit_value;
         if (g_trace) logf("thread_start: unwound from pthread_exit (tid %ld)", (long)syscall(SYS_gettid));
@@ -88,15 +88,23 @@ static void *thread_start(void *p) {
     t_exit_jmp = outer;
     return (void *)r;
 }
-static void *start_arg(u64 fn, u64 arg) { return new StartArg{fn, arg}; }
+// the attr's stack size (Darling's pthread_attr_t: the guest's pthread_attr_* calls are native), 0 without an attr
+static void *start_arg(u64 fn, u64 arg, u64 attr) {
+    size_t ss = 0;
+    if (attr) {
+        static auto *get = (int (*)(u64, size_t *))dsym("pthread_attr_getstacksize");
+        if (!get || get(attr, &ss) != 0) ss = 0;
+    }
+    return new StartArg{fn, arg, ss};
+}
 // pthread_create(thread, attr, start, arg) and the variants with the same arguments
 static void h_pthread_create(GuestThread &t, u32 i) {
     auto *fn = (int (*)(u64, u64, void *(*)(void *), void *))g_thunks[i].native;
-    t.set_x(0, (u32)fn(t.x(0), t.x(1), thread_start, start_arg(t.x(2), t.x(3))));
+    t.set_x(0, (u32)fn(t.x(0), t.x(1), thread_start, start_arg(t.x(2), t.x(3), t.x(1))));
 }
 static void h_pthread_create_with_workgroup(GuestThread &t, u32) {  // (thread, workgroup, attr, start, arg)
     static auto *fn = (int (*)(u64, u64, void *(*)(void *), void *))dsym("pthread_create");
-    t.set_x(0, (u32)fn(t.x(0), t.x(2), thread_start, start_arg(t.x(3), t.x(4))));
+    t.set_x(0, (u32)fn(t.x(0), t.x(2), thread_start, start_arg(t.x(3), t.x(4), t.x(2))));
 }
 
 static void h_introspection_hook(GuestThread &t, u32 i) {
@@ -552,7 +560,7 @@ static void h_stackaddr(GuestThread &t, u32 i) {
     if (on_own_stack(t)) t.set_x(0, t.stack_base + t.stack_size); else h_generic(t, i);
 }
 static void h_stacksize(GuestThread &t, u32 i) {
-    if (on_own_stack(t)) t.set_x(0, t.stack_size); else h_generic(t, i);
+    if (on_own_stack(t)) t.set_x(0, t.stack_reported); else h_generic(t, i);
 }
 
 // pthread_kill/__pthread_kill/kill with SIGABRT (libc's abort): log the guest backtrace first

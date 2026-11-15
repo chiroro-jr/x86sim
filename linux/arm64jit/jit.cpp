@@ -925,7 +925,26 @@ GuestThread::GuestThread() {
     void *stk = mmap(nullptr, kGuestStackGuard + stack_size, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
     if (stk == MAP_FAILED || mprotect((char *)stk + kGuestStackGuard, stack_size, PROT_READ | PROT_WRITE) != 0) die("cannot allocate a guest stack");
     stack_base = (u64)stk + kGuestStackGuard;
+    stack_reported = stack_size;
     susp_thread_init(*this);
+}
+// A thread created with an explicit stack size (pthread_attr_setstacksize, NSThread.stackSize): guest code gets at
+// least that much stack, as on Apple (the 8 MB default stays the minimum: x86Sim's own nested calls also use it).
+// Only before the thread runs guest code (depth 0); the old stack is replaced, not copied.
+void GuestThread::ensure_stack(u64 requested) {
+    if (!requested) return;
+    stack_reported = requested;
+    const u64 want = (requested + 0xffff) & ~0xffffull;
+    if (want <= stack_size || depth != 0) return;
+    void *stk = mmap(nullptr, kGuestStackGuard + want, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
+    if (stk == MAP_FAILED || mprotect((char *)stk + kGuestStackGuard, want, PROT_READ | PROT_WRITE) != 0) {
+        logf("ensure_stack: cannot map a %llu MB guest stack, keeping %llu MB", (unsigned long long)(want >> 20), (unsigned long long)(stack_size >> 20));
+        if (stk != MAP_FAILED) munmap(stk, kGuestStackGuard + want);
+        return;
+    }
+    munmap((void *)(stack_base - kGuestStackGuard), kGuestStackGuard + stack_size);
+    stack_base = (u64)stk + kGuestStackGuard;
+    stack_size = want;
 }
 // After a longjmp out of call() (pthread_exit) the Jit still counts as executing: its state is abandoned (leaked,
 // destroying it could assert) and the thread gets a fresh one for whatever guest code still runs on it (TSD

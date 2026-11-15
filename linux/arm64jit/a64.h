@@ -48,6 +48,11 @@ struct GuestThread final : Dynarmic::A64::UserCallbacks {
     // Perf 1e: jit's register storage (Jit::GetStatePointers), refreshed whenever jit is (re)created
     Dynarmic::A64::Jit::StatePointers st{};
     u64 stack_base = 0, stack_size = 0;
+    // what pthread_get_stacksize_np answers on this thread: the stack size its creator asked for (pthread attr), else
+    // stack_size. ensure_stack() grows the guest stack to a requested size above the 8 MB default (an app's thread
+    // created with a 16 MB stack for a deep recursion overflowed at 8 MB).
+    u64 stack_reported = 0;
+    void ensure_stack(u64 requested);
     // PROT_NONE below stack_base (GitHub issue #2): a guest stack overflow faults instead of corrupting the next mapping.
     // Large enough that a frame of up to 1 MB without stack probes cannot step over it.
     static constexpr u64 kGuestStackGuard = 1ull << 20;
