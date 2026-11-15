@@ -269,35 +269,54 @@ pub fn simview_unit(inst: &crate::instance::Instance) -> String {
     }
 }
 
-pub fn simview_running_for(inst: &crate::instance::Instance) -> bool {
-    Command::new("systemctl").args(["--user", "is-active", "--quiet", &simview_unit(inst)]).status().is_ok_and(|s| s.success())
+/// A systemd user manager this process can reach (`systemd-run --user` works). Not there: a distro without systemd
+/// (Devuan, Void, Gentoo/OpenRC, MX on sysvinit, ...), or a session without one (ssh, containers, sudo -u).
+pub fn user_systemd() -> bool {
+    static OK: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *OK.get_or_init(|| {
+        Command::new("systemctl").args(["--user", "show-environment"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|s| s.success())
+    })
 }
 
-/// The standalone viewer (simview, with its console pane) for one phone: its ring, input socket and logs, on the
-/// display this process runs on (DISPLAY / WAYLAND_DISPLAY), as a systemd user service.
-pub fn show_phone(inst: &crate::instance::Instance) -> Result<()> {
-    if simview_running_for(inst) {
-        return Ok(());
+/// A simview drawing `ring`, found in /proc (the viewer started without systemd, by `spawn_simview`)
+fn simview_proc(ring: &Path) -> bool {
+    let want = format!("SIMFB_RING_LINUX={}", ring.display());
+    std::fs::read_dir("/proc").into_iter().flatten().flatten().any(|e| {
+        let p = e.path();
+        e.file_name().to_string_lossy().bytes().all(|b| b.is_ascii_digit())
+            && read(&format!("{}/cmdline", p.display())).split('\0').any(|a| a.ends_with("cli/libexec/simview.py"))
+            && read(&format!("{}/environ", p.display())).split('\0').any(|kv| kv == want)
+    })
+}
+
+/// The viewer's unit is active, or without systemd a simview process draws `ring`
+fn viewer_up(unit: &str, ring: &Path) -> bool {
+    if user_systemd() {
+        Command::new("systemctl").args(["--user", "is-active", "--quiet", unit]).status().is_ok_and(|s| s.success())
+    } else {
+        simview_proc(ring)
     }
+}
+
+/// simview as a detached process of its own session (no systemd): `setsid -f` forks, so nothing is left to reap
+fn spawn_simview(env: &[(&str, String)]) -> Result<()> {
+    let mut cmd = Command::new("setsid");
+    cmd.args(["-f", "/usr/bin/python3", "cli/libexec/simview.py"]).current_dir(repo_root()).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
+    anyhow::ensure!(cmd.status()?.success(), "starting simview failed");
+    Ok(())
+}
+
+/// simview as a systemd user service (it outlives the launcher, and `systemctl --user stop` ends it)
+fn run_simview_unit(unit: &str, env: &[(&str, String)]) -> Result<()> {
     let mut cmd = Command::new("systemd-run");
-    cmd.args(["--user", "--unit", &simview_unit(inst), "--collect"]);
-    // the user manager's environment carries the desktop session's DISPLAY / WAYLAND_DISPLAY: override both, so the
-    // window opens where this hub is (an X-only hub, e.g. on Xvfb, gets GTK's X11 backend)
-    let display = std::env::var("DISPLAY").unwrap_or_default();
-    let wayland = std::env::var("WAYLAND_DISPLAY").unwrap_or_default();
-    cmd.args(["-E", &format!("DISPLAY={display}"), "-E", &format!("WAYLAND_DISPLAY={wayland}")]);
-    if wayland.is_empty() {
-        cmd.args(["-E", "GDK_BACKEND=x11"]);
+    cmd.args(["--user", "--unit", unit, "--collect"]);
+    for (k, v) in env {
+        cmd.args(["-E", &format!("{k}={v}")]);
     }
-    if let Ok(v) = std::env::var("XDG_RUNTIME_DIR") {
-        cmd.args(["-E", &format!("XDG_RUNTIME_DIR={v}")]);
-    }
-    cmd.args(["-E", "SIMVIEW_FOLLOW=0"])
-        .args(["-E", &format!("SIMFB_RING_LINUX={}", inst.ring.display())])
-        .args(["-E", &format!("SIMHID_SOCKET={}", inst.sock.display())])
-        .args(["-E", &format!("SIMULATOR_MAINSCREEN_WIDTH={}", inst.screen.0)])
-        .args(["-E", &format!("SIMULATOR_MAINSCREEN_HEIGHT={}", inst.screen.1)])
-        .args(["-p", &format!("WorkingDirectory={}", repo_root().display())])
+    cmd.args(["-p", &format!("WorkingDirectory={}", repo_root().display())])
         .args(["/usr/bin/python3", "cli/libexec/simview.py"])
         .stdout(Stdio::null())
         .stderr(Stdio::null());
@@ -305,24 +324,60 @@ pub fn show_phone(inst: &crate::instance::Instance) -> Result<()> {
     Ok(())
 }
 
-pub fn simview_running() -> bool {
-    Command::new("systemctl").args(["--user", "is-active", "--quiet", "x86sim-simview"]).status().is_ok_and(|s| s.success())
+pub fn simview_running_for(inst: &crate::instance::Instance) -> bool {
+    viewer_up(&simview_unit(inst), &inst.ring)
 }
 
-/// simview with the console pane on DISPLAY=:0 (a systemd user service, as the round scripts run it)
+/// The standalone viewer (simview, with its console pane) for one phone: its ring, input socket and logs, on the
+/// display this process runs on (DISPLAY / WAYLAND_DISPLAY): a systemd user service, or without systemd a detached
+/// process.
+pub fn show_phone(inst: &crate::instance::Instance) -> Result<()> {
+    if simview_running_for(inst) {
+        return Ok(());
+    }
+    // the user manager's environment carries the desktop session's DISPLAY / WAYLAND_DISPLAY: override both, so the
+    // window opens where this hub is (an X-only hub, e.g. on Xvfb, gets GTK's X11 backend)
+    let display = std::env::var("DISPLAY").unwrap_or_default();
+    let wayland = std::env::var("WAYLAND_DISPLAY").unwrap_or_default();
+    let mut env = vec![("DISPLAY", display), ("WAYLAND_DISPLAY", wayland.clone())];
+    if wayland.is_empty() {
+        env.push(("GDK_BACKEND", "x11".into()));
+    }
+    if let Ok(v) = std::env::var("XDG_RUNTIME_DIR") {
+        env.push(("XDG_RUNTIME_DIR", v));
+    }
+    env.extend([
+        ("SIMVIEW_FOLLOW", "0".into()),
+        ("SIMFB_RING_LINUX", inst.ring.display().to_string()),
+        ("SIMHID_SOCKET", inst.sock.display().to_string()),
+        ("SIMULATOR_MAINSCREEN_WIDTH", inst.screen.0.to_string()),
+        ("SIMULATOR_MAINSCREEN_HEIGHT", inst.screen.1.to_string()),
+    ]);
+    if user_systemd() {
+        run_simview_unit(&simview_unit(inst), &env)
+    } else {
+        spawn_simview(&env)
+    }
+}
+
+const DEFAULT_RING: &str = "/dev/shm/x86sim-a64-simfb.ring";
+
+pub fn simview_running() -> bool {
+    viewer_up("x86sim-simview", Path::new(DEFAULT_RING))
+}
+
+/// simview with the console pane on DISPLAY=:0 (a systemd user service, as the round scripts run it; without
+/// systemd a detached process)
 pub fn show() -> Result<()> {
     if simview_running() {
         return Ok(());
     }
-    let st = Command::new("systemd-run")
-        .args(["--user", "--unit", "x86sim-simview", "--collect", "-E", "DISPLAY=:0", "-E", "SIMFB_RING_LINUX=/dev/shm/x86sim-a64-simfb.ring", "-p"])
-        .arg(format!("WorkingDirectory={}", repo_root().display()))
-        .args(["/usr/bin/python3", "cli/libexec/simview.py"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()?;
-    anyhow::ensure!(st.success(), "systemd-run simview failed");
-    Ok(())
+    let env = [("DISPLAY", ":0".to_string()), ("SIMFB_RING_LINUX", DEFAULT_RING.to_string())];
+    if user_systemd() {
+        run_simview_unit("x86sim-simview", &env)
+    } else {
+        spawn_simview(&env)
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize)]

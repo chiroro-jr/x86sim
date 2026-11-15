@@ -134,8 +134,12 @@ then choose **Add device**.
 | **Disk** | 45 GB free while a runtime downloads and unpacks |
 | **Kernel** | overlayfs; Linux 6.11 or newer is a little faster |
 
-Setup also looks for a few common programs (`python3`, `curl`, `openssl`, `systemd-run`) and tells you if one is
+Setup also looks for a few common programs (`python3`, `curl`, `openssl`, `setsid`) and tells you if one is
 missing. Everything else is inside the AppImage.
+
+systemd is optional. With a systemd user manager, each phone runs in a scope with a disk IO cap and low CPU priority
+(and the optional memory cap `X86SIM_MEM_MAX`), so a cold boot doesn't stall the desktop. Without one (Devuan, Void,
+Gentoo/OpenRC, ...) phones run without those limits and everything else works the same.
 
 ## Supported devices and versions
 
