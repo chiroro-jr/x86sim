@@ -24,7 +24,10 @@ CC="xcrun -sdk $SIMSDK clang $T"
 # build_exe: the same for an executable.
 build() {
 	local name; name=$(basename "$2")
-	mac "rm -rf /tmp/$1 && mkdir -p /tmp/$1 && cd /tmp/$1 && tar xf - && { $3; } >&2 && cat $name" > "$W/$name"
+	# explicit checks: build_exe calls this inside an && list, where set -e is off, so a failed compile used to move an
+	# empty file over the committed binary (devices booting then came up without that shim)
+	mac "rm -rf /tmp/$1 && mkdir -p /tmp/$1 && cd /tmp/$1 && tar xf - && { $3; } >&2 && cat $name" > "$W/$name" &&
+		[ -s "$W/$name" ] || { echo "build of $name failed; $2 left as it was" >&2; exit 1; }
 	mkdir -p "$(dirname "$2")" && mv "$W/$name" "$2"
 }
 build_exe() { build "$@" && chmod +x "$2"; }
