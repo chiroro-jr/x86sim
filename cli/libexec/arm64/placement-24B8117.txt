@@ -817,3 +817,9 @@
 2f2dd0000 a0000 653600 1792520555 usr/libexec/installd
 2f2e80000 1b74000 28695296 1792520555 usr/libexec/locationd
 2f4a10000 58000 356672 1792520555 usr/libexec/wcd
+2f4a80000 7f4000 8232272 1792520555 usr/libexec/sharingd
+2f5290000 64000 404016 1792520555 Applications/SharingUIService.app/SharingUIService
+2f5310000 294000 2681648 1792520555 System/Library/PrivateFrameworks/AutoUnlockDaemon.framework/AutoUnlockDaemon
+2f55c0000 38000 227616 1792520555 System/Library/PrivateFrameworks/CoreUtilsShims.framework/CoreUtilsShims
+2f5610000 c000 34992 1792520555 System/Library/PrivateFrameworks/SharingHUD.framework/SharingHUD
+2f5630000 c000 35024 1792520555 System/Library/PrivateFrameworks/SharingXPCServices.framework/SharingXPCServices
