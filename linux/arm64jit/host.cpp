@@ -495,9 +495,34 @@ static void fatal_exit(int code) {
     syscall(SYS_kill, getpid(), SIGKILL);
     syscall(SYS_exit_group, 128 + code);
 }
+// A guest crash without a guest handler ends as on XNU: killed by that signal (the parent's wait status, RunningBoard's
+// crash reason), after libarm64jit's report.
+void die_with_signal(int sig, bool core) {
+    if (!core) prctl(PR_SET_DUMPABLE, 0);
+    struct sigaction sa{};
+    sa.sa_handler = SIG_DFL;
+    sigaction(sig, &sa, nullptr);
+    sigset_t s;
+    sigemptyset(&s);
+    sigaddset(&s, sig);
+    pthread_sigmask(SIG_UNBLOCK, &s, nullptr);
+    syscall(SYS_tgkill, getpid(), syscall(SYS_gettid), sig);
+    fatal_exit(sig);
+    __builtin_unreachable();
+}
+// Darling's handler of every signal (sigexc_handler, darling_sigexc_self), as found on SIGABRT: it runs guest handlers
+static void (*g_darling_sig)(int, siginfo_t *, void *) = nullptr;
 extern std::atomic<u64> g_remap_lo, g_remap_hi;  // handlers.cpp h_vm_remap
 static void on_fault(int sig, siginfo_t *si, void *uc) {
     auto *ctx = (ucontext_t *)uc;
+    // SIGSEGV / SIGBUS sent by kill / raise / pthread_kill (a crash reporter re-raising): the guest's action
+    // (Darling's handler runs a guest handler), or the default action (it reset SIG_DFL), as on XNU
+    if (si->si_code <= 0) {
+        const int dsig = sig == SIGSEGV ? 11 : 10;
+        if (g_darling_sig && guest_sig_action_set(dsig)) { g_darling_sig(sig, si, uc); return; }
+        logf("signal %d sent by pid %d (code %d), no guest action: default action", sig, si->si_pid, si->si_code);
+        die_with_signal(sig);
+    }
     // Speed 30: a store into a range h_vm_remap froze for a shared remap: wait until it is writable again, retry
     if (sig == SIGSEGV && si->si_code == SEGV_ACCERR) {
         const u64 a = (u64)si->si_addr;
@@ -526,6 +551,50 @@ static void on_fault(int sig, siginfo_t *si, void *uc) {
         const u64 page = (u64)si->si_addr & ~0xfffull;
         if (mprotect((void *)page, 0x1000, PROT_READ | PROT_EXEC) == 0) return;
     }
+    // A fault of guest code: in translated code (a guest load / store; the stack guard), or in a thunk's native code
+    // (a libsystem function given a bad pointer). The guest's SIGSEGV / SIGBUS handler runs, as on XNU, with the
+    // faulting instruction's state (in a thunk: the call's); without one, the report below and the death by the signal.
+    // In translated code outside a block (a prelude helper), in a dynarmic callback or on a thread without guest
+    // code, the old report (fatal native fault) applies.
+    int gsig = 0;
+    u64 gpc = 0;
+    if ((sig == SIGSEGV || sig == SIGBUS) && si->si_code > 0 && si->si_code != SI_KERNEL) {
+        GuestThread *t = GuestThread::current();
+        const u64 r = (u64)ctx->uc_mcontext.gregs[REG_RIP];
+        const bool in_jit = Dynarmic::Backend::IsJitCodeAddress(r);
+        std::optional<u64> blk;
+        if (t && t->jit && t->depth > 0 && in_jit) blk = t->jit->GuestBlockAtHostAddress(r);
+        if (blk || (t && t->jit && t->depth > 0 && !in_jit && t->native)) {
+            const u64 a = (u64)si->si_addr;
+            const bool guard = t->in_stack_guard(a);
+            // XNU: an unmapped address is SIGSEGV, a page without the access (the stack guard too) SIGBUS
+            gsig = sig == SIGSEGV && si->si_code == SEGV_MAPERR && !guard ? 11 : 10;
+            const int gcode = gsig == 11 ? 2 /* SEGV_ACCERR, as XNU reports it */ : sig == SIGBUS ? 2 /* BUS_ADRERR */ : 1;
+            const bool write = ctx->uc_mcontext.gregs[REG_ERR] & 2;
+            const uint32_t esr = 0x24u << 26 | 1u << 25 | (write ? 1u << 6 : 0) | (gsig == 11 ? 0x07 : 0x0F);
+            u64 h[4] = {(u64)ctx->uc_mcontext.gregs[REG_R12], (u64)ctx->uc_mcontext.gregs[REG_R13],
+                        (u64)ctx->uc_mcontext.gregs[REG_R14], (u64)ctx->uc_mcontext.gregs[REG_RBP]};
+            if (blk) {
+                t->jit->LoadPinnedFromHost(h);
+                gpc = guest_fault_pc(*t, *blk, a, write);
+            } else gpc = t->jit->GetPC();
+            const int res = guest_fault_now(*t, gsig, gcode, a, gpc, esr, uc, blk.has_value(), guard);
+            if (res == 1) return;  // the access runs again (fixed, or faults again)
+            if (res == 2) {
+                if (blk) {  // leave the block; Run() resumes from the handler's state
+                    t->jit->StorePinnedToHost(h);
+                    ctx->uc_mcontext.gregs[REG_R12] = (greg_t)h[0]; ctx->uc_mcontext.gregs[REG_R13] = (greg_t)h[1];
+                    ctx->uc_mcontext.gregs[REG_R14] = (greg_t)h[2]; ctx->uc_mcontext.gregs[REG_RBP] = (greg_t)h[3];
+                    ctx->uc_mcontext.gregs[REG_RIP] = (greg_t)t->jit->ForceReturnAddress();
+                } else {
+                    logf("guest signal %d handler changed the context of a fault in native code (thunk %s): not applied", gsig,
+                         t->in_thunk >= 0 ? g_thunks[t->in_thunk].name.c_str() : "-");
+                }
+                return;
+            }
+            if (!blk) gsig = 0;  // native: the old report and kill
+        }
+    }
     // nesting guard without TLS (a Darling-created thread may have no usable glibc TLS): the tid in the handler
     static std::atomic<long> in_handler_tid{0};
     static std::atomic<int> nested{0};
@@ -546,7 +615,7 @@ static void on_fault(int sig, siginfo_t *si, void *uc) {
              si->si_addr, (unsigned long)t->stack_base, (unsigned long)(t->stack_base + t->stack_size), (unsigned long)t->sp(),
              (unsigned long)t->jit->GetPC(), (unsigned long long)rip, (int)getpid());
         guest_backtrace(*t);
-        fatal_exit(sig);
+        die_with_signal(SIGBUS);  // XNU: SIGBUS (the guard page has no access)
     }
     static const char *nf = getenv("X86SIM_A64_NATIVE_FAULT");
     const bool fatal = !Dynarmic::Backend::IsJitCodeAddress(rip) && !(nf && !strcmp(nf, "chain"));
@@ -592,6 +661,11 @@ static void on_fault(int sig, siginfo_t *si, void *uc) {
     }
     if (GuestThread *t = GuestThread::current(); t && si->si_code != SEGV_ACCERR) { logf("  pc in %s, in thunk %s", where(t->jit->GetPC()).c_str(), t->in_thunk >= 0 ? g_thunks[t->in_thunk].name.c_str() : "-"); guest_backtrace(*t); }
     peek();
+    if (gsig) {  // a guest fault in translated code, no guest handler
+        logf("guest fault at pc %#lx %s (signal %d): no guest handler, killing pid %d", (unsigned long)gpc, where(gpc).c_str(),
+             gsig, (int)getpid());
+        die_with_signal(gsig == 11 ? SIGSEGV : SIGBUS);
+    }
     if (fatal) {
         native_backtrace(ctx);
         logf("fatal native fault (rip not in JIT code): killing pid %d", (int)getpid());
@@ -605,7 +679,16 @@ static void on_fault(int sig, siginfo_t *si, void *uc) {
 }
 // SIGABRT from native code (Darling's libsystem, dynarmic asserts): native and guest backtraces, then the default.
 static const char *g_scratch_abrt = "";  // scratch_dir(), resolved before the handler is installed
-static void on_abrt(int, siginfo_t *si, void *uc) {
+// The guest's abort() / raise(SIGABRT) / pthread_kill (from Darling's native __pthread_kill: not ELF code) goes to
+// Darling's handler when the guest has a SIGABRT action: it runs the guest's handler (crash reporters) as on XNU. The
+// report below and the default action follow when the guest has none (or its handler re-raised with SIG_DFL), and
+// for libarm64jit's / dynarmic's own aborts (ELF code).
+static void on_abrt(int sig, siginfo_t *si, void *uc) {
+    if (g_darling_sig && uc && guest_sig_action_set(6) &&
+        !in_elf_code((u64)((ucontext_t *)uc)->uc_mcontext.gregs[REG_RIP])) {
+        g_darling_sig(sig, si, uc);
+        return;
+    }
     // Scratch breadcrumb (survives when per-pid logs truncate): real RIP from ucontext + maps line.
     u64 rip = 0;
     if (uc) rip = (u64)((ucontext_t *)uc)->uc_mcontext.gregs[REG_RIP];
@@ -681,6 +764,14 @@ static void native_frames(u64 fp, u64 first) {
     }
 }
 [[noreturn]] static void native_abort_hook() {
+    // Darling's native abort() called from a thunk (malloc's double-free check, a libsystem assert): the guest's
+    // SIGABRT handler runs first, as XNU's abort() raises SIGABRT to it; the report and the default action follow.
+    if (GuestThread *t = GuestThread::current(); t && t->jit && t->depth > 0 && t->native &&
+        guest_sync_signal(*t, 6, 0, 0, t->jit->GetPC(), 0, 0)) {
+        logf("native abort() (tid %ld, thunk %s): the guest's SIGABRT handler", (long)syscall(SYS_gettid),
+             t->in_thunk >= 0 ? g_thunks[t->in_thunk].name.c_str() : "-");
+        deliver_signals(*t);
+    }
     logf("native abort() (tid %ld): native frames:", (long)syscall(SYS_gettid));
     native_frames((u64)__builtin_frame_address(0), 0);
     if (GuestThread *t = GuestThread::current()) {
@@ -1176,7 +1267,14 @@ static void install_fault_report() {
     start_file_trim();
     hook_native_abort();
     g_scratch_abrt = scratch_dir().c_str();
-    { struct sigaction sa{}; sa.sa_sigaction = on_abrt; sa.sa_flags = SA_SIGINFO | SA_ONSTACK; sigaction(SIGABRT, &sa, nullptr); }
+    in_elf_code(0);  // on_abrt's ELF ranges (dl_iterate_phdr), not first in a signal handler
+    {
+        struct sigaction sa{}, cur{};
+        if (sigaction(SIGABRT, nullptr, &cur) == 0 && (cur.sa_flags & SA_SIGINFO) && (void *)cur.sa_handler != SIG_DFL &&
+            (void *)cur.sa_handler != SIG_IGN && cur.sa_sigaction != on_abrt)
+            g_darling_sig = cur.sa_sigaction;  // Darling's sigexc_handler (darling_sigexc_self)
+        sa.sa_sigaction = on_abrt; sa.sa_flags = SA_SIGINFO | SA_ONSTACK; sigaction(SIGABRT, &sa, nullptr);
+    }
     struct sigaction sa{};
     // SA_NODEFER: a fault inside the report re-enters on_fault (depth guard: one log line, then kill); with SIGSEGV
     // blocked the kernel killed the process silently and the report stopped after its first line.

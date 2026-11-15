@@ -664,6 +664,32 @@ std::optional<uint32_t> blwatch_read_code(u64 a) {
     return std::nullopt;
 }
 
+// Guest code words for the translator. The first read of each page on a thread checks that it is readable: a jump
+// to unmapped memory (a NULL or freed function pointer) gives no word, and dynarmic's block raises NoExecuteFault
+// there (ExceptionRaised: SIGSEGV for the guest) instead of the translator faulting in libarm64jit (fatal).
+}  // namespace
+// Mapped but not readable (an execute-only page: a protection key, see host.cpp on_fault) is read directly, as before.
+static thread_local u64 t_code_page __attribute__((tls_model("initial-exec"))) = ~0ull;
+static bool code_unmapped(u64 a) {
+    unsigned char v;
+    return mincore(reinterpret_cast<void *>(a & GuestThread::kTbi & ~0xfffull), 1, &v) != 0 && errno == ENOMEM;
+}
+std::optional<uint32_t> guest_code_word(u64 a) {
+    const u64 p = (a & GuestThread::kTbi) >> 12;
+    if (__builtin_expect(p != t_code_page, 0)) {
+        uint32_t w;
+        iovec l{&w, 4}, r{reinterpret_cast<void *>(a & GuestThread::kTbi), 4};
+        if (process_vm_readv(getpid(), &l, 1, &r, 1, 0) != 4) {
+            if (code_unmapped(a)) return std::nullopt;
+            return GuestThread::rd<uint32_t>(a);
+        }
+        t_code_page = p;
+        return w;
+    }
+    return GuestThread::rd<uint32_t>(a);
+}
+namespace {
+
 struct Forward final : Dynarmic::A64::UserCallbacks {
     static GuestThread &T() { return *t_self; }
     std::optional<uint32_t> MemoryReadCode(u64 a) override {
@@ -678,7 +704,7 @@ struct Forward final : Dynarmic::A64::UserCallbacks {
         if (auto w = agchk_read_code(a)) return w;
         if (__builtin_expect(!blwatch_sites().empty() || blwatch_named_init(), 0))
             if (auto w = blwatch_read_code(a)) return w;
-        return GuestThread::rd<uint32_t>(a);
+        return guest_code_word(a);
     }
     uint8_t MemoryRead8(u64 a) override { return GuestThread::rd<uint8_t>(a); }
     uint16_t MemoryRead16(u64 a) override { return GuestThread::rd<uint16_t>(a); }
@@ -1338,12 +1364,18 @@ void GuestThread::CallSVC(uint32_t swi) {
     if (skip_ret && in_thunk < 0 && jit->GetPC() == pc0 && rd<u32>(pc0) == 0xD65F03C0u) jit->SetPC(x(30));
 }
 
+std::optional<uint32_t> GuestThread::MemoryReadCode(u64 a) { return guest_code_word(a); }
+
 bool fp16_interpret(GuestThread &t, u32 insn);
 void GuestThread::InterpreterFallback(u64 pc, size_t n) {
     // FEAT_FP16 SIMD (fp16.cpp): execute and continue after it
     u64 at = pc;
     for (size_t k = 0; k < n && fp16_interpret(*this, rd<uint32_t>(at)); k++) at += 4;
     if (at != pc) { jit->SetPC(at); return; }
+    // udf (permanently undefined, 0x0000xxxx), or an encoding dynarmic does not implement: SIGILL for the guest's
+    // handler as on XNU (ILL_ILLTRP); without one, udf dies by SIGILL after the report, anything else aborts (x86Sim gap)
+    const uint32_t insn = guest_code_word(pc).value_or(0);
+    if (guest_sync_signal(*this, 4, 2, pc, pc, pc, 1u << 25)) return;
     logf("unimplemented instruction %08x at %#lx lr %#lx sp %#lx x0 %#lx x16 %#lx x17 %#lx", rd<uint32_t>(pc), (unsigned long)pc,
          (unsigned long)x(30), (unsigned long)sp(), (unsigned long)x(0), (unsigned long)x(16), (unsigned long)x(17));
     if (FILE *m = fopen("/proc/self/maps", "r")) {
@@ -1354,6 +1386,7 @@ void GuestThread::InterpreterFallback(u64 pc, size_t n) {
         }
         fclose(m);
     }
+    if ((insn >> 16) == 0) { guest_backtrace(*this); die_with_signal(SIGILL, true); }
     abort();
 }
 
@@ -1447,21 +1480,36 @@ void GuestThread::ExceptionRaised(u64 pc, Dynarmic::A64::Exception e) {
     // hints (spin loops: YIELD, WFE in os_unfair_lock/dispatch): continue at the next instruction
     if (e == E::Yield || e == E::WaitForEvent || e == E::WaitForInterrupt) { sched_yield(); return; }
     if (e == E::SendEvent || e == E::SendEventLocal) return;
-    uint32_t insn = rd<uint32_t>(pc);
+    const bool nx = e == E::NoExecuteFault;
+    uint32_t insn = nx ? 0 : guest_code_word(pc).value_or(0);
     // FEAT_FP16 scalar GPR<->half (SCVTF/UCVTF h,w): dynarmic raises UnallocatedEncoding; interpret and continue.
     if (e == E::UnallocatedEncoding && fp16_interpret(*this, insn)) {
         jit->SetPC(pc + 4);
         return;
     }
-    // brk #0xf... (Swift/clang traps), udf: report like a crash with the guest registers.
-    logf("guest exception %d at pc %#lx %s (insn %08x) lr %#lx sp %#lx", (int)e, (unsigned long)pc, where(pc).c_str(), insn,
-         (unsigned long)x(30), (unsigned long)sp());
+    // A jump to memory that was not readable when the block was translated: the block (not persistable: a host call)
+    // is dropped; if the code is there now (mapped since), run it, else it is a fault of the guest at that pc.
+    if (nx) {
+        jit->InvalidateCacheRange(pc, 4);
+        if (!code_unmapped(pc)) { jit->SetPC(pc); return; }
+        insn = 0;
+    }
+    // brk #0xf... (Swift/clang traps, __builtin_trap): SIGTRAP; udf / unallocated: SIGILL (ILL_ILLTRP, as XNU); a jump
+    // to unmapped memory: SIGSEGV at that pc. The guest's handler runs when the block returns, with this pc (signals.cpp).
+    const int dsig = e == E::Breakpoint ? 5 : nx ? 11 : 4, dcode = e == E::Breakpoint ? 0 : 2;
+    const uint32_t esr = e == E::Breakpoint ? (0x3Cu << 26 | 1u << 25 | (insn >> 5 & 0xffff))   // BRK64
+                         : nx ? (0x20u << 26 | 1u << 25 | 0x07)                                   // instruction abort
+                              : (0x00u << 26 | 1u << 25);                                         // unknown
+    if (guest_sync_signal(*this, dsig, dcode, pc, pc, pc, esr)) return;
+    // no guest handler: report like a crash with the guest registers, then die by that signal (as XNU's default action)
+    logf("guest exception %d at pc %#lx %s (insn %08x) lr %#lx sp %#lx%s", (int)e, (unsigned long)pc, where(pc).c_str(), insn,
+         (unsigned long)x(30), (unsigned long)sp(), nx ? ": jump to unmapped memory" : "");
     for (int i = 0; i < 31; i += 4)
         logf("  x%-2d %016lx x%-2d %016lx x%-2d %016lx x%-2d %016lx", i, (unsigned long)x(i), i + 1,
              (unsigned long)(i + 1 < 31 ? x(i + 1) : 0), i + 2, (unsigned long)(i + 2 < 31 ? x(i + 2) : 0), i + 3,
              (unsigned long)(i + 3 < 31 ? x(i + 3) : 0));
     guest_backtrace(*this);
-    abort();
+    die_with_signal(dsig == 5 ? SIGTRAP : dsig == 11 ? SIGSEGV : SIGILL);
 }
 
 u64 GuestThread::GetCNTPCT() {

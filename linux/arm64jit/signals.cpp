@@ -6,7 +6,10 @@
 // GuestThread::call() then delivers: it builds an arm64 Darwin ucontext (mcontext64: exception, thread and NEON
 // state) on the guest stack, blocks sa_mask + the signal, calls the guest handler with (sig, siginfo, ucontext), and
 // resumes from the (possibly modified) thread state. Signals on threads that run no guest code are dropped with a log.
-// Synchronous faults of guest code (SIGSEGV/SIGBUS/SIGILL/SIGTRAP from the JIT itself) are not routed here.
+// The frame goes on the guest's sigaltstack for SA_ONSTACK handlers (h_sigaltstack keeps it per GuestThread).
+// Synchronous signals of guest code (faults in translated code or a thunk's native code: host.cpp on_fault; brk / udf /
+// a jump to unmapped memory: jit.cpp ExceptionRaised) go to the guest's handler with the faulting instruction's state;
+// without a guest handler, libarm64jit's own crash report runs as before.
 #include "a64.h"
 #include <atomic>
 #include <csignal>
@@ -16,6 +19,7 @@
 #include <ctime>
 #include <link.h>
 #include <sys/syscall.h>
+#include <sys/uio.h>
 #include <ucontext.h>
 #include <unistd.h>
 
@@ -24,8 +28,11 @@ namespace a64 {
 namespace {
 struct GuestAction { std::atomic<u64> handler{0}; std::atomic<uint32_t> mask{0}; std::atomic<int> flags{0}; };
 GuestAction g_act[32];
-constexpr int kSA_SIGINFO = 0x40, kSA_RESETHAND = 0x4, kSA_NODEFER = 0x10;  // Darwin values
+constexpr int kSA_ONSTACK = 0x1, kSA_SIGINFO = 0x40, kSA_RESETHAND = 0x4, kSA_NODEFER = 0x10;  // Darwin values
 constexpr int kSIG_BLOCK = 1, kSIG_SETMASK = 3;
+constexpr int kSS_ONSTACK = 1, kSS_DISABLE = 4;
+constexpr u64 kMINSIGSTKSZ = 32768;
+constexpr int kDSIGBUS = 10, kDSIGSEGV = 11;
 
 // Darwin arm64 ucontext + mcontext64.
 struct ArmUcontext {
@@ -40,6 +47,14 @@ struct ArmMcontext {
     u64 pad2;
 };
 static_assert(sizeof(ArmUcontext) == 56 && offsetof(ArmMcontext, x) == 16 && offsetof(ArmMcontext, v) == 288 && sizeof(ArmMcontext) == 816);
+// Darwin siginfo: si_signo, si_errno, si_code, si_pid, si_uid, si_status, si_addr (+24), si_value, si_band, pad
+void fill_siginfo(GuestThread &t, int sig, int code, u64 addr) {
+    uint8_t *si = t.sig_info[sig];
+    memset(si, 0, sizeof t.sig_info[sig]);
+    const int32_t w[3] = {sig, 0, code};
+    memcpy(si, w, sizeof w);
+    memcpy(si + 24, &addr, 8);
+}
 
 void native_handler(int sig, void *info, void *) {
     GuestThread *t = GuestThread::current();
@@ -48,8 +63,14 @@ void native_handler(int sig, void *info, void *) {
         if (write(2, m, sizeof m - 1) < 0) {}
         return;
     }
-    if (info) memcpy(t->sig_info[sig], info, sizeof t->sig_info[sig]);
-    else memset(t->sig_info[sig], 0, sizeof t->sig_info[sig]);
+    if (info) {
+        memcpy(t->sig_info[sig], info, sizeof t->sig_info[sig]);
+        // Linux SI_TKILL (raise, pthread_kill, abort): XNU's pthread_kill leaves si_code 0
+        int32_t code;
+        memcpy(&code, t->sig_info[sig] + 8, 4);
+        if (code == -6) { code = 0; memcpy(t->sig_info[sig] + 8, &code, 4); }
+    } else memset(t->sig_info[sig], 0, sizeof t->sig_info[sig]);
+    t->sig_sync[sig].valid = false;
     t->sig_pending.fetch_or(1u << sig);
     t->jit->HaltExecution(Dynarmic::HaltReason::UserDefined2);
 }
@@ -88,53 +109,239 @@ template <bool Kernel> static void sigaction_like(GuestThread &t, u32 i) {
 // Whether the guest set an action other than SIG_DFL for a (Darwin) signal: host.cpp's SIGUSR1 memlog handler then
 // passes the signal on to Darling's handler (which runs the guest's handler, or drops an ignored signal).
 bool guest_sig_action_set(int sig) { return sig > 0 && sig < 32 && g_act[sig].handler.load(std::memory_order_relaxed) != 0; }
+bool guest_sig_handled(GuestThread &t, int sig) {
+    return sig > 0 && sig < 32 && g_act[sig].handler.load() > 1 && !(t.in_handler & (1u << sig));
+}
 void h_sigaction(GuestThread &t, u32 i) { sigaction_like<true>(t, i); }
 void h_platform_sigaction(GuestThread &t, u32 i) { sigaction_like<false>(t, i); }
 
+// sigaltstack(const stack_t *ss, stack_t *oss): the guest's alternate signal stack is the GuestThread's (guest
+// handlers run on the guest stack, built by deliver_one). Darling's would replace the thread's Linux sigaltstack, on
+// which Darling's and libarm64jit's own handlers run, with the guest's buffer.
+void h_sigaltstack(GuestThread &t, u32) {
+    struct DStack { u64 sp, size; int32_t flags, pad; };
+    const auto *ss = (const DStack *)t.x(0);
+    auto *oss = (DStack *)t.x(1);
+    const u64 sp = t.sp();
+    const bool on = t.alt_size && sp >= t.alt_sp && sp < t.alt_sp + t.alt_size;
+    int err = 0;
+    DStack in{};
+    if (ss) in = *ss;
+    const DStack out{t.alt_sp, t.alt_size, t.alt_size ? (on ? kSS_ONSTACK : 0) : kSS_DISABLE, 0};
+    if (ss) {
+        if (on) err = 1;                                   // EPERM
+        else if (in.flags & ~kSS_DISABLE) err = 22;        // EINVAL
+        else if (in.flags & kSS_DISABLE) t.alt_sp = t.alt_size = 0;
+        else if (in.size < kMINSIGSTKSZ) err = 12;         // ENOMEM
+        else { t.alt_sp = in.sp; t.alt_size = in.size; }
+    }
+    if (!err && oss) *oss = out;
+    if (err) { *g_darwin->error() = err; t.set_x(0, (u64)-1); }
+    else t.set_x(0, 0);
+}
+
+// Runs the guest handler of one signal on this thread (its state at a safe point, or a fault's: sig_sync). Returns
+// whether the handler changed the thread state in its ucontext (the Jit state has the ucontext's state either way).
+static bool deliver_one(GuestThread &t, int sig) {
+    static auto *dsigmask = (int (*)(int, const uint32_t *, uint32_t *))dsym("pthread_sigmask");
+    GuestThread::SyncSig sync = t.sig_sync[sig];
+    t.sig_sync[sig].valid = false;
+    u64 h = g_act[sig].handler.load();
+    int flags = g_act[sig].flags.load();
+    if (g_trace) logf("signal %d -> guest handler %#lx flags %#x", sig, (unsigned long)h, flags);
+    if (h <= 1) return false;  // reset meanwhile
+    if (flags & kSA_RESETHAND) g_act[sig].handler = 0;
+    auto &j = *t.jit;
+    // frame below the red zone, or at the top of the alternate stack (SA_ONSTACK, not already on it)
+    const u64 cur = j.GetSP();
+    const bool was_on = t.alt_size && cur >= t.alt_sp && cur < t.alt_sp + t.alt_size;
+    const bool to_alt = (flags & kSA_ONSTACK) && t.alt_size && !was_on;
+    const u64 base = to_alt ? t.alt_sp + t.alt_size : cur - 128;
+    u64 sp = (base - sizeof(ArmMcontext) - sizeof(ArmUcontext) - 128) & ~15ull;
+    auto *mc = (ArmMcontext *)sp;
+    auto *uc = (ArmUcontext *)(sp + sizeof(ArmMcontext));
+    auto *si = (uint8_t *)(sp + sizeof(ArmMcontext) + sizeof(ArmUcontext));
+    memset(mc, 0, sizeof *mc); memset(uc, 0, sizeof *uc);
+    memcpy(si, t.sig_info[sig], 104);
+    auto regs = j.GetRegisters();
+    for (int k = 0; k < 29; k++) mc->x[k] = regs[k];
+    mc->fp = regs[29]; mc->lr = regs[30]; mc->sp = cur; mc->pc = sync.valid ? sync.pc : j.GetPC(); mc->cpsr = j.GetPstate();
+    if (sync.valid) { mc->far = sync.far; mc->esr = sync.esr; }
+    auto vec = j.GetVectors();
+    for (int k = 0; k < 32; k++) mc->v[k] = vec[k];
+    mc->fpsr = j.GetFpsr(); mc->fpcr = j.GetFpcr();
+    const ArmMcontext before = *mc;
+    // the handler's mask, applied by Darling to the Linux thread mask; not SIGSEGV/SIGBUS there (translated code's
+    // own faults: fastmem, the stack guard), whose blocking in_handler emulates for guest faults
+    const uint32_t own = (flags & kSA_NODEFER) ? 0 : 1u << (sig - 1);
+    uint32_t old_mask = 0, block = (g_act[sig].mask.load() | own) & ~((1u << (kDSIGBUS - 1)) | (1u << (kDSIGSEGV - 1)));
+    if (dsigmask) dsigmask(kSIG_BLOCK, &block, &old_mask);
+    uc->uc_onstack = to_alt || was_on; uc->ss_sp = t.alt_sp; uc->ss_size = t.alt_size;
+    uc->ss_flags = t.alt_size ? 0 : kSS_DISABLE;
+    uc->uc_sigmask = old_mask; uc->uc_mcsize = sizeof(ArmMcontext); uc->uc_mcontext = (u64)mc;
+    const uint32_t old_in = t.in_handler;
+    if (own) t.in_handler |= 1u << sig;
+    // the handler runs as a nested call below the frame
+    j.SetSP(sp);
+    u64 args[3] = {(u64)sig, (u64)si, (u64)uc};
+    t.call(h, args, (flags & kSA_SIGINFO) ? 3 : 1);
+    t.in_handler = old_in;
+    if (dsigmask) dsigmask(kSIG_SETMASK, &uc->uc_sigmask, nullptr);
+    const bool changed = memcmp(&before, mc, offsetof(ArmMcontext, v)) != 0;
+    // resume from the ucontext (handlers may change it)
+    for (int k = 0; k < 29; k++) regs[k] = mc->x[k];
+    regs[29] = mc->fp; regs[30] = mc->lr;
+    j.SetRegisters(regs); j.SetSP(mc->sp); j.SetPC(mc->pc); j.SetPstate(mc->cpsr);
+    for (int k = 0; k < 32; k++) vec[k] = mc->v[k];
+    j.SetVectors(vec); j.SetFpsr(mc->fpsr); j.SetFpcr(mc->fpcr);
+    return changed;
+}
+
 // Called by GuestThread::call() when Run() returned with signals pending; the guest state is at a block boundary.
 void deliver_signals(GuestThread &t) {
-    static auto *dsigmask = (int (*)(int, const uint32_t *, uint32_t *))dsym("pthread_sigmask");
     while (uint32_t pend = t.sig_pending.load()) {
         int sig = __builtin_ctz(pend);
         t.sig_pending.fetch_and(~(1u << sig));
-        u64 h = g_act[sig].handler.load();
-        int flags = g_act[sig].flags.load();
-        if (g_trace) logf("signal %d -> guest handler %#lx flags %#x", sig, (unsigned long)h, flags);
-        if (h <= 1) continue;  // reset meanwhile
-        if (flags & kSA_RESETHAND) g_act[sig].handler = 0;
-        auto &j = *t.jit;
-        // frame on the guest stack below the red zone: siginfo, ucontext, mcontext
-        u64 sp = (j.GetSP() - 128 - sizeof(ArmMcontext) - sizeof(ArmUcontext) - 128) & ~15ull;
-        auto *mc = (ArmMcontext *)sp;
-        auto *uc = (ArmUcontext *)(sp + sizeof(ArmMcontext));
-        auto *si = (uint8_t *)(sp + sizeof(ArmMcontext) + sizeof(ArmUcontext));
-        memset(mc, 0, sizeof *mc); memset(uc, 0, sizeof *uc);
-        memcpy(si, t.sig_info[sig], 104);
-        auto regs = j.GetRegisters();
-        for (int k = 0; k < 29; k++) mc->x[k] = regs[k];
-        mc->fp = regs[29]; mc->lr = regs[30]; mc->sp = j.GetSP(); mc->pc = j.GetPC(); mc->cpsr = j.GetPstate();
-        auto vec = j.GetVectors();
-        for (int k = 0; k < 32; k++) mc->v[k] = vec[k];
-        mc->fpsr = j.GetFpsr(); mc->fpcr = j.GetFpcr();
-        uint32_t old_mask = 0, block = g_act[sig].mask.load() | ((flags & kSA_NODEFER) ? 0 : 1u << (sig - 1));
-        if (dsigmask) dsigmask(kSIG_BLOCK, &block, &old_mask);
-        uc->uc_sigmask = old_mask; uc->uc_mcsize = sizeof(ArmMcontext); uc->uc_mcontext = (u64)mc;
-        // the handler runs as a nested call below the frame
-        u64 saved_sp = j.GetSP();
-        j.SetSP(sp);
-        u64 args[3] = {(u64)sig, (u64)si, (u64)uc};
-        t.call(h, args, (flags & kSA_SIGINFO) ? 3 : 1);
-        j.SetSP(saved_sp);
-        if (dsigmask) dsigmask(kSIG_SETMASK, &uc->uc_sigmask, nullptr);
-        // resume from the ucontext (handlers may change it)
-        for (int k = 0; k < 29; k++) regs[k] = mc->x[k];
-        regs[29] = mc->fp; regs[30] = mc->lr;
-        j.SetRegisters(regs); j.SetSP(mc->sp); j.SetPC(mc->pc); j.SetPstate(mc->cpsr);
-        for (int k = 0; k < 32; k++) vec[k] = mc->v[k];
-        j.SetVectors(vec); j.SetFpsr(mc->fpsr); j.SetFpcr(mc->fpcr);
+        deliver_one(t, sig);
     }
 }
 
+// ---- synchronous signals: faults, brk / udf, abort ------------------------------------------------------------------
+// XNU runs the handler of a fault on the faulting thread, with the faulting instruction's state in the ucontext (pc:
+// that instruction; far: the address) and the sigaltstack (SA_ONSTACK) honored; in-app crash reporters (PLCrashReporter,
+// KSCrash, Sentry, Crashlytics) rely on it, and on returning: the instruction runs again (dies by the default action
+// after the reporter reset it and re-raised, or continues if the handler fixed the cause or changed the context).
+bool guest_sync_signal(GuestThread &t, int sig, int code, u64 addr, u64 pc, u64 far, uint32_t esr) {
+    if (!guest_sig_handled(t, sig)) return false;
+    fill_siginfo(t, sig, code, addr);
+    t.sig_sync[sig] = {true, pc, far, esr};
+    t.sig_pending.fetch_or(1u << sig);
+    t.jit->HaltExecution(Dynarmic::HaltReason::UserDefined2);
+    return true;
+}
+
+extern "C" void a64_call_on_stack(void (*fn)(void *), void *arg, void *stack_top);  // callconv.S
+namespace {
+struct FaultCall { GuestThread *t; int sig; bool changed, switched; };
+void fault_call(void *p) {
+    auto *f = (FaultCall *)p;
+    // Off the Linux sigaltstack now (Darling's, which this SA_ONSTACK handler runs on): a signal during the guest's
+    // handler (suspension, a timer) would build its frame over this handler's at the top of that stack. Off for the
+    // handler; such a signal goes on the current stack instead.
+    stack_t old{}, off{};
+    off.ss_flags = SS_DISABLE;
+    const bool alt = f->switched && sigaltstack(nullptr, &old) == 0 && !(old.ss_flags & SS_DISABLE) && sigaltstack(&off, nullptr) == 0;
+    f->changed = deliver_one(*f->t, f->sig);
+    if (alt) { old.ss_flags = 0; sigaltstack(&old, nullptr); }
+}
+}  // namespace
+int guest_fault_now(GuestThread &t, int sig, int code, u64 addr, u64 pc, uint32_t esr, void *host_ctx, bool in_jit, bool need_alt) {
+    if (!guest_sig_handled(t, sig)) return 0;
+    // a stack overflow: only a handler on the alternate stack can run (XNU kills the process otherwise)
+    if (need_alt && (!(g_act[sig].flags.load() & kSA_ONSTACK) || !t.alt_size)) return 0;
+    auto *uc = (ucontext_t *)host_ctx;
+    if (in_jit) {
+        const u64 h[4] = {(u64)uc->uc_mcontext.gregs[REG_R12], (u64)uc->uc_mcontext.gregs[REG_R13],
+                          (u64)uc->uc_mcontext.gregs[REG_R14], (u64)uc->uc_mcontext.gregs[REG_RBP]};
+        t.jit->LoadPinnedFromHost(h);
+    }
+    fill_siginfo(t, sig, code, addr);
+    t.sig_sync[sig] = {true, pc, addr, esr};
+    // the guest's handler (and the native calls it makes) runs on the interrupted thread's stack below its red zone,
+    // not on the 48 KB Linux sigaltstack this handler is on (when it is: else right here)
+    const u64 irsp = (u64)uc->uc_mcontext.gregs[REG_RSP], here = (u64)__builtin_frame_address(0);
+    FaultCall f{&t, sig, false, !(here < irsp && irsp - here < (1u << 20))};
+    if (f.switched) a64_call_on_stack(fault_call, &f, (void *)((irsp - 256) & ~15ull));
+    else fault_call(&f);
+    return f.changed ? 2 : 1;
+}
+
+// The guest instruction whose access faulted at addr, in the block starting at block_pc: the first load / store whose
+// address (from the Jit state at the fault: the block's register writes before it are there) covers addr. Translated
+// code keeps no host->guest map per instruction.
+namespace {
+bool read_insn(u64 pc, uint32_t *w) {
+    iovec l{w, 4}, r{(void *)pc, 4};
+    return process_vm_readv(getpid(), &l, 1, &r, 1, 0) == 4;
+}
+int64_t sext(u64 v, int bits) { return (int64_t)(v << (64 - bits)) >> (64 - bits); }
+// effective address, size, 1 read / 2 write / 3 either; false: not a (faulting) memory access
+bool mem_access(GuestThread &t, uint32_t in, u64 pc, u64 *ea, u64 *size, int *kind) {
+    auto reg = [&](int n, bool sp) -> u64 { return n == 31 ? (sp ? t.sp() : 0) : t.x(n); };
+    const int rn = (in >> 5) & 31, sz = in >> 30, v = (in >> 26) & 1, opc = (in >> 22) & 3;
+    int scale = sz;
+    if (v && (opc & 2) && sz == 0) scale = 4;
+    const int ldst = v ? ((opc & 1) ? 1 : 2) : (opc == 0 ? 2 : 1);
+    if ((in & 0x3B000000) == 0x39000000) {  // unsigned immediate
+        if (!v && sz == 3 && opc == 2) return false;  // PRFM
+        *ea = reg(rn, true) + ((u64)((in >> 10) & 0xfff) << scale); *size = 1ull << scale; *kind = ldst; return true;
+    }
+    if ((in & 0x3B200000) == 0x38000000) {  // unscaled, pre / post index, unprivileged
+        const int mode = (in >> 10) & 3;
+        if (!v && sz == 3 && opc == 2) return false;  // PRFUM
+        *ea = reg(rn, true) + (mode == 1 ? 0 : sext((in >> 12) & 0x1ff, 9)); *size = 1ull << scale; *kind = ldst; return true;
+    }
+    if ((in & 0x3B200C00) == 0x38200800) {  // register offset
+        if (!v && sz == 3 && opc == 2) return false;
+        const u64 m = reg((in >> 16) & 31, false);
+        const int option = (in >> 13) & 7;
+        const u64 e = option == 2 ? (u64)(uint32_t)m : option == 6 ? (u64)(int64_t)(int32_t)m : m;
+        *ea = reg(rn, true) + (e << (((in >> 12) & 1) ? scale : 0)); *size = 1ull << scale; *kind = ldst; return true;
+    }
+    if ((in & 0x3B000000) == 0x18000000) {  // literal
+        if (!v && sz == 3) return false;  // PRFM literal
+        *ea = pc + (sext((in >> 5) & 0x7ffff, 19) << 2);
+        *size = v ? 4ull << sz : (sz == 1 ? 8 : 4); *kind = 1; return true;
+    }
+    if ((in & 0x3A000000) == 0x28000000) {  // pair
+        const int mode = (in >> 23) & 3;
+        const int ps = v ? 2 + sz : (sz == 2 ? 3 : 2);
+        *ea = reg(rn, true) + (mode == 1 ? 0 : (u64)(sext((in >> 15) & 0x7f, 7) << ps));
+        *size = 2ull << ps; *kind = ((in >> 22) & 1) ? 1 : 2; return true;
+    }
+    if ((in & 0x3F000000) == 0x08000000) {  // exclusive, ordered, compare-and-swap
+        *ea = reg(rn, true); *size = (1ull << sz) * (((in >> 21) & 1) ? 2 : 1); *kind = 3; return true;
+    }
+    if ((in & 0x3B200C00) == 0x38200000) {  // atomic memory operations
+        *ea = reg(rn, true); *size = 1ull << sz; *kind = 3; return true;
+    }
+    if ((in & 0x3F200C00) == 0x19000000) {  // LDAPUR / STLUR
+        *ea = reg(rn, true) + sext((in >> 12) & 0x1ff, 9); *size = 1ull << sz; *kind = 3; return true;
+    }
+    if ((in & 0xBFBF0000) == 0x0C000000 || (in & 0xBFA00000) == 0x0C800000) {  // SIMD multiple structures
+        const int op = (in >> 12) & 15;
+        const int n = op == 0 || op == 2 ? 4 : op == 4 || op == 6 ? 3 : op == 8 || op == 10 ? 2 : 1;
+        *ea = reg(rn, true); *size = (u64)n * (((in >> 30) & 1) ? 16 : 8); *kind = ((in >> 22) & 1) ? 1 : 2; return true;
+    }
+    if ((in & 0xBF9F0000) == 0x0D000000 || (in & 0xBF800000) == 0x0D800000) {  // SIMD single structure
+        *ea = reg(rn, true); *size = 64; *kind = ((in >> 22) & 1) ? 1 : 2; return true;
+    }
+    return false;
+}
+bool ends_block(uint32_t in) {
+    return (in & 0x7C000000) == 0x14000000 || (in & 0xFF000010) == 0x54000000 || (in & 0x7E000000) == 0x34000000 ||
+           (in & 0x7E000000) == 0x36000000 || (in & 0xFE000000) == 0xD6000000 || (in & 0xFF000000) == 0xD4000000;
+}
+}  // namespace
+u64 guest_fault_pc(GuestThread &t, u64 block_pc, u64 addr, bool write) {
+    constexpr u64 kLow = 0x00ffffffffffffffull;  // top-byte-ignore
+    const u64 a = addr & kLow;
+    u64 any = 0;
+    for (u64 pc = block_pc; pc < block_pc + 4 * 1024; pc += 4) {
+        uint32_t in;
+        if (!read_insn(pc, &in)) break;
+        u64 ea, size; int kind;
+        if (mem_access(t, in, pc, &ea, &size, &kind)) {
+            ea &= kLow;
+            if (a >= ea && a - ea < size) {
+                if (kind & (write ? 2 : 1)) return pc;
+                if (!any) any = pc;
+            }
+        }
+        if (ends_block(in)) break;
+    }
+    return any ? any : block_pc;
+}
 
 // ---- Darling's thread suspension at safe points ---------------------------------------------------------------------
 // Darling implements thread_suspend / task_suspend by sending SIGRTMIN (SIGNAL_SIGEXC_SUSPEND) to the Linux thread; its
@@ -172,6 +379,7 @@ bool in_elf(u64 rip) {
     for (int k = 0, n = g_nelf.load(std::memory_order_acquire); k < n; k++) if (rip >= g_elf[k].lo && rip < g_elf[k].hi) return true;
     return false;
 }
+std::once_flag g_elf_once;
 // guest threads by mach port (the suspender names its target by port)
 constexpr int kReg = 8192;
 std::atomic<GuestThread *> g_reg_t[kReg];
@@ -229,7 +437,7 @@ void install_wrapper() {
     struct sigaction cur{};
     if (sigaction(kSuspSig, nullptr, &cur) || !(cur.sa_flags & SA_SIGINFO)) return;
     if (cur.sa_sigaction == susp_handler || (void *)cur.sa_handler == SIG_DFL || (void *)cur.sa_handler == SIG_IGN) return;
-    if (!g_nelf.load()) dl_iterate_phdr(elf_cb, nullptr);
+    std::call_once(g_elf_once, [] { dl_iterate_phdr(elf_cb, nullptr); });
     g_darling_susp = cur.sa_sigaction;
     struct sigaction sa = cur;
     sa.sa_sigaction = susp_handler;
@@ -238,6 +446,11 @@ void install_wrapper() {
 }
 bool susp_off() { static const bool v = getenv("X86SIM_A64_SUSP_DEFER") && atoi(getenv("X86SIM_A64_SUSP_DEFER")) == 0; return v; }
 }  // namespace
+
+bool in_elf_code(u64 rip) {
+    std::call_once(g_elf_once, [] { dl_iterate_phdr(elf_cb, nullptr); });
+    return in_elf(rip);
+}
 
 void GuestThread::susp_safe_point() {
     if (!susp_pending.load(std::memory_order_relaxed)) return;

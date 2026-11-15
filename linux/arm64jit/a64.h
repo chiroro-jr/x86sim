@@ -71,6 +71,14 @@ struct GuestThread final : Dynarmic::A64::UserCallbacks {
     int32_t in_thunk = -1;  // thunk running on this thread (crash reports)
     std::atomic<uint32_t> sig_pending{0};  // async signals recorded by the native handler (signals.cpp)
     uint8_t sig_info[32][104];            // their Darwin siginfo
+    // Synchronous guest signals (faults in guest code, brk/udf, abort): the faulting instruction and the exception
+    // state for the handler's ucontext instead of the Jit's PC at delivery (signals.cpp)
+    struct SyncSig { bool valid; u64 pc, far; uint32_t esr; };
+    SyncSig sig_sync[32]{};
+    // the guest's sigaltstack (SS_DISABLE when alt_size == 0) and the signals whose handler runs now (blocked: a
+    // synchronous fault of one of them is fatal, as on XNU)
+    u64 alt_sp = 0, alt_size = 0;
+    uint32_t in_handler = 0;
     // Darling's thread suspension (SIGRTMIN, thread_suspend / task_suspend) deferred to a safe point (signals.cpp)
     bool native = false;                  // inside a thunk handler (not in a nested call())
     int tid = 0;
@@ -105,7 +113,7 @@ struct GuestThread final : Dynarmic::A64::UserCallbacks {
     static constexpr u64 kTbi = 0x00ffffffffffffffull;
     template <typename T> static T rd(u64 a) { T v; __builtin_memcpy(&v, (void *)(a & kTbi), sizeof v); return v; }
     template <typename T> static void wr(u64 a, T v) { __builtin_memcpy((void *)(a & kTbi), &v, sizeof v); }
-    std::optional<uint32_t> MemoryReadCode(u64 a) override { return rd<uint32_t>(a); }
+    std::optional<uint32_t> MemoryReadCode(u64 a) override;
     uint8_t MemoryRead8(u64 a) override { return rd<uint8_t>(a); }
     uint16_t MemoryRead16(u64 a) override { return rd<uint16_t>(a); }
     uint32_t MemoryRead32(u64 a) override { return rd<uint32_t>(a); }
@@ -219,7 +227,25 @@ extern "C" void a64_tramp_entry();           // callconv.S
 
 void h_sigaction(GuestThread &t, u32 i);  // signals.cpp
 void h_platform_sigaction(GuestThread &t, u32 i);
+void h_sigaltstack(GuestThread &t, u32 i);
 void deliver_signals(GuestThread &t);
+// Guest handlers for synchronous signals (signals.cpp). Darwin signal numbers.
+bool guest_sig_action_set(int dsig);       // a handler or SIG_IGN
+bool guest_sig_handled(GuestThread &t, int dsig);  // a handler that may run now (not blocked by its own handler)
+// Records a synchronous signal for the handler (pc: the faulting instruction) and halts the Jit: delivered when Run()
+// returns. False if the guest has no handler that may run now.
+bool guest_sync_signal(GuestThread &t, int dsig, int dcode, u64 addr, u64 pc, u64 far, uint32_t esr);
+// A fault in guest code (JIT block: pinned registers loaded from host_ctx) or in a thunk's native code: runs the
+// guest's handler now, from the Linux SIGSEGV/SIGBUS handler, on the interrupted stack.
+// 0: no handler that may run; 1: it returned with the context unchanged (retry the access); 2: it changed the context
+// (now in the Jit state; translated code must leave Run(), see host.cpp).
+// need_alt: a guest stack overflow (only an SA_ONSTACK handler with a sigaltstack can run).
+int guest_fault_now(GuestThread &t, int dsig, int dcode, u64 addr, u64 pc, uint32_t esr, void *host_ctx, bool in_jit, bool need_alt);
+u64 guest_fault_pc(GuestThread &t, u64 block_pc, u64 addr, bool write);  // the access in the block that faulted
+bool in_elf_code(u64 rip);
+std::optional<uint32_t> guest_code_word(u64 a);  // jit.cpp: a code word, nullopt if not readable
+// host.cpp: the default action of a signal; core: as abort() did (else no core dump, as the SIGKILL it replaces)
+[[noreturn]] void die_with_signal(int linux_sig, bool core = false);  // libarm64jit, dynarmic, glibc, libstdc++ (signals.cpp)
 void susp_thread_init(GuestThread &t);  // signals.cpp: suspension wrapper, timer, port registry
 void susp_thread_fini(GuestThread &t);
 void h_thread_get_state(GuestThread &t, u32 i);

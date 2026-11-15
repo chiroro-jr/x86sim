@@ -100,3 +100,22 @@ a64_tramp_entry:
     .size a64_tramp_entry, . - a64_tramp_entry
 
     .section .note.GNU-stack,"",@progbits
+
+    .text
+// void a64_call_on_stack(void (*fn)(void *), void *arg, void *stack_top)   (signals.cpp guest_fault_now)
+// Runs fn(arg) with rsp = stack_top (16-byte aligned), then returns on the caller's stack.
+    .globl a64_call_on_stack
+    .type a64_call_on_stack, @function
+a64_call_on_stack:
+    push rbp
+    mov rbp, rsp
+    mov rsp, rdx
+    mov rax, rdi
+    mov rdi, rsi
+    call rax
+    mov rsp, rbp
+    pop rbp
+    ret
+    .size a64_call_on_stack, . - a64_call_on_stack
+
+    .section .note.GNU-stack,"",@progbits
