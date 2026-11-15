@@ -801,10 +801,19 @@ static void vk_check_all_listeners(void) {
 // ---------------------------------------------------------------------------------------------------------
 // Command queues, buffers, encoders
 
+@class VKMTLCommandBuffer;
 @interface VKMTLCommandQueue : VKMTLObject {
 @public
 	NSUInteger _max;
+	// x86Sim: command buffers run in the order they were enqueued (Metal: -enqueue reserves the place, -commit may come
+	// later and from another thread). Enqueued, not yet sent to mtlvk, oldest first; not retained (see -dealloc).
+	pthread_mutex_t _olock;
+	VKMTLCommandBuffer* _ohead;
+	VKMTLCommandBuffer* _otail;
 }
+- (void)vkEnqueue:(VKMTLCommandBuffer*)cb;
+- (void)vkRemove:(VKMTLCommandBuffer*)cb;
+- (void)vkFlush;
 @end
 
 typedef NS_ENUM(int, VKCBState) { VKCBRecording, VKCBCommitted, VKCBDone };
@@ -824,7 +833,10 @@ typedef NS_ENUM(int, VKCBState) { VKCBRecording, VKCBCommitted, VKCBDone };
 	pthread_cond_t _cond;
 	NSMutableArray* _keep;     // resources used (retained until completion, like retainedReferences)
 	uint32_t* _surfs; uint32_t _nsurfs;  // IOSurfaces under textures in _keep: their implicit-sync counts (see vk_pending)
+	VKMTLCommandBuffer* _onext;           // the queue's enqueue order (VKMTLCommandQueue _ohead), under its _olock
+	BOOL _enqueued, _ready;               // in that order / committed, waiting for the ones enqueued before it
 }
+- (void)vkSend;
 - (void)addCommand:(uint32_t)kind data:(const void*)d size:(uint32_t)n;
 - (void)appendCommands:(const void*)d size:(size_t)n count:(uint32_t)count;
 - (void)keep:(id)o;
@@ -1648,6 +1660,7 @@ static _Atomic uint32_t* vk_pending(void) {
 	return self;
 }
 - (void)dealloc {
+	if (_enqueued) [_queue vkRemove:self];   // enqueued and never committed: don't hold up the ones after it
 	free(_cmds.p); free(_surfs);
 	[_queue release]; [_scheduled release]; [_completed release]; [_keep release]; [_error release];
 	pthread_mutex_destroy(&_lock); pthread_cond_destroy(&_cond);
@@ -1712,7 +1725,10 @@ static _Atomic uint32_t* vk_pending(void) {
 	}
 	if (now) b((id<MTLCommandBuffer>)self);
 }
-- (void)enqueue { if (_status < MTLCommandBufferStatusEnqueued) _status = MTLCommandBufferStatusEnqueued; }
+- (void)enqueue {
+	[_queue vkEnqueue:self];
+	if (_status < MTLCommandBufferStatusEnqueued) _status = MTLCommandBufferStatusEnqueued;
+}
 - (void)commit {
 	if (_status >= MTLCommandBufferStatusCommitted) { VKLOG("command buffer committed twice"); return; }
 	_status = MTLCommandBufferStatusCommitted;
@@ -1733,6 +1749,18 @@ static _Atomic uint32_t* vk_pending(void) {
 	}
 	for (MTLCommandBufferHandler h in sched) h((id<MTLCommandBuffer>)self);
 	[sched release];
+	// x86Sim: to mtlvk in enqueue order, not commit order. MetalSerializer (MTLSimImplementation's replay) enqueues each
+	// command buffer as the app makes / enqueues it and commits it when the app does, from its own threads: two commits
+	// could reach us swapped. SceneKit's first frame commits its resource command buffer (the blit filling the private
+	// vertex buffer) and then the frame's: run the other way round, the frame drew from an empty buffer (snapshot all 0).
+	[_queue vkEnqueue:self];
+	pthread_mutex_lock(&_queue->_olock);
+	_ready = YES;
+	pthread_mutex_unlock(&_queue->_olock);
+	[_queue vkFlush];
+}
+// to mtlvk (the queue's _olock held: in enqueue order)
+- (void)vkSend {
 	_Atomic uint32_t* pend = vk_pending();
 	if (pend) for (id o in _keep) {
 		if (![o isKindOfClass:[VKMTLTexture class]]) continue;
@@ -1817,10 +1845,52 @@ static void vk_cb_done(uint64_t cbid, uint32_t status, uint32_t error, double st
 - (id<MTLCommandBuffer>)commandBufferWithDescriptor:(MTLCommandBufferDescriptor*)d {
 	return [(id<MTLCommandBuffer>)[[VKMTLCommandBuffer alloc] initWithQueue:self retained:d.retainedReferences] autorelease];
 }
+- (instancetype)init {
+	self = [super init];
+	pthread_mutex_init(&_olock, NULL);
+	return self;
+}
+- (void)vkEnqueue:(VKMTLCommandBuffer*)cb {
+	pthread_mutex_lock(&_olock);
+	if (!cb->_enqueued && !cb->_ready) {   // (_ready: committed, maybe sent already)
+		cb->_enqueued = YES;
+		cb->_onext = nil;
+		if (_otail) _otail->_onext = cb; else _ohead = cb;
+		_otail = cb;
+		VKTRACE("enqueue cb %llu on queue %llu", cb->_vkid, _vkid);
+	}
+	pthread_mutex_unlock(&_olock);
+}
+- (void)vkRemove:(VKMTLCommandBuffer*)cb {
+	pthread_mutex_lock(&_olock);
+	VKMTLCommandBuffer* prev = nil;
+	for (VKMTLCommandBuffer* c = _ohead; c; prev = c, c = c->_onext) {
+		if (c != cb) continue;
+		if (prev) prev->_onext = c->_onext; else _ohead = c->_onext;
+		if (_otail == c) _otail = prev;
+		break;
+	}
+	cb->_enqueued = NO;
+	pthread_mutex_unlock(&_olock);
+	[self vkFlush];
+}
+// send the committed command buffers at the head of the enqueue order
+- (void)vkFlush {
+	pthread_mutex_lock(&_olock);
+	while (_ohead && _ohead->_ready) {
+		VKMTLCommandBuffer* c = _ohead;
+		_ohead = c->_onext;
+		if (!_ohead) _otail = nil;
+		c->_onext = nil; c->_enqueued = NO;
+		[c vkSend];
+	}
+	if (_ohead) VKTRACE("queue %llu: cb %llu waits for cb %llu (enqueued before it, not committed)", _vkid, _otail->_vkid, _ohead->_vkid);
+	pthread_mutex_unlock(&_olock);
+}
 - (void)insertDebugCaptureBoundary {}
 - (void)setMaxCommandBufferCount:(NSUInteger)n { _max = n; }
 - (NSUInteger)maxCommandBufferCount { return _max; }
-- (void)dealloc { vk_send(VKMTL_OBJ_DEL, &_vkid, 8); [super dealloc]; }
+- (void)dealloc { vk_send(VKMTL_OBJ_DEL, &_vkid, 8); pthread_mutex_destroy(&_olock); [super dealloc]; }
 @end
 
 // ---------------------------------------------------------------------------------------------------------
