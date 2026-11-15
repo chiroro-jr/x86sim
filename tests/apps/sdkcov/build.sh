@@ -10,7 +10,10 @@ A=$X86SIM_ROOT/tests/apps; S=$A/sdkcov; OUT=$X86SIM_SCRATCH/apps; mkdir -p "$OUT
 for p in ${*:-ios tvos watchos xros}; do
 	multi='<false/>'
 	case $p in
-	ios) sdk=iphonesimulator; tgt=arm64-apple-ios27.0-simulator; plat=iPhoneSimulator; fam='<integer>1</integer><integer>2</integer>'; extra= ;;
+	# iPhone and iPad; on iPad all four orientations (iPad multitasking: Split View, Slide Over, Stage Manager windows need
+	# them) and more than one scene (More_iPadOS.swift's multiple-window checks; one scene on iPhone either way)
+	ios) sdk=iphonesimulator; tgt=arm64-apple-ios27.0-simulator; plat=iPhoneSimulator; fam='<integer>1</integer><integer>2</integer>'; multi='<true/>'
+		extra='<key>UISupportedInterfaceOrientations~ipad</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationPortraitUpsideDown</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>' ;;
 	tvos) sdk=appletvsimulator; tgt=arm64-apple-tvos27.0-simulator; plat=AppleTVSimulator; fam='<integer>3</integer>'; extra= ;;
 	# a standalone (watch-only) app: watchOS installs and runs it without an iPhone companion
 	watchos) sdk=watchsimulator; tgt=arm64-apple-watchos27.0-simulator; plat=WatchSimulator; fam='<integer>4</integer>'
