@@ -31,7 +31,7 @@ esac
 dtype=${DEVTYPE:-$dtype}
 OUT=${OUT:-$X86SIM_SCRATCH/apps/sdkcov-$name-ref-$(date +%Y%m%d-%H%M%S)}; mkdir -p "$OUT"
 [ "$build" = 1 ] && { "$S/build.sh" "$plat" >/dev/null 2>&1 || { echo "ref-mac: build failed" >&2; exit 1; }; }
-APP=$X86SIM_SCRATCH/apps/sdkcov-$plat.app
+APP=${SDKCOV_APPS:-$X86SIM_SCRATCH/apps}/sdkcov-$plat.app
 # the whole run happens on the Mac in one ssh session: the app goes over as a tar on stdin, the results come back
 # (the remote script is an argument: stdin carries the app)
 read -r -d '' REMOTE <<'MAC'

@@ -27,7 +27,7 @@ rt=$(cat "$X86SIM_DEVICE/runtime" 2>/dev/null); plat=${rt%%-*}
 case $plat in ios|tvos|watchos|xros) ;; *) echo "sdkcov: $X86SIM_DEVICE: unsupported runtime '$rt'" >&2; exit 2 ;; esac
 SECS=${SECS:-3600}; STALL=${STALL:-300}; RELAUNCH=${RELAUNCH:-40}
 OUT=${OUT:-$X86SIM_SCRATCH/apps/sdkcov-$plat-$(date +%Y%m%d-%H%M%S)}; mkdir -p "$OUT"
-BID=com.x86sim.test.sdkcov; APP=$X86SIM_SCRATCH/apps/sdkcov-$plat.app
+BID=com.x86sim.test.sdkcov; APP=${SDKCOV_APPS:-$X86SIM_SCRATCH/apps}/sdkcov-$plat.app
 xs() { "$X/cli/x86sim" "$@"; }
 [ "$build" = 1 ] && { nice "$S/build.sh" "$plat" || exit 1; }
 xs install "$X86SIM_DEVICE" "$APP" >"$OUT/install.log" 2>&1 || { echo "install FAILED: $(tail -1 "$OUT/install.log")"; exit 1; }

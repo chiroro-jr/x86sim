@@ -6,7 +6,9 @@
 set -e
 X86SIM_ROOT=${X86SIM_ROOT:-$(cd "$(dirname "$0")/../../.." && pwd)}
 . "$X86SIM_ROOT/build/mac-env.sh"
-A=$X86SIM_ROOT/tests/apps; S=$A/sdkcov; OUT=$X86SIM_SCRATCH/apps; mkdir -p "$OUT"
+# SDKCOV_APPS: where the built .app goes (default $X86SIM_SCRATCH/apps); a private one lets parallel work (e.g. a git
+# worktree per agent) build without replacing each other's app. run.sh / ref-mac.sh / inputs.sh read the same variable.
+A=$X86SIM_ROOT/tests/apps; S=$A/sdkcov; OUT=${SDKCOV_APPS:-$X86SIM_SCRATCH/apps}; mkdir -p "$OUT"
 for p in ${*:-ios tvos watchos xros}; do
 	multi='<false/>'
 	case $p in
