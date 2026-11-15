@@ -92,6 +92,19 @@ impl Instance {
     pub fn inner_active(&self) -> bool {
         self.hinge().is_some_and(|a| a >= 85.0)
     }
+
+    /// Inputs 2: the device orientation host/simhid last reported (<device>/data/orientation: portrait,
+    /// landscapeLeft, ...; written at each "orientation" / "rotate"); None before any
+    pub fn orientation(&self) -> Option<String> {
+        std::fs::read_to_string(self.dir.join("data/orientation")).ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+    }
+
+    /// Inputs 2: Simulate Memory Warning, as Apple's SimDevice: the simulator's libdispatch watches
+    /// $SIMULATOR_MEMORY_WARNINGS (NOTE_ATTRIB) and reports memory pressure to every process
+    pub fn memory_warning(&self) -> std::io::Result<()> {
+        let f = std::fs::OpenOptions::new().write(true).open(self.dir.join("data/var/run/memory_warning_simulation"))?;
+        f.set_modified(std::time::SystemTime::now())
+    }
 }
 
 fn env_of(dir: &Path) -> HashMap<String, String> {

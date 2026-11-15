@@ -1,5 +1,5 @@
 //! Input to a phone: host/simhid's socket (<device>/data/simhid.sock), one text command per line (touch, touch2,
-//! key, button, crown, usage, hinge). Edge touches are marked as Apple's Simulator does (simview.py's rule: within 4% of the width of an
+//! key, button, crown, usage, hinge; Inputs 2: shake, orientation, rotate, biometric, gamepad). Edge touches are marked as Apple's Simulator does (simview.py's rule: within 4% of the width of an
 //! edge; top and bottom win in the corners), so the home indicator and Control/Notification Center work.
 use std::io::Write;
 use std::os::unix::net::UnixStream;
@@ -11,6 +11,22 @@ pub struct Hid {
     sock: Option<UnixStream>,
     /// Models 2: touches go to another display: (SFB display id, its native rotation); x, y given upright
     pub display: Option<(u32, u32)>,
+    /// Inputs 2: the device orientation's turn of the main screen (0, 90 landscapeLeft, 180, 270 landscapeRight): the
+    /// viewer shows it upright, as Apple's Simulator turns its window; x, y given upright
+    pub main_rot: u32,
+}
+
+/// Inputs 2: how far the panel's picture is turned to stand upright for a device orientation (host/simhid's names;
+/// landscapeLeft: the device's top points left, so its framebuffer is shown a quarter counterclockwise); None for
+/// faceUp / faceDown / unknown (the window keeps its last turn, as Apple's Simulator does)
+pub fn orientation_rot(o: &str) -> Option<u32> {
+    match o {
+        "portrait" => Some(0),
+        "landscapeLeft" => Some(90),
+        "portraitUpsideDown" => Some(180),
+        "landscapeRight" => Some(270),
+        _ => None,
+    }
 }
 
 /// Upright normalized (x, y) on a panel mounted at `rot` degrees -> the panel's framebuffer coordinates
@@ -33,7 +49,7 @@ fn unrotate_edge(e: &str, rot: u32) -> &str {
 
 impl Hid {
     pub fn new(path: &Path) -> Hid {
-        Hid { path: path.to_path_buf(), sock: None, display: None }
+        Hid { path: path.to_path_buf(), sock: None, display: None, main_rot: 0 }
     }
 
     pub fn send(&mut self, line: &str) {
@@ -70,7 +86,7 @@ impl Hid {
         let (x, y) = (x.clamp(0.0, 1.0), y.clamp(0.0, 1.0));
         let (pre, (x, y), edge) = match self.display {
             Some((id, rot)) => (format!("@{id} "), unrotate(x, y, rot), edge.map(|e| unrotate_edge(e, rot))),
-            None => (String::new(), (x, y), edge),
+            None => (String::new(), unrotate(x, y, self.main_rot), edge.map(|e| unrotate_edge(e, self.main_rot))),
         };
         match edge {
             Some(e) => self.send(&format!("{pre}touch {phase} {x:.5} {y:.5} {e}")),
@@ -82,7 +98,7 @@ impl Hid {
         let c = |v: f32| v.clamp(0.0, 1.0);
         let (pre, (x1, y1), (x2, y2)) = match self.display {
             Some((id, rot)) => (format!("@{id} "), unrotate(c(x1), c(y1), rot), unrotate(c(x2), c(y2), rot)),
-            None => (String::new(), (c(x1), c(y1)), (c(x2), c(y2))),
+            None => (String::new(), unrotate(c(x1), c(y1), self.main_rot), unrotate(c(x2), c(y2), self.main_rot)),
         };
         self.send(&format!("{pre}touch2 {phase} {x1:.5} {y1:.5} {x2:.5} {y2:.5}"));
     }
@@ -108,6 +124,50 @@ impl Hid {
 
     pub fn button(&mut self, name: &str, down: bool) {
         self.send(&format!("button {name} {}", if down { "down" } else { "up" }));
+    }
+
+    /// Inputs 2: a hardware button held `ms` (Apple's usages per platform: home lock side volup voldown siri action wallet
+    /// playpause tv select menu back mute; host/simhid button_usage)
+    pub fn press_for(&mut self, name: &str, ms: u64) {
+        self.button(name, true);
+        std::thread::sleep(Duration::from_millis(ms));
+        self.button(name, false);
+    }
+
+    /// Inputs 2: Device > Shake (UIKit's motion event)
+    pub fn shake(&mut self) {
+        self.send("shake");
+    }
+
+    /// Inputs 2: the device orientation (portrait portraitUpsideDown landscapeLeft landscapeRight faceUp faceDown), or ""
+    /// to have simhid write the current one to <device>/data/orientation
+    pub fn orientation(&mut self, name: &str) {
+        let l = format!("orientation {name}");
+        self.send(l.trim_end());
+    }
+
+    /// Inputs 2: Rotate Left (counterclockwise) / Right
+    pub fn rotate(&mut self, left: bool) {
+        self.send(if left { "rotate left" } else { "rotate right" });
+    }
+
+    /// Inputs 2: Face ID / Touch ID / Optic ID: enroll, unenroll, match, nomatch; kind face|touch|optic or "" (the device's)
+    pub fn biometric(&mut self, action: &str, kind: &str) {
+        let l = format!("biometric {action} {kind}");
+        self.send(l.trim_end());
+    }
+
+    /// Inputs 2: the simulated game controller: press / down / up a button (up down left right a b x y l1 r1 l2 r2)
+    pub fn gamepad(&mut self, button: &str, action: &str) {
+        match action {
+            "down" | "up" => self.send(&format!("gamepad {button} {action}")),
+            _ => self.send(&format!("gamepad press {button}")),
+        }
+    }
+
+    /// Inputs 2: a thumbstick (-1..1, y up)
+    pub fn gamepad_stick(&mut self, right: bool, x: f32, y: f32) {
+        self.send(&format!("gamepad stick {} {x:.3} {y:.3}", if right { "right" } else { "left" }));
     }
 
     pub fn press(&mut self, name: &str) {
@@ -163,6 +223,22 @@ mod tests {
         assert_eq!(unrotate_edge("bottom", 270), "right");
         assert_eq!(unrotate_edge("left", 270), "bottom");
         assert_eq!(unrotate_edge("bottom", 0), "bottom");
+    }
+
+    #[test]
+    fn orientation_turns() {
+        // landscapeLeft: the framebuffer is shown a quarter counterclockwise (the viewer's 90): the upright picture's
+        // top left is the framebuffer's top right, its top edge the framebuffer's right edge
+        let r = orientation_rot("landscapeLeft").unwrap();
+        assert_eq!(unrotate(0.0, 0.0, r), (1.0, 0.0));
+        assert_eq!(unrotate_edge("top", r), "right");
+        assert_eq!(unrotate_edge("bottom", r), "left");
+        let r = orientation_rot("landscapeRight").unwrap();
+        assert_eq!(unrotate(0.0, 0.0, r), (0.0, 1.0));
+        assert_eq!(unrotate_edge("bottom", r), "right");
+        assert_eq!(unrotate(0.25, 0.1, 180), (0.75, 0.9));
+        assert_eq!(unrotate_edge("top", 180), "bottom");
+        assert_eq!(orientation_rot("faceUp"), None);
     }
 
     #[test]
