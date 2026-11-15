@@ -7,6 +7,7 @@
 #   --fresh   start over (delete the previous run's results in the app's container)
 #   --only    run only the checks whose id contains one of these (e.g. func:Metal,load:UIKit); for debugging: the
 #             results file is left alone, results go to the app's stderr (OUT/sdkcov-1.err)
+# One run per device: a second run.sh / inputs.sh on it stops with "is busy" (devlock.sh).
 # Env: SECS (overall limit, default 3600), STALL (relaunch when no new result for this long, default 300),
 #      RELAUNCH (max relaunches, default 40), OUT (default $X86SIM_SCRATCH/apps/sdkcov-<platform>-<time>).
 set -u
@@ -17,6 +18,7 @@ X=$X86SIM_ROOT; S=$X/tests/apps/sdkcov
 dev=${1:?usage: tests/apps/sdkcov/run.sh <device> [--no-build] [--fresh]}; shift
 pick_device "$dev" || { echo "sdkcov: no device $dev" >&2; exit 2; }
 export X86SIM_DEVICE
+. "$S/devlock.sh"; devlock "$BASH" "$0" "$dev" "$@"   # one run per device (devlock.sh): exits here unless this is the locked run
 build=1 fresh=0
 ONLY=
 while [ $# -gt 0 ]; do case $1 in --no-build) build=0 ;; --fresh) fresh=1 ;; --only) ONLY="--only $2"; shift ;;
@@ -44,6 +46,10 @@ echo "sdkcov $plat on $(basename "$X86SIM_DEVICE"): results $RES"
 # WidgetKit needs chronod, which is the device's "widgets" feature (off by default: ~350-750 MB): on for sdkcov devices
 grep -qs '"widgets": *true' "$X86SIM_DEVICE/features.json" ||
 	echo "  note: feature \"widgets\" is off on this device: WidgetKit fails (x86sim-aot features, or features.json)"
+# is the app running? Not running only after 3 misses in a row, 1 s apart: a single empty `x86sim pidof` (a failed
+# request, the app between execs) ended --only runs with "no result" while the app went on (and cost full runs a
+# relaunch). pidof's complaints go to OUT/pidof.log.
+alive() { local i; for i in 1 2 3; do [ -n "$(xs pidof "$BID" 2>>"$OUT/pidof.log")" ] && return 0; [ $i = 3 ] || sleep 1; done; return 1; }
 lines() { [ -f "$RES" ] && wc -l < "$RES" || echo 0; }
 done_() { [ -f "$RES" ] && grep -q "^X86TEST sdkcov done " "$RES"; }
 t0=$(date +%s); launches=0; last=$(lines); lastt=$t0
@@ -58,11 +64,12 @@ launch() {
 # a first launch of a finished run starts over: the app resets when it sees "done"
 launch
 if [ -n "$ONLY" ]; then   # one launch; its stderr is the result
-	for _ in $(seq $((SECS / 2))); do [ -z "$(xs pidof "$BID" 2>/dev/null)" ] && break
-		grep -q "X86TEST sdkcov done " "$X86SIM_DEVICE/data/tmp/sdkcov-1.err" 2>/dev/null && break; sleep 2; done
+	t1=$(date +%s)
+	until grep -q "X86TEST sdkcov done " "$X86SIM_DEVICE/data/tmp/sdkcov-1.err" 2>/dev/null; do
+		[ $(($(date +%s) - t1)) -lt "$SECS" ] && alive || break; sleep 2; done
 	cp "$X86SIM_DEVICE"/data/tmp/sdkcov-1.* "$OUT/" 2>/dev/null
 	grep "X86TEST" "$OUT/sdkcov-1.err" | grep -v -e " only " -e " done "
-	[ -n "$(xs pidof "$BID" 2>/dev/null)" ] || { echo "app exited; stderr tail:"; grep -v X86TEST "$OUT/sdkcov-1.err" | tail -15; }
+	grep -q "X86TEST sdkcov done " "$OUT/sdkcov-1.err" 2>/dev/null || alive || { echo "app exited; stderr tail:"; grep -v X86TEST "$OUT/sdkcov-1.err" | tail -15; }
 	exit 0
 fi
 while ! done_; do
@@ -70,10 +77,10 @@ while ! done_; do
 	now=$(date +%s); n=$(lines)
 	[ "$n" != "$last" ] && { last=$n; lastt=$now; printf '\r  %s results, %s launches, %s s ' "$n" "$launches" $((now - t0)); }
 	[ $((now - t0)) -gt "$SECS" ] && { echo; echo "  gave up after $SECS s"; break; }
-	pid=$(xs pidof "$BID" 2>/dev/null)
-	if [ -z "$pid" ] || [ $((now - lastt)) -gt "$STALL" ]; then
+	up=1; alive || up=
+	if [ -z "$up" ] || [ $((now - lastt)) -gt "$STALL" ]; then
 		[ "$launches" -ge "$RELAUNCH" ] && { echo; echo "  gave up after $launches launches"; break; }
-		echo; echo "  $([ -z "$pid" ] && echo "app not running (crash / watchdog)" || echo "no progress in $STALL s"): relaunch; last: $(tail -1 "$RES" 2>/dev/null | cut -c1-160)"
+		echo; echo "  $([ -z "$up" ] && echo "app not running (crash / watchdog)" || echo "no progress in $STALL s"): relaunch; last: $(tail -1 "$RES" 2>/dev/null | cut -c1-160)"
 		launch; lastt=$(date +%s)
 	fi
 done

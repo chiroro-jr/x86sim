@@ -17,6 +17,7 @@ S=$X86SIM_ROOT/tests/apps/sdkcov
 dev=${1:?usage: tests/apps/sdkcov/inputs.sh <device> [--no-build] [check...]}; shift
 pick_device "$dev" || { echo "inputs: no device $dev" >&2; exit 2; }
 export X86SIM_DEVICE
+. "$S/devlock.sh"; devlock "$BASH" "$0" "$dev" "$@"   # held for all the checks (their run.sh runs inside it)
 build=; want=
 for a in "$@"; do case $a in --no-build) build=--no-build ;; *) want="$want $a" ;; esac; done
 rt=$(cat "$X86SIM_DEVICE/runtime" 2>/dev/null); plat=${rt%%-*}
@@ -26,6 +27,7 @@ case $plat in
 	*) echo "inputs: no input checks for $plat" >&2; exit 0 ;;
 esac
 xs() { "$X86SIM_ROOT/cli/x86sim" "$@"; }
+name=$(basename "$X86SIM_DEVICE"); name=${name#device-a64-}
 WAIT=${WAIT:-40}
 fails=0
 for k in ${want:-$all}; do
@@ -45,8 +47,9 @@ for k in ${want:-$all}; do
 			timeout 0.5 tail -f /dev/null; xs raw "touch up 0.75 0.5"; } ; undo() { :; } ;;
 		*) echo "inputs: unknown check $k" >&2; exit 2 ;;
 	esac
-	OUT=$X86SIM_SCRATCH/apps/sdkcov-$plat-inputs-$k; rm -rf "$OUT"
-	SIMCTL_CHILD_SDKCOV_INPUT_WAIT=$WAIT OUT=$OUT "$S/run.sh" "$dev" $build --only "$id" >/dev/null 2>&1 &
+	# per device: two devices of one platform don't share (and delete) each other's OUT
+	OUT=$X86SIM_SCRATCH/apps/sdkcov-$plat-$name-inputs-$k; rm -rf "$OUT"; mkdir -p "$OUT"
+	SIMCTL_CHILD_SDKCOV_INPUT_WAIT=$WAIT OUT=$OUT "$S/run.sh" "$dev" $build --only "$id" >"$OUT/run.log" 2>&1 &
 	rp=$!; build=--no-build
 	# the app needs a few seconds to start and reach the check; the input repeats until the run ends
 	timeout 8 tail -f /dev/null
@@ -54,7 +57,7 @@ for k in ${want:-$all}; do
 	wait $rp
 	undo >/dev/null 2>&1
 	r=$(grep -h "X86TEST sdkcov $id " "$OUT"/sdkcov-*.err 2>/dev/null | tail -1)
-	echo "${r:-$id: no result (see $OUT)}"
+	echo "${r:-$id: no result (see $OUT, run.log: $(grep -v X86TEST "$OUT/run.log" 2>/dev/null | tail -1))}"
 	case $r in *" PASS "*|*" SKIP "*) ;; *) fails=$((fails + 1)) ;; esac
 done
 exit $fails

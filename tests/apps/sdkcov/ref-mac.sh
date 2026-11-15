@@ -57,13 +57,15 @@ case $plat in tvos|watchos|xros) xcrun simctl privacy "$dev" grant homekit com.x
 		('kTCCServiceWillow', 'com.x86sim.test.sdkcov', 0, 2, 4, 1, 0)" || echo "ref-mac: HomeKit not pre-granted" ;; esac
 data=$(xcrun simctl get_app_container "$dev" com.x86sim.test.sdkcov data)
 res=$data/Documents/x86test-results.txt
-t0=$(date +%s); n=0
+t0=$(date +%s); n=0 miss=0
 if [ -n "$only" ]; then   # one launch; its stderr is the result
 	# --console-pty: the app's stdout / stderr come back through simctl (a --stderr file stays empty here)
 	xcrun simctl launch --console-pty "$dev" com.x86sim.test.sdkcov --only "$only" >"$W/sdkcov-1.err" 2>&1 &
 	sleep 5
 	while [ $(( $(date +%s) - t0 )) -lt "$secs" ] && ! grep -q "X86TEST sdkcov done " "$W/sdkcov-1.err" 2>/dev/null; do
-		xcrun simctl spawn "$dev" launchctl list 2>/dev/null | grep -q "com.x86sim.test.sdkcov" || break
+		# gone only after 3 misses in a row (as run.sh: one empty answer ended a run with the app still going)
+		if xcrun simctl spawn "$dev" launchctl list 2>/dev/null | grep -q "com.x86sim.test.sdkcov"; then miss=0
+		else miss=$((miss + 1)); [ $miss -ge 3 ] && break; fi
 		sleep 2
 	done
 	xcrun simctl terminate "$dev" com.x86sim.test.sdkcov >/dev/null 2>&1; sleep 1; kill %1 2>/dev/null

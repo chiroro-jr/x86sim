@@ -49,7 +49,9 @@ Siri, iCloud, push) in `__TEXT,__entitlements`.
 `done`: a crash or a hang (the app's watchdog) is reported as FAIL for that check and the next launch resumes after
 it. Results, coverage JSON, `report.md` (`report.py`), the app's stdout / stderr per launch and a screenshot go to
 `$X86SIM_SCRATCH/apps/sdkcov-<platform>-<time>/`. `--only func:Metal,load:UIKit` runs just those checks once and
-prints their results (stderr only; the results file is left alone).
+prints their results (stderr only; the results file is left alone). One `run.sh` / `inputs.sh` per device at a time
+(each launch terminates the app): a second one on a busy device stops with "is busy" (a flock on `sdkcov.lock` in the
+device's state dir, `devlock.sh`).
 
 The host-driven input checks (`checks/Inputs.swift`: Shake, Rotate, Face ID / Optic ID enrollment and a match, the
 simulated game controller, Simulate Memory Warning) only report state in a normal run; with
