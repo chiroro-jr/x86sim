@@ -278,9 +278,29 @@ static void vm_map_like(GuestThread &t, u32 i, u64 *ints, int addr_arg, int size
     t.set_x(0, (u32)r.rax);
 }
 static void load_regs(GuestThread &t, u64 *ints) { for (int k = 0; k < 16; k++) ints[k] = k < 8 ? t.x(k) : 0; }
+// RAM 13: XNU unmaps whole pages: munmap and (mach_)vm_deallocate end at round_page(addr + len) of the task's 16K
+// page size. Linux rounds the end to 4K, so a guest free whose length is not a 16K multiple left the last 4-12K of
+// the region mapped. MTLSimDriver maps every MTLBuffer MAP_SHARED|MAP_ANON with a 16K-rounded length and frees it
+// with the buffer's own length: the leftover tail kept the region's whole memfd alive (darlingserver had made it one
+// to share the buffer with metalhostd/mtlvk). On an idle Vision Pro, backboardd's RealityKit buffers left 37 such
+// tails holding 452 MB of shmem (one 255.5 MB memfd for a 12K tail). Guest range only (16K-granular there:
+// reserve_aligned, guest MAP_FIXED); the host range keeps Darling's 4K-granular mappings (guard_unmap below).
+// X86SIM_A64_UNMAP16K=0: the old 4K rounding; X86SIM_A64_UNMAPLOG=1: log the rounded frees (with lr).
+constexpr u64 kGuestRangeLo = 0x300000000ull;
+static void guest_page_end(GuestThread &t, int addr_reg, int len_reg, const char *what) {
+    static const bool off = getenv("X86SIM_A64_UNMAP16K") && atoi(getenv("X86SIM_A64_UNMAP16K")) == 0;
+    static const bool log = getenv("X86SIM_A64_UNMAPLOG") != nullptr;
+    const u64 a = t.x(addr_reg), len = t.x(len_reg);
+    if (off || a < kGuestRangeLo || a >= kLowEnd || (a & 0x3fff) || !(len & 0x3fff) || len > kLowEnd - a) return;
+    const u64 rounded = (len + 0x3fff) & ~0x3fffull;
+    if (log) logf("%s(%#lx, %#lx): to the 16K page end, %#lx (lr %#lx)", what, (unsigned long)a, (unsigned long)len,
+                  (unsigned long)rounded, (unsigned long)t.x(30));
+    t.set_x(len_reg, rounded);
+}
 // munmap(addr, len)
 static void h_munmap(GuestThread &t, u32 i) {
     u64 nl;
+    guest_page_end(t, 0, 1, "munmap");
     if (guard_unmap(t, t.x(0), t.x(1), "munmap", &nl)) {
         if (nl) t.set_x(1, nl); else { t.set_x(0, 0); return; }
     }
@@ -289,6 +309,7 @@ static void h_munmap(GuestThread &t, u32 i) {
 // (mach_)vm_deallocate(task, addr, size)
 static void h_vm_deallocate(GuestThread &t, u32 i) {
     u64 nl;
+    guest_page_end(t, 1, 2, "vm_deallocate");
     if (guard_unmap(t, t.x(1), t.x(2), "vm_deallocate", &nl)) {
         if (nl) t.set_x(2, nl); else { t.set_x(0, 0); return; }
     }
@@ -864,6 +885,7 @@ Handler special_handler(const std::string &n, int *nfixed, const char **native_n
         {"_pthread_workqueue_setup", h_workqueue_setup}, {"_pthread_introspection_hook_install", h_introspection_hook},
         {"_mach_msg_server", h_callbacks<0>}, {"_mach_msg_server_once", h_callbacks<0>},
         {"_mach_msg_server_importance", h_callbacks<0>}, {"___sigaction", h_sigaction}, {"___platform_sigaction", h_platform_sigaction},
+        {"_sigaltstack", h_sigaltstack}, {"___sigaltstack", h_sigaltstack},
         {"_mach_vm_map", h_cachelock<h_vm_map>}, {"_vm_map", h_cachelock<h_vm_map>}, {"_mach_vm_remap", h_cachelock<h_vm_remap>},
         {"_vm_remap", h_cachelock<h_vm_remap>}, {"_mach_vm_remap_new", h_cachelock<h_vm_remap>},
         {"_vm_remap_new", h_cachelock<h_vm_remap>}, {"_mach_vm_allocate", h_cachelock<h_vm_allocate>},
