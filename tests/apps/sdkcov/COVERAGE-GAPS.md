@@ -1,21 +1,332 @@
 # sdkcov coverage gaps: towards complete SDK coverage
 
-Goal: every public framework of each platform SDK (manifest-<plat>.json = the Xcode 27.2 simulator SDK framework list, incl. sdks/XRSimulator-xcode.sdk for visionOS) has at least one functional check exercising its main public API with real assertions, and the checks cover its main feature areas. Machine-readable: `coverage-gaps.json` (`{platform: {framework: {status, existing_checks, gaps, package, used_inside?, apple_sim_na?, note?}}}`).
+Goal: every public framework of each platform SDK (manifest-<plat>.json = the Xcode 27.2 simulator SDK framework list, incl. sdks/XRSimulator-xcode.sdk for visionOS) has functional checks exercising its main public API with real assertions, matching Apple's simulator (the bar, not hardware). Machine-readable: `coverage-gaps.json` (`{platform: {framework: {status, existing_checks, gaps, package, rejudged, used_inside?, apple_sim_na?, apple_sim_na_done?, api_unavailable?, sdk_availability?, note?}}}`).
 
-Inputs (2026-11-15): 426 distinct functional check ids parsed from checks/*.swift (incl. the uncommitted More2 edits); which ones run on which platform from the comb2 runs (`~/scratch/x86sim/apps/sdkcov-<plat>-comb2/results.txt`: iOS 320, tvOS 246, watchOS 173, visionOS 263 func results; the iPad run has the same 320 ids); framework use inside other checks from SDK header/swiftinterface symbols; Apple-simulator behaviour from SKIP reasons and the ref-mac.sh results. Libraries (usr/lib) are out of scope here (all have a check or are Xcode tools).
+Refreshed 2026-11-16 (first pass: commit 4dfb0f4, 2026-11-15). Inputs: 729 distinct framework check ids in checks/*.swift (was 381; +348 from P1..P8, the gaps/FSEvents/FoundationModels rounds and More2 on all platforms); which ids run on which platform and their x86Sim + Apple-reference results = every sdkcov result under ~/scratch since 2026-11-15 (results.txt / sdkcov-N.err of the comb2, P-round, gaps, fse, fm and *-ref-* runs: ios 618, tvos 389, watchos 280, xros 500 ids). Every framework whose check set changed was re-judged from the check bodies (`rejudged: true`); the rest keep their first-pass judgement. Libraries (usr/lib) are out of scope.
 
-Status: **covered** = real assertions on the main API; **thin** = real checks but main areas of a large framework untested; **trivial** = only existence / availability / authorization status / object construction without behaviour (or no assertion); **none** = no functional check on that platform; **apple-sim-na** = cannot work in Apple's simulator (hardware, entitlement, missing service) - not to be chased, but needs a check asserting the simulator behaviour; **excluded** = headers-only / re-export-only / not in the runtime.
+Status: **covered** = real assertions on the main API and its main areas; **thin** = real checks but main areas untested; **trivial** = only existence / availability / authorization status / construction, or values reported but not asserted; **none** = no check on that platform; **apple-sim-na** = the main API cannot work in Apple's simulator (hardware, entitlement, missing service): the check must assert the simulator answer (*done* when such an asserting check passes on Apple, *open* otherwise); **api-unavailable** = the SDK marks the whole public API unavailable on that platform (Swift `@available(<os>, unavailable)` / `API_UNAVAILABLE(<os>)` on every declaration; visionOS inherits iOS unavailability): only loading is possible, the load check covers it; **excluded** = headers-only / re-export-only / not in the runtime.
+
+Gap tags: **[a]** doable as a check; **[b: ...]** blocked by an x86Sim bug (named); **[c]** Apple's simulator can't do it - assert its answer; **[run]** no new check needed, a run is missing or stale.
 
 ## Counts per platform
 
-| platform | frameworks | functional-covered (covered + thin) | of which thin | trivial-only | no functional check | Apple-sim N/A | excluded |
-|---|---|---|---|---|---|---|---|
-| iOS/iPadOS | 285 | 105 | 24 | 47 | 98 | 29 | 6 |
-| tvOS | 167 | 102 | 22 | 23 | 30 | 6 | 6 |
-| watchOS | 140 | 61 | 15 | 14 | 52 | 10 | 3 |
-| visionOS | 230 | 96 | 27 | 35 | 77 | 16 | 6 |
+| platform | frameworks | covered | thin | trivial | none | apple-sim-na (done / open) | api-unavailable | excluded |
+|---|---|---|---|---|---|---|---|---|
+| iOS/iPadOS | 285 | 182 | 12 | 23 | 3 | 59 (41 / 18) | 0 | 6 |
+| tvOS | 167 | 126 | 4 | 4 | 4 | 16 (9 / 7) | 7 | 6 |
+| watchOS | 140 | 99 | 9 | 4 | 2 | 16 (8 / 8) | 7 | 3 |
+| visionOS | 230 | 160 | 8 | 10 | 5 | 34 (24 / 10) | 7 | 6 |
+
+First pass (2026-11-15) for comparison:
+
+| platform | covered | thin | trivial | none | apple-sim-na | excluded |
+|---|---|---|---|---|---|---|
+| iOS/iPadOS | 81 | 24 | 47 | 98 | 29 | 6 |
+| tvOS | 80 | 22 | 23 | 30 | 6 | 6 |
+| watchOS | 46 | 15 | 14 | 52 | 10 | 3 |
+| visionOS | 69 | 27 | 35 | 77 | 16 | 6 |
 
 Not counted (Swift runtime modules, not SDK frameworks, all covered): Swift, Dispatch, Observation, Distributed, os.
+
+## Remaining actionable work, by area
+
+Entries = framework [platforms] with status thin / trivial / none / apple-sim-na *open*. Full gap text in the tables below.
+
+### P1 Media & AV
+
+Assertion upgrades: VideoSubscriberAccount exact answers (VSPrivateErrorDomain -5, 4099) + the visionOS usage string, MusicKit NSAppleMusicUsageDescription on watchOS/visionOS + ApplicationMusicPlayer state, MediaPlayer on watchOS (library query after a media-library grant, remote-command config). _PhotosUI_WidgetKit needs the widget extension. Everything else in P1 is covered.
+
+- **thin**: MediaPlayer [W], MusicKit [WV]
+- **trivial**: AssetsLibrary [I], VideoSubscriberAccount [V]
+- **none**: _PhotosUI_WidgetKit [IV]
+- **apple-sim-na open**: VideoSubscriberAccount [IT]
+
+### P2 Graphics, 3D, AR & games
+
+Small: GameSave assert the .error state without iCloud, OpenGLES port to visionOS, SceneKit watchOS ports (animation/morpher/skinner, usdz write+load), _GameController_SwiftUI with a delivered gamepad event.
+
+- **thin**: SceneKit [W]
+- **trivial**: _GameController_SwiftUI [IV]
+- **none**: OpenGLES [V]
+- **apple-sim-na open**: GameSave [IV]
+
+### P3 App extensions, system services, communication & parental controls
+
+Largest remainder. Assertion upgrades where checks only report: AlarmKit, AppMigrationKit, BrowserEngineCore be_kevent, BusinessChat, RelevanceKit (nothing asserted anywhere), MetricKit payloads/signposts, SystemExtensions, BackgroundTasks continued-processing, DeclaredAgeRange/LinkSecurity no-answer as PASS, PushKit fresh-device no-token, ManagedSettings write read-back. Ports: BackgroundTasks to watchOS, BrowserEngineKit/BrowserKit to tvOS/watchOS/visionOS where available, UserNotificationsUI to tvOS/watchOS, BrowserEngineCore BEMemory on visionOS. Extension work: UNNotificationContentExtension + FileProviderUI action appex, WidgetKit visionOS timelines/ControlCenter, ExtensionFoundation watchOS on an Apple point, App Clip target, tvOS notification service extension. Runs: visionOS x86 for 16 P3 checks (only Apple ran them).
+
+- **thin**: AppClip [I], ExtensionFoundation [W], MetricKit [IV], UserNotifications [T], WidgetKit [V]
+- **trivial**: AccessoryLiveActivities [I], AlarmKit [I], AppMigrationKit [I], BrowserEngineCore [I], BusinessChat [I], FileProviderUI [IV], ManagedSettings [T], ManagedSettingsUI [I], NotificationCenter [I], RelevanceKit [ITWV], UserNotificationsUI [IV], _DeviceActivity_SwiftUI [I]
+- **none**: BrowserEngineCore [V], UserNotificationsUI [TW]
+- **apple-sim-na open**: BackgroundTasks [IW], BrowserEngineKit [TWV], BrowserKit [IW], DeclaredAgeRange [I], ExtensionKit [TWV], LinkSecurity [ITWV], ManagedSettings [I], PushKit [IWV], SystemExtensions [I], TelephonyMessagingKit [I]
+
+### P4 Data, cloud, contacts/calendars & commerce
+
+Ports: SharedWithYouCore to tvOS, _SwiftData_SwiftUI query-in-hosted-view to iOS/watchOS/visionOS. Assertions: ContactProvider domainNotRegistered, AdAttributionKit 3328, watchOS Contacts/EventKit answers with access, ATT request flow after a pre-grant/deny. Runs: tvOS x86 for 18 P4 checks (CloudKit, CoreData, SwiftData, StoreKit, ...: only Apple ran them).
+
+- **thin**: AppTrackingTransparency [ITV], Contacts [W], _MarketplaceKit_UIKit [I]
+- **trivial**: AddressBookUI [I], ContactProvider [I], EventKit [W]
+- **none**: SharedWithYouCore [T], _SwiftData_SwiftUI [IWV]
+- **apple-sim-na open**: AdAttributionKit [I], GroupActivities [ITV], MarketplaceKit [I]
+
+### P5 Health, home, location, sensors & accessories
+
+Matter MTRDeviceController offline start/shutdown; NearbyInteraction two-peer run (nisimhost) + single-peer answer; DeviceDiscoveryUI with NSApplicationServices; appex-only frameworks (AccessoryNotifications, AccessoryTransportExtension, DeviceDiscoveryExtension, HomeExtensions); Apple-sim-N/A assertions still missing: AccessorySetupKit (no .activated), ExposureNotification -71148, SafetyKit raise (ObjC @try shim), WeatherKit on tvOS; _WorkoutKit_SwiftUI presented on watchOS.
+
+- **thin**: AccessoryNotifications [I], AccessoryTransportExtension [I], DeviceDiscoveryExtension [IV], HomeExtensions [I], Matter [ITWV], NearbyInteraction [IW], _WorkoutKit_SwiftUI [W]
+- **trivial**: DeviceDiscoveryUI [IT]
+- **apple-sim-na open**: AccessorySetupKit [I], ExposureNotification [I], SafetyKit [IW], WeatherKit [T]
+
+### P6 UI frameworks depth & platform UI
+
+Done except _DataDetection_SwiftUI on watchOS (needs the Text on screen: ImageRenderer draws before detection).
+
+- **trivial**: _DataDetection_SwiftUI [W]
+
+### P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language
+
+FoundationModels: assert the 1026 refusal on visionOS/watchOS (Apple), PCC availability reason; x86 bug SensitiveContentAnalysisML 15 on visionOS. Ports: _AppIntents_HealthKit/_Contacts_AppIntents to tvOS, _Translation_SwiftUI to visionOS, SuggestedActions message-view to visionOS. _CoreSpotlight_FoundationModels SpotlightSearchTool.call without the model, _FoundationModels_UIKit image segment, _AppIntents_SwiftUI tvOS/watchOS sizes, TranslationUIProvider extension, SCVideoStreamAnalyzer. Runs: watchOS x86 for 31 P7/P2 checks.
+
+- **thin**: SuggestedActions [I]
+- **trivial**: SuggestedActions [V], _AppIntents_SwiftUI [TW], _CoreSpotlight_FoundationModels [IV], _FoundationModels_UIKit [IV]
+- **none**: TranslationUIProvider [I], _AppIntents_HealthKit [T], _Contacts_AppIntents [T], _Translation_SwiftUI [V]
+- **apple-sim-na open**: FoundationModels [WV], MediaIntelligence [ITV], SensitiveContentAnalysis [IV]
+
+### P8 Foundation, networking, security, identity & device management
+
+AuthenticationServices on tvOS/watchOS/visionOS (port web-auth loopback callback, assert the cancel answer), ClassKitUI/IdentityLookupUI content (extension for IdentityLookupUI), MultipeerConnectivity visionOS no-peer assertion, _SecureElementCredential overlays answers, AutomatedDeviceEnrollment presented UI (ref-mac.sh first), _ManagedAppDistribution_SwiftUI label/offer.
+
+- **thin**: AuthenticationServices [TWV], AutomatedDeviceEnrollment [I], _ManagedAppDistribution_SwiftUI [V]
+- **trivial**: ClassKitUI [IV], IdentityLookupUI [IV], Twitter [I], _SecureElementCredential_SwiftUI [I], _SecureElementCredential_UIKit [I]
+- **apple-sim-na open**: MultipeerConnectivity [V]
+
+## Remaining x86Sim-only differences (vs Apple's 27.2 simulator)
+
+Open x86Sim bugs / missing pieces:
+
+- **FileProvider replicated domain** (`FileProvider.replicated-extension-domain`, iOS x86 FAIL "root lists []", Apple PASS on a fresh device; visionOS x86 not run): fileproviderd's `-[FPFSVolume setupForPath:]` needs VOL_CAP_FMT_DOCUMENT_ID | WRITE_GENERATION_COUNT and VOL_CAP_INT_CLONE | RENAME_EXCL from the Darling volume (else ENODEV, domain disabled; patch ~/scratch/fse/darling-volcaps.patch, reverted); with it the next blocker is the missing dataless-materialization upcall (kernel namespace resolver), so the extension is never launched. (The FSEvents half was fixed by the host/fseventsd stand-in.)
+- **FoundationModels on visionOS** (relay on): `system-model-availability` FAILs with SensitiveContentAnalysisML error 15 (local sanitizer, OnDeviceInferenceAssetRepository 2) where Apple's FAILs with ModelManagerError 1026. The check should also assert Apple's 1026 refusal.
+- **FoundationModels without a Mac**: x86 answers modelNotReady (iOS respond/guided/tools/stream SKIP, Apple PASS via its host Mac) unless X86SIM_FM_RELAY points at a Mac with Apple Intelligence; with the relay the iPad results equal Apple's. Configuration, not a bug.
+- **fseventsd stand-in**: kFSEventStreamCreateFlagIgnoreSelf / MarkSelf not implemented (inotify does not say which process made a change), nor hard-link flags or extended data / document ids beyond what the client fills in. `CoreServices.fsevents-stream-file-events` has only an iOS x86 result in the harvested runs (no Apple result, no tvOS/watchOS/visionOS run).
+- **BrowserEngineCore JIT witness**: `kevent-jit-restrict` reports "JIT witness supported" 0 on x86 vs 1 on Apple (a CPU feature of the host); not asserted.
+- **PushKit VoIP token**: x86 has no apsd APNs-sandbox courier, so never a token (SKIP); Apple's long-lived reference device got an 80-byte token (ref FAIL on the cached-token assertion), a fresh Apple device gets none either.
+
+Unasserted value differences (both PASS; decide whether to assert):
+
+- NaturalLanguage `embeddings-assets` iOS/visionOS: x86 has a sentence embedding and contextual-embedding assets true (mobileassetd downloads mBERT after the boot-a64 LinguisticData link); Apple's fresh devices: no sentence embedding, assets false.
+- StoreKit `products-storefront` tvOS: x86 storefront none vs Apple USA (x86 run 2026-11-15 15:30, probably before amsaccountsd joined the tvOS job list in the P8 round: rerun).
+- MarketplaceKit `distributor-requirements` iOS: x86 answers AppDistributor.current / eligibilityRegion at once ("error Unknown", nil); Apple never answers for a simctl-installed app (15 s timeouts).
+- _PassKit_SwiftUI `wallet-pay-buttons` iOS: x86 pay button box 0% ink (wallet 65%); Apple's run hung, no comparison yet.
+
+Stale x86 results (the failing run predates the fix or the check change; rerun):
+
+- AppIntents `donations` tvOS: FAIL NSCocoaErrorDomain 4099 (com.apple.linkd.transcript) at 2026-11-15 20:04, before com.apple.linkd joined boot-a64.sh's tvOS list.
+- HomeKit `home-manager-add-remove-home` and _RelevanceKit_MapKit `poi-category-contexts` watchOS: FAIL texts belong to older assertions.
+- AppTrackingTransparency `status` tvOS: 1 (restricted) vs Apple 0 in the last x86 run; check comment says fixed (ManagedConfiguration profiled).
+
+Runs missing (checks only Apple ran): tvOS 18; watchOS 31; visionOS 16 (tvOS: the P4 data checks; watchOS: P7 + a few P2; visionOS: P3). Never run anywhere: ManagedSettings.tv-default-store-effective (tvOS).
+
+Fixed since the first pass (now = Apple): guest signal handlers (`libSystem.B.signals-sigaction-mask-itimer` PASS), MultipeerConnectivity two-peer (iOS/tvOS), NearbyInteraction discovery token (host/nisimhost), visionOS location (managedassetsd), visionOS ARKit addAnchor error text (stub ARKitCore bundle), MetricKit finishExtendedLaunchMeasurement 4 (simshim signpost id), Bonjour on device, TLS-to-loopback race, guest thread stack size. Host config (not x86Sim): ufw on the build host drops inbound multicast, so NWConnectionGroup loopback receive cannot be asserted on x86.
+
+## api-unavailable (whole public API marked unavailable in the SDK)
+
+Evidence from the Xcode 27.2 simulator SDK swiftinterface / headers (scan: ~/scratch/covgap/v2/unav2.py + header reading). Load checks (load:<Framework>) still run.
+
+| framework | platform | SDK evidence |
+|---|---|---|
+| BrowserEngineCore | tvOS | BEMemory/BEkevent/BEAudioSession all API_UNAVAILABLE(tvos) |
+| CoreSpotlight | tvOS | 242/242 Swift decls @available(tvOS, unavailable); every ObjC class API_UNAVAILABLE(tvos, watchos) |
+| EnergyKit | tvOS | 255/255 Swift decls @available(tvOS, unavailable) |
+| FoundationModels | tvOS | 838/838 Swift decls @available(tvOS, unavailable) |
+| MatterSupport | tvOS | 104/104 Swift decls @available(tvOS, unavailable) |
+| MetricKit | tvOS | 567/567 Swift decls + all 34 ObjC classes API_UNAVAILABLE(tvos, watchos) |
+| _GameController_SwiftUI | tvOS | its 3 Swift decls @available(tvOS, unavailable) |
+| BrowserEngineCore | watchOS | BEMemory/BEkevent/BEAudioSession all API_UNAVAILABLE(watchos) |
+| DeviceActivity | watchOS | 55/55 Swift decls @available(watchOS, unavailable) |
+| EnergyKit | watchOS | 255/255 Swift decls @available(watchOS, unavailable) |
+| FamilyControls | watchOS | 29/29 Swift decls @available(watchOS, unavailable) |
+| FinanceKit | watchOS | 211/211 Swift decls @available(watchOS, unavailable) |
+| ManagedSettings | watchOS | 166/166 Swift decls @available(watchOS, unavailable) |
+| MatterSupport | watchOS | 104/104 Swift decls @available(watchOS, unavailable) |
+| AutomaticAssessmentConfiguration | visionOS | all 6 ObjC classes API_UNAVAILABLE(visionos) or (ios) (visionOS inherits iOS), 6/6 Swift decls unavailable |
+| BrowserKit | visionOS | both ObjC classes (BEAvailability...) API_UNAVAILABLE(..., visionos) |
+| EnergyKit | visionOS | 255/255 Swift decls @available(visionOS, unavailable) |
+| LockedCameraCapture | visionOS | 17/17 Swift decls @available(visionOS, unavailable) |
+| TouchController | visionOS | all 17 ObjC classes API_UNAVAILABLE(macCatalyst, visionos) |
+| TrustInsights | visionOS | 92/92 Swift decls @available(visionOS, unavailable) |
+| WiFiAware | visionOS | 235/235 Swift decls @available(visionOS, unavailable) |
+
+Partly available (not api-unavailable; the gap names what is left):
+
+- Translation on tvOS (covered): only AttributeScopes.TranslationAttributes (skipsTranslation) is available; TranslationSession/LanguageAvailability are @available(..., unavailable)
+- QuartzCore on watchOS (covered): only CATransform3D functions and CACurrentMediaTime are available (every CA class API_UNAVAILABLE(watchos))
+- Translation on watchOS (covered): only AttributeScopes.TranslationAttributes (skipsTranslation) is available; TranslationSession/LanguageAvailability are @available(..., unavailable)
+- BrowserEngineCore on visionOS (none): only BEMemory (be_memory_inline_jit_restrict_*) is available; be_kevent and BEAudioSession are API_UNAVAILABLE(visionos)
+- Translation on visionOS (covered): only AttributeScopes.TranslationAttributes (skipsTranslation) is available; TranslationSession/LanguageAvailability are @available(..., unavailable)
+- NetworkExtension on watchOS: NEVPNManager / NERelayManager are API_UNAVAILABLE(watchos); the hotspot API is checked.
+
+Platform letters: I = iOS/iPadOS, T = tvOS, W = watchOS, V = visionOS. A gap prefixed "X:" applies to that platform only.
+
+## No check on the platform (10 frameworks)
+
+Most are ports: the framework is checked on another platform; usually widen the `#if`.
+
+| framework | platforms | existing checks | gaps / check ideas | package |
+|---|---|---|---|---|
+| BrowserEngineCore | V | - | [a] BEMemory only (be_kevent/BEAudioSession are unavailable on visionOS): be_memory_inline_jit_restrict_rwx_to_rw_with_witness / _rw_to_rx_with_witness round trip on a MAP_JIT page | P3 |
+| OpenGLES | V | - | [a] port existing check(s) OpenGLES.context-fbo-clear-readpixels (run on I/T) | P2 |
+| SharedWithYouCore | T | - | [a] port existing check(s) SharedWithYouCore.collaboration-metadata (run on I/V) | P4 |
+| TranslationUIProvider | I | - | [a] TranslationUIProviderExtension types (needs extension) | P7 |
+| UserNotificationsUI | TW | - | [a] port existing check(s) UserNotificationsUI.content-extension-controller (run on I/V); [a] UNNotificationContentExtension appex receiving didReceive(_:) for a delivered notification | P3 |
+| _AppIntents_HealthKit | T | - | [a] port existing check(s) _AppIntents_HealthKit.workout-audio-contexts (run on I/W/V) | P7 |
+| _Contacts_AppIntents | T | - | [a] port existing check(s) _Contacts_AppIntents.postal-address-entity-type (run on I/W/V) | P7 |
+| _PhotosUI_WidgetKit | IV | - | [a] widget photo picker types (needs a widget extension) - build objects | P1 |
+| _SwiftData_SwiftUI | IWV | - | [a] port existing check(s) _SwiftData_SwiftUI.query-in-hosted-view (run on T) | P4 |
+| _Translation_SwiftUI | V | - | [a] port existing check(s) _Translation_SwiftUI.translation-task-presentation (run on I) | P7 |
+
+## Trivial checks only (29 frameworks)
+
+| framework | platforms | existing checks | gaps / check ideas | package |
+|---|---|---|---|---|
+| AccessoryLiveActivities | I | feature-results | [c] Live Activity forwarding to an accessory needs a paired AccessorySetupKit accessory: assert the simulator answer of the forwarding authorization request | P3 |
+| AddressBookUI | I | people-picker-view | [a] deprecated: keep | P4 |
+| AlarmKit | I | authorization-alarms-updates, manager-state | [a] AlarmManager.requestAuthorization + schedule a countdown alarm / cancel (NSAlarmKitUsageDescription; system prompt needs auto-accept); [a] assert authorizationState notDetermined and the empty alarmUpdates answer (today only reported) | P3 |
+| AppMigrationKit | I | status-identifiers | [a] assert MigrationStatus.importStatus (nil in the sim; today only reported); [a] AppMigrationExtension (needs an extension) | P3 |
+| AssetsLibrary | I | authorization-status | [a] deprecated (unavailable to Swift): keep runtime authorizationStatus call | P1 |
+| BrowserEngineCore | I | kevent-jit-restrict | [a] assert be_kevent -> 1 with the timer ident (today only reported); [c] JIT witness supported is a CPU feature (1 Apple silicon, 0 on x86): not assertable across hosts | P3 |
+| BusinessChat | I | chat-button | [a] assert BCChatButton intrinsicContentSize (163x52) and its pixels; [a] BCChatAction.openTranscript URL (deprecated) | P3 |
+| ClassKitUI | IV | assigned-document-views | [a] assert AssignedDocumentLabel status/date text and AssignedDocumentSubmissionButton state for an assigned document (check only hosts the views; nothing about their content asserted) | P8 |
+| ContactProvider | I | manager-without-extension | [a] assert ContactProviderManager() throws domainNotRegistered (today returned, not asserted) | P4 |
+| DeviceDiscoveryUI | IT | device-picker, device-picker-ios | [a] add NSApplicationServices to Info.plist so DDDevicePickerViewController's view loads; assert isSupported (Apple: iOS true, tvOS false) and the picker view on screen (today values reported only) | P5 |
+| EventKit | W | authorization-event-recurrence, watch-read-access | [a] assert calendars/events(matching:) answers with access (watch-read-access reports counts only) | P4 |
+| FileProviderUI | IV | action-extension-controller | [a] FPUIActionExtensionViewController in a real action appex with an extensionContext (completeRequest / cancelRequest) | P3 |
+| IdentityLookupUI | IV | classification-view-controller | I: [a] ILClassificationUIExtensionViewController inside a real classification extension (prepare(for:), classificationResponse(for:)) | P8 |
+| ManagedSettings | T | store-read-write, tv-default-store-effective | [a] run tv-default-store-effective (never run; asserts effective values nil/false) | P3 |
+| ManagedSettingsUI | I | shield-configuration | [c] shield rendering needs a ShieldConfiguration extension + Family Controls authorization: assert the simulator answer | P3 |
+| NotificationCenter | I | widget-controller | [a] deprecated (Today widgets): NCWidgetProviding - keep minimal | P3 |
+| RelevanceKit | ITWV | contexts, contexts-port, contexts-widget-relevance | [a] assert RelevantContext Codable/Equatable round trip (no check asserts anything); [a] WidgetRelevance answered by the widget extension (relevance(), WidgetCenter.invalidateRelevance) | P3 |
+| SuggestedActions | V | message | [a] port message-view-generate (current check only builds a message) | P7 |
+| Twitter | I | compose-can-send | [a] deprecated (no Swift module): keep runtime call | P8 |
+| UserNotificationsUI | IV | content-extension-controller | [a] UNNotificationContentExtension appex receiving didReceive(_:) for a delivered notification | P3 |
+| VideoSubscriberAccount | V | access-status-user-accounts, manager | [c] assert the exact simulator answers (VSPrivateErrorDomain -5, VSUserAccountManager update NSCocoaErrorDomain 4099) instead of only no-hang; [a] add NSVideoSubscriberAccountUsageDescription to the visionOS app so access-status-user-accounts runs (SKIPs on both) | P1 |
+| _AppIntents_SwiftUI | TW | siri-tip-view, siri-tip-view-shortcuts-link | T: [a] assert siri-tip-view hosted size/subviews (only reported); W: [a] render SiriTipView (e.g. ImageRenderer) and assert size (only built) | P7 |
+| _CoreSpotlight_FoundationModels | IV | spotlight-search-tool | [a] SpotlightSearchTool.call(arguments:) directly over an indexed CSSearchableItem (no model needed); session use needs the model (x86: FM relay) | P7 |
+| _DataDetection_SwiftUI | W | text-data-detection | [a] host the Text on screen and assert detected links (ImageRenderer draws before async detection; check only asserts ink) | P6 |
+| _DeviceActivity_SwiftUI | I | report-view-hosted | [c] report content needs a DeviceActivityReport extension + authorization: assert the simulator answer | P3 |
+| _FoundationModels_UIKit | IV | uiimage-attachment-prompt | [a] assert the Prompt carries an image segment; respond(to:) with it where the model is available (x86 iOS: FM relay) | P7 |
+| _GameController_SwiftUI | IV | handles-game-controller-events-modifier | [a] deliver a GCVirtualController / injected gamepad press to the view with .handlesGameControllerEvents and assert it reaches GameController, not UIKit presses | P2 |
+| _SecureElementCredential_SwiftUI | I | transaction-task-modifier | [c] transactionTask with a real configuration needs a credential session (assert the simulator answer) | P8 |
+| _SecureElementCredential_UIKit | I | window-scene-events | [c] scene connection-options credential events need an NFC presentment (assert the simulator answer) | P8 |
+
+## Thin coverage of main areas (22 frameworks)
+
+| framework | platforms | existing checks | gaps / check ideas | package |
+|---|---|---|---|---|
+| AccessoryNotifications | I | notification-model-codable | [a] NotificationsForwarding provider / forwarding session in an accessory extension (needs appex) | P5 |
+| AccessoryTransportExtension | I | message-builder | [a] AccessoryTransportSession inside an accessory transport extension (needs appex) | P5 |
+| AppClip | I | activation-payload | [a] launch an App Clip target (_XCAppClipURL) and call APActivationPayload.confirmAcquired(in:) | P3 |
+| AppTrackingTransparency | ITV | not-determined-on-fresh-install, status | [a] requestTrackingAuthorization with a pre-granted / denied tracking privacy -> status authorized/denied; T: [a] x86 run of not-determined-on-fresh-install (last x86 tvOS status check said 1 = restricted, Apple 0) | P4 |
+| AuthenticationServices | TWV | apple-id-request, passkey-requests-controller, web-auth-session | T: [a] assert a controller answer beyond pending-in-25s (cancel() -> error 1001/1004 as on visionOS); [a] ASAuthorizationProviderExtension / ASCredentialProviderViewController objects (AutoFill/SSO extension side); W: [a] port web-auth-loopback-callback (ASWebAuthenticationSession start, assert callback URL; visionOS check only asserts canStart false); W: [a] assert a controller answer beyond pending-in-25s (cancel() -> error 1001/1004 as on visionOS); V: [a] port web-auth-loopback-callback (ASWebAuthenticationSession start, assert callback URL; visionOS check only asserts canStart false) | P8 |
+| AutomatedDeviceEnrollment | I | addition-modifier | [a] isPresented true on an unmanaged device: assert the system UI or refusal Apple shows (ref-mac.sh first) | P8 |
+| Contacts | W | authorization-vcard-formatter, watch-read-access | [a] assert fetch answers with access granted (watch-read-access reports counts only) | P4 |
+| DeviceDiscoveryExtension | IV | device-event-types | [a] DDDiscoverySession inside a DeviceDiscoveryExtension appex (appex installs only on iOS) | P5 |
+| ExtensionFoundation | W | apple-extension-point-monitor | [a] monitor an Apple extension point with an app extension (today only the unknown-point error) | P3 |
+| HomeExtensions | I | settings-model | [a] host the accessory settings in a HomeExtensions appex | P5 |
+| Matter | ITWV | certificates-fabric-tlv, setup-payload-codes | [a] MTRDeviceController (storage-based, offline) start/shutdown via MTRDeviceControllerParameters | P5 |
+| MediaPlayer | W | nowplaying-remote-commands | [a] MPMediaQuery on an authorized library (auth 0 on the sim: grant media-library TCC so songs/albums queries run); [a] port remote command config (skip intervals, changePlaybackPosition) / MPNowPlayingSession | P1 |
+| MetricKit | IV | log-handles-signposts-launch-task, manager | [c] payload delivery: assert pastPayloads / didReceive empty in the sim (today only reported); [a] assert signposts reach the log (mxSignpost / MetricManager.logHandle emitted, not checked) | P3 |
+| MusicKit | WV | authorization-status, objects-subscription-catalog-answers | [a] add NSAppleMusicUsageDescription so subscription/catalog calls assert the simulator error (today not made); [a] ApplicationMusicPlayer queue/state asserted (today reported only) | P1 |
+| NearbyInteraction | IW | capabilities, unsupported-session-invalidated | [a] two-peer NISession run (Apple sim simulates distance between simulator windows; x86 via nisimhost): assert didUpdate nearby objects; I: [a] assert the single-peer run answer (invalidation / no update) instead of reporting it | P5 |
+| SceneKit | W | offscreen-render | [a] SCNParticleSystem, light shadows, SCNAudioSource; [a] port animation-player-morpher-skinner and scene-write-source-load-usdz (no SCNRenderer needed) | P2 |
+| SuggestedActions | I | message-view-generate | [a] assert generate result / rendered SuggestedActionsView content (subviews not asserted) | P7 |
+| UserNotifications | T | settings-schedule-pending, tv-badge-request-model | [a] UNNotificationServiceExtension mutating a delivered push (simctl push equivalent); [a] communication notifications (INSendMessageIntent update); [c] badge delivery needs authorization whose alert never dismisses unattended (add refusal asserted) | P3 |
+| WidgetKit | V | center, widget-extension-descriptors | [a] timelines reach currentConfigurations (0 configured today): assert a kind; [a] ControlCenter with a placed control; [a] render AccessoryWidgetBackground / widget views (port watchOS accessory-background-render); [c] fresh Apple device's chronod does not run the extension in 60 s (ref FAIL predates the skipIf); x86 result missing | P3 |
+| _ManagedAppDistribution_SwiftUI | V | managed-content-view | [a] assert ManagedContentView label text / offerAction on tap (check asserts only offer states and laid-out height) | P8 |
+| _MarketplaceKit_UIKit | I | install-metadata-display-options | [c] ActionButton init blocks the main thread on Apple outside a marketplace app | P4 |
+| _WorkoutKit_SwiftUI | W | workout-preview-modifier-watch | [a] present the preview (isPresented true) and assert it shows | P5 |
+
+## Apple-sim N/A, open (no asserting check yet) (23 frameworks)
+
+Not to be chased beyond asserting the simulator answer.
+
+| framework | platforms | existing checks | gaps / check ideas | package |
+|---|---|---|---|---|
+| AccessorySetupKit | I | descriptors-display-items, session-activate | [c] add NSAccessorySetupKitSupports to Info.plist and assert ASAccessorySession.activate gives no .activated event (Apple: session never activates); session-activate SKIPs today (ASAccessorySession never activates in Apple's simulator (and traps without NSAccessorySetupKitSupports)) | P5 |
+| AdAttributionKit | I | impression-postback-answers | [c] assert Postback.updateConversionValue -> NSCocoaErrorDomain 3328 (today reported, not asserted) (AdAttributionKit is unsupported in the simulator (every call NSCocoaErrorDomain 3328)) | P4 |
+| BackgroundTasks | IW | continued-processing-request, register-submit | I: [c] assert BGContinuedProcessingTaskRequest submit -> BGTaskSchedulerErrorDomain 3 (today only reported); W: [c] add a check asserting the simulator answer (unsupported / proper error); W: [a] port existing check(s) BackgroundTasks.continued-processing-request, BackgroundTasks.register-submit (run on I/T/V) (BGTaskScheduler.submit -> .unavailable in Apple's simulator (asserted by register-submit)) | P3 |
+| BrowserEngineKit | TWV | - | [c] add a check asserting the simulator answer (unsupported / proper error); [a] port existing check(s) BrowserEngineKit.processes-without-entitlement (run on I); [a] BETextInput / BEScrollView behaviour (only a BEScrollView built) (browser process launches need the web-browser-engine entitlement + extensions) | P3 |
+| BrowserKit | IW | data-exchange-types | [c] BEAvailability.isEligible(for:) raises NSInvalidArgumentException in Apple's sim (XPC proxy lacks the selector): not assertable; [a] BEBrowserDataExportManager / ImportManager flows (entitlement): assert the refusal; W: [c] add a check asserting the simulator answer (unsupported / proper error); W: [a] port existing check(s) BrowserKit.data-exchange-types (run on I) (BEAvailability.isEligible raises in Apple's simulator) | P3 |
+| DeclaredAgeRange | I | eligibility, request-age-range | [c] assert the no-answer (PASS after the timeout) for isEligibleForAgeFeatures / requestAgeRange instead of SKIP (isEligibleForAgeFeatures / requestAgeRange never answer in Apple's simulator) | P3 |
+| ExposureNotification | I | authorization-status, manager-activate-answer | [c] pin the activate error (NSOSStatusErrorDomain -71148) instead of only asserting an answer (needs Apple's Exposure Notification entitlement (deprecated)) | P5 |
+| ExtensionKit | TWV | - | [c] installd refuses an appex on an app-defined extension point (ExtensionKit appex works on iOS only): assert AppExtensionPoint/AppExtensionIdentity lookup answers no extension (bundle-less) instead of nothing (tvOS/watchOS/visionOS installd refuse an app extension on a non-Apple extension point (Apple's simulator too)) | P3 |
+| FoundationModels | WV | private-cloud-compute-model, schemas-content-transcript, system-model-availability, system-model-respond-guided-tools-stream | W: [c] port the respond check asserting the simulator answer (1026 refusal); [a] PrivateCloudComputeLanguageModel: assert availability/reason (check only reports it); V: [c] system-model-availability FAILs on Apple (available, then ModelManagerError 1026): assert the 1026 refusal instead; V: [b: SensitiveContentAnalysisML error 15] with X86SIM_FM_RELAY, system-model-availability FAILs with SensitiveContentAnalysisML 15 (local sanitizer, OnDeviceInferenceAssetRepository 2) where Apple FAILs with ModelManagerError 1026 (Apple's visionOS/watchOS simulators refuse generation (ModelManagerError 1026)) | P7 |
+| GameSave | IV | synced-directory-without-icloud | [c] assert openDirectory state == .error without iCloud (today only close is asserted; state is reported) (GameSaveSyncedDirectory needs an iCloud account) | P2 |
+| GroupActivities | ITV | activity-metadata-prepare, activity-sessions, no-call-activation-coding, observer | [c] GroupSessionMessenger / GroupSessionJournal need a session (FaceTime call) (SharePlay sessions need FaceTime) | P4 |
+| LinkSecurity | ITWV | flag-urls, flag-urls-port | [c] assert the no-answer (PASS after timeout) instead of SKIP (flagged-URL store lives in imagent, absent from simulator runtimes) | P3 |
+| ManagedSettings | I | store-write-read-clear | [c] assert written shield/denyAppRemoval values read back nil (store ignores writes without authorization; today only clear asserted) (store writes need Family Controls authorization (unavailable in the sim)) | P3 |
+| MarketplaceKit | I | distributor-requirements | [c] AppDistributor.current / eligibilityRegion: Apple never answers for a simctl install (x86 answers at once, not asserted) (marketplace install APIs need an EU marketplace install; AppLibrary/satisfiedByDevice block on Apple) | P4 |
+| MediaIntelligence | ITV | face-group-analyzer | [c] FaceGroupAnalyzer ingest: Vision face networks fail in Apple sim and the framework double-resumes a continuation (abort) - unassertable; only the empty store lifecycle is checkable (face ingest needs Vision espresso inference contexts (absent in Apple sim, aborts)) | P7 |
+| MultipeerConnectivity | V | session, two-peer-data-stream-resource | [c] assert the simulator answer (Apple's browser finds no peer in 30 s, no error) instead of SKIP (visionOS: Apple's visionOS simulator browser finds no peer) | P8 |
+| PushKit | IWV | registry, voip-credentials | [c] VoIP token needs apsd's APNs sandbox connection: assert no token on a fresh device (today SKIP; iOS ref FAIL to investigate); [a] pushType .fileProvider (no VoIP token on a fresh simulator device (apsd not connected to APNs sandbox)) | P3 |
+| SafetyKit | IW | crash-detection, entitlement-gated | [c] assert isAvailable raises NSException without com.apple.developer.safety-kit (needs an ObjC @try shim); watchOS crash-detection SKIPs today (Apple-only entitlement) | P5 |
+| SensitiveContentAnalysis | IV | analyze-image-policy, policy | [c] SCVideoStreamAnalyzer / analyzeVideo(at:): assert the same disabled-policy error (needs the client entitlement and user setting (policy disabled)) | P7 |
+| SystemExtensions | I | workspace | [c] assert OSSystemExtensionsWorkspace error OSSystemExtensionErrorDomain 1 (today only reported) (DriverKit system extensions cannot be activated in the simulator) | P3 |
+| TelephonyMessagingKit | I | handles-content-codable | [c] carrier messaging service: assert the simulator answer (unavailable) (needs a carrier SIM / telephony) | P3 |
+| VideoSubscriberAccount | IT | access-status-user-accounts, manager | [c] assert the exact simulator answers (VSPrivateErrorDomain -5, VSUserAccountManager update NSCocoaErrorDomain 4099) instead of only no-hang (no TV-provider service in the simulator (checkAccessStatus -5, user account update 4099)) | P1 |
+| WeatherKit | T | service-answers | [c] assert the xpcConnectionFailed (com.apple.weatherkit.authservice) answer instead of SKIP, as the iOS/watchOS/visionOS check does (needs a team-signed WeatherKit entitlement; auth service absent in sim runtimes) | P5 |
+
+## Apple-sim N/A, done (asserting check passes on Apple) (47 frameworks)
+
+Remaining gaps here are optional depth.
+
+| framework | platforms | existing checks | gaps / check ideas | package |
+|---|---|---|---|---|
+| ARKit | I | configurations, simulator-unsupported-answers | done (iOS: no ARKit tracking in Apple's simulator; visionOS sim supports only WorldTrackingProvider) | P2 |
+| AdServices | IV | attribution-token, attribution-token-sim-error | done (attributionToken errors in the simulator) | P4 |
+| BackgroundAssets | IV | asset-pack-manager, asset-pack-status-download | [a] BADownloaderExtension: a scheduled BADownload running in the downloader extension (extension registered, seen by ExtensionFoundation monitor on tvOS/visionOS); I: [a] bundle the downloader extension on iOS too; V: [run] x86 result missing (only ref ran) (managed asset packs need App Store hosting: AssetPackManager answers each call with an error (asserted by asset-pack-status-download)) | P3 |
+| BackgroundTasks | TV | register-submit | done (BGTaskScheduler.submit -> .unavailable in Apple's simulator (asserted by register-submit)) | P3 |
+| BrowserEngineKit | I | processes-without-entitlement | [a] BETextInput / BEScrollView behaviour (only a BEScrollView built) (browser process launches need the web-browser-engine entitlement + extensions) | P3 |
+| CallKit | WV | incoming-outgoing-calls, provider-observer | [a] CXCallDirectoryManager status (needs a call directory extension); [run] rerun incoming-outgoing-calls on ref (FAIL predates the error assertion; detail matches the asserted errors); V: [run] x86 result missing (Apple's watchOS/visionOS simulators: callservicesd refuses incoming (CallKit.error 0) and transactions (requesttransaction 1)) | P3 |
+| CarKey | IW | remote-control-start-refused | done (needs Wallet car keys (NFC/UWB) and Apple's entitlement) | P5 |
+| CoreBluetooth | ITWV | central-state, managers-unsupported-objects | done (no Bluetooth radio in the simulator) | P5 |
+| CoreMotion | IWV | availability, unavailable-sensors-queries | done (no motion sensors in the simulator) | P5 |
+| CoreNFC | I | reading-available, unavailable-ndef-model | done (no NFC in the simulator) | P5 |
+| CoreTelephony | I | network-info, no-radio-answers | done (no cellular radios in the simulator) | P5 |
+| DeviceActivity | I | center-activities, start-monitoring-schedule | done (startMonitoring needs Family Controls authorization (entitlement; no FamilyControlsAgent in the sim)) | P3 |
+| DeviceCheck | ITWV | support, unsupported-errors | done (DCDevice / App Attest unsupported in Apple's simulator) | P8 |
+| EnergyKit | I | venues-guidance-answers | done (no energy venues service in the simulator) | P5 |
+| ExternalAccessory | ITV | manager, no-accessories-wifi-browser | done (no MFi accessories) | P5 |
+| FamilyControls | I | authorization-selection, authorization-status | [a] FamilyActivityPicker render (requestAuthorization(for: .individual) -> NSCocoaErrorDomain 4099 (no FamilyControlsAgent in Apple's simulator)) | P3 |
+| FinanceKit | I | availability-authorization | done (FinanceStore authorization/queries trap without the Apple-granted FinanceKit entitlement) | P4 |
+| GameKit | ITWV | local-player-leaderboard-objects, unauthenticated-player-leaderboards-matchmaking | [a] GKTurnBasedMatch.loadMatches / GKLeaderboard.loadEntries error paths without an account (Game Center server features need a signed-in sandbox account (Apple sim: same)) | P2 |
+| IdentityDocumentServices | I | registration-store-requests | done (mobile ID documents need Wallet IDs (not in the simulator)) | P8 |
+| IdentityDocumentServicesUI | I | web-presentment-controller | done (web presentment needs the identity-document entitlement and Wallet IDs) | P8 |
+| ImageCaptureCore | IV | browser-no-devices, device-browser | done (no cameras/scanners attached) | P5 |
+| ImagePlayground | IV | availability, image-creator-unavailable | done (needs Apple Intelligence image models) | P7 |
+| LockedCameraCapture | I | manager-simulator-answers | done (camera capture extension (no cameras in the simulator)) | P1 |
+| ManagedAppDistribution | IV | libraries-unmanaged-device | done (ManagedAppLibrary answers unsupportedPlatform in Apple's simulator) | P8 |
+| MatterSupport | IV | add-device-request-answer | done (system Matter setup flow not available in the simulator) | P5 |
+| MessageUI | IV | can-send, simulator-answers-composers | [a] MFMailComposeViewController/MFMessageComposeViewController init + present while canSend* is false (no Mail account / Messages in the simulator) | P6 |
+| MetalPerformancePrimitives | ITV | tensor-matmul-shader | done (the simulator Metal compiler has no MetalPerformancePrimitives header) | P2 |
+| MetalPerformanceShadersGraph | IV | build-compile-no-device, graph-run | done (MPSGraphDevice init aborts in Apple's simulator too) | P2 |
+| MusicKit | IT | authorization-status, objects-subscription-catalog-answers | [a] ApplicationMusicPlayer queue/state asserted (today reported only) (catalog/subscription need a MusicKit-enabled team-signed app + Apple Music account) | P1 |
+| ProximityReader | I | reader-support, readers-answers | done (Tap to Pay needs NFC hardware + entitlement) | P5 |
+| PushToTalk | I | channel-manager | done (Push-to-Talk API not available in the simulator (com.apple.pushtotalk.instantiation 1)) | P3 |
+| ReplayKit | ITV | capture-answer-picker, recorder | [a] startRecording/stopRecording -> RPPreviewViewController (or the simulator error); I: [a] RPBroadcastActivityViewController.load (assert simulator answer) (no screen-capture sample buffers in the simulator (startCapture starts, 0 buffers in 5 s)) | P1 |
+| RoomPlan | I | unsupported-model | done (needs LiDAR) | P5 |
+| SecureElementCredential | I | session-eligibility | done (needs a Secure Element (NFC)) | P8 |
+| SensorKit | I | authorization-request-answer, reader-authorization | done (research entitlement + sensors) | P5 |
+| Speech | ITV | recognize-synthesized-file, recognizer-availability, speech-analyzer-transcribe-file, speech-transcriber-assets | [a] SFSpeechAudioBufferRecognitionRequest (buffer path) asserting the same kLSRErrorDomain 300; [a] speech-analyzer-transcribe-file: assert AssetInventory status unsupported (not-installed path currently asserts nothing) (no on-device ASR / SpeechTranscriber assets in Apple's simulator (kLSRErrorDomain 300, assets unsupported)) | P7 |
+| TouchController | I | layout-render-touch, simulator-unsupported-descriptor | done (TCTouchController.isSupported is false in Apple's simulator) | P2 |
+| TrustInsights | I | evaluator-authorization | done (InsightEvaluator answers notAvailable in Apple's simulator) | P8 |
+| VisionKit | V | analyzer-scanner-support, image-analyzer-live-text | done (Apple's visionOS simulator analyzes but reads no text; no camera scanners) | P7 |
+| WatchConnectivity | IWV | session-activate | I: [a] assert WCSession.isSupported() == false (today SKIP); W: [a] watch-only app gets no session state; a companion-app setup would be needed for transfer APIs; V: [a] assert WCSession.isSupported() == false (today SKIP) (no paired device (iOS/visionOS); watch-only app on watchOS) | P3 |
+| WeatherKit | IWV | service-answer | done (needs a team-signed WeatherKit entitlement; auth service absent in sim runtimes) | P5 |
+| WiFiAware | I | unsupported-capabilities | done (no Wi-Fi Aware radio) | P5 |
+| _AVKit_GroupActivities | V | playback-coordinator-no-session | done (needs a SharePlay session (FaceTime)) | P1 |
+| _AdAttributionKit_StoreKit | I | overlay-configuration-impression | done (AdAttributionKit unsupported in the simulator) | P4 |
+| _CoreHaptics_AudioToolbox | V | intended-spatial-experience | done (no haptics engine in the visionOS simulator (CHHapticEngine -4815)) | P1 |
+| _TabletopKit_GroupActivities | V | coordinate-with-session-symbol | done (SharePlay needs a FaceTime call) | P2 |
+| iAd | I | client-attribution-obsolete | done (iAd obsoleted: ADClient.sharedClient nil) | P4 |
 
 ## Excluded (listed, not chased)
 
@@ -24,480 +335,164 @@ Not counted (Swift runtime modules, not SDK frameworks, all covered): Swift, Dis
 | AudioUnit | ITV | headers only (no binary): the AU API lives in AudioToolbox - covered there |
 | CoreAudioTypes | ITWV | headers only: types used by AudioToolbox/AVFAudio checks (AudioStreamBasicDescription, AudioBufferList) |
 | _FoundationModels_SwiftUI | IV | not in the simulator runtimes (load SKIP) |
-| _GroupActivities_UIKit | T | tvOS: re-export only (no public declarations) |
+| _GroupActivities_UIKit | T | GroupActivitySharingController (activity + lazy) builds; visionOS association interaction attached; tvOS re-export only. |
 | _Intents_TipKit | ITWV | re-export only (no public declarations) |
 | _LocationEssentials | ITWV | C types/functions re-exported by CoreLocation (CLLocationCoordinate2D...): used by CoreLocation/MapKit checks |
 | _SharedWithYou_AppIntents | ITV | re-export only (no public declarations) |
-
-## Check -> framework map: framework use inside checks named after another
-
-Every check id `func:<Framework>.<name>` counts for its named framework (full per-platform lists: `existing_checks` in the JSON). Notable extra frameworks exercised inside other checks (symbol-level, noise like Foundation/CoreFoundation dropped):
-
-| framework | exercised inside |
-|---|---|
-| AVFAudio | CoreAudioKit.generic-au-view, PHASE.spatial-sound-event-playback |
-| AVFoundation | AVKit.player-view-controller, AVKit.tv-content-proposal-display-criteria, AVKit.tv-player-transport-bar-playback, AVRouting.playback-arbiter, MediaToolbox.audio-processing-tap, MusicUnderstanding.click-track-loudness-rhythm, _AVKit_SwiftUI.video-player-hosted, _AVKit_SwiftUI.video-player-view |
-| AVKit | _AVKit_SwiftUI.video-player-hosted, _AVKit_SwiftUI.video-player-view |
-| ClockKit | _ClockKit_SwiftUI.graphic-view-templates |
-| CoreAudioTypes | AudioToolbox.components-extaudiofile |
-| CoreData | _CoreData_CloudKit.container-options-scope, _SwiftData_CoreData.managed-object-model |
-| CoreImage | Vision.barcodes-from-coreimage-generators |
-| CoreLocation | RelevanceKit.contexts, RelevanceKit.contexts-widget-relevance |
-| CoreML | CreateMLComponents.scalers-regressor-fit |
-| CoreServices | MobileCoreServices.uttype-declarations |
-| CoreText | PDFKit.document-text-render |
-| CoreVideo | AVFoundation.assetreader-decoded-pixels-pixel-transfer, AVFoundation.player-playback-video-output, CoreMedia.time-formats-samplebuffers, ImmersiveMediaSupport.video-frame-fade-command, VideoToolbox.h264-hevc-encode-decode |
-| DeviceDiscoveryUI | _DeviceDiscoveryUI_SwiftUI.device-picker-supports |
-| GameController | UIKit.ipad-key-commands, UIKit.ipad-pointer-hover |
-| HealthKit | HealthKitUI.activity-ring-view |
-| ImageIO | libAppleEXR.imageio-openexr-roundtrip |
-| Intents | IntentsUI.voice-shortcut-button-controller |
-| MapKit | _MapKit_SwiftUI.map-camera-markers |
-| Metal | CoreImage.metal-vs-software-filter-chain, CoreVideo.pixelbuffer-pool-metal-cache, MetalKit.mtkview-draw-loop-on-screen, MetalKit.texture-loader-mesh, MetalPerformanceShaders.blur-matmul, MetalPerformanceShadersGraph.graph-run, RealityKit.reality-renderer-offscreen, SceneKit.offscreen-render, TouchController.layout-render-touch |
-| Network | Foundation.urlsession-websocket-loopback |
-| PDFKit | UIKit.attributed-html-import-print-renderer, WebKit.css-render-snapshot-createpdf |
-| QuartzCore | ARKit.world-tracking-run-outside-immersive, AVFoundation.player-playback-video-output, UIKit.animation-displaylink-rate |
-| RealityFoundation | RealityKit.ecs-system-animation-raycast, RealityKit.entities-meshes, RealityKit.reality-renderer-offscreen, _RealityKit_SwiftUI.reality-view-in-window, _RealityKit_SwiftUI.reality-view-make |
-| RelevanceKit | _RelevanceKit_MapKit.poi-category-context |
-| SharedWithYou | SharedWithYouCore.collaboration-metadata |
-| SpriteKit | _SpriteKit_SwiftUI.sprite-view-runs-scene, _SpriteKit_SwiftUI.sprite-view-updates |
-| SwiftData | _SwiftData_SwiftUI.query-in-hosted-view |
-| SwiftUI | SecurityUI.certificate-sheet, UIKit.accessibility-elements-actions-swiftui-tree, _AVKit_SwiftUI.video-player-view, _AuthenticationServices_SwiftUI.sign-in-button, _MapKit_SwiftUI.map-camera-markers, _PassKit_SwiftUI.wallet-pay-buttons, _SceneKit_SwiftUI.scene-view-render, _SceneKit_SwiftUI.scene-view-renders, _SpriteKit_SwiftUI.sprite-view-updates, _WebKit_SwiftUI.webpage-webview-javascript |
-| UIKit | AVKit.tv-player-transport-bar-playback, CarPlay.templates, PDFKit.create-annotate-search-roundtrip, PencilKit.ipad-canvas-tool-picker, SwiftUI.hosting-navigation-state-list, SwiftUI.ipad-navigation-split-view, SwiftUI.open-dismiss-immersive-space, SwiftUI.open-dismiss-window-volume, SwiftUI.tv-focus-state-default-focus, TVUIKit.digit-entry-fullscreen-layout, TVUIKit.lockups-cards-render, TVUIKit.poster-lockup, WebKit.css-render-snapshot-createpdf, WebKit.webview-load-javascript, _AppIntents_UIKit.collection-view-data-source, _MapKit_SwiftUI.map-camera-markers, _SceneKit_SwiftUI.scene-view-render, libMobileGestalt.answers |
-| VideoToolbox | AVFoundation.assetreader-decoded-pixels-pixel-transfer |
-| WatchKit | libMobileGestalt.answers-match-device |
-| WidgetKit | RelevanceKit.contexts-widget-relevance |
-| _CoreLocationUI_SwiftUI | CoreLocationUI.location-button-render |
-| _PhotosUI_SwiftUI | PhotosUI.photos-picker-view |
-
-Platform letters: I = iOS/iPadOS, T = tvOS, W = watchOS, V = visionOS.
-
-## (a) No functional check (130 frameworks)
-
-A "port existing check(s)" gap means the framework is already checked on another platform: usually just widen the `#if`.
-
-| framework | platforms | existing checks | gaps / check ideas | package |
-|---|---|---|---|---|
-| AVKit | W | - | port existing check(s) AVKit.player-view-controller, AVKit.tv-content-proposal-display-criteria, AVKit.tv-player-transport-bar-playback (run on I/T/V); AVKit on watchOS is VideoPlayer (_AVKit_SwiftUI) + AVPlayer playback: one hosted-VideoPlayer check | P1 |
-| AVRouting | I | - | port existing check(s) AVRouting.custom-routing-controller, AVRouting.playback-arbiter (run on T/V); AVCustomRoutingController/AVCustomDeviceRoute events (needs DeviceDiscoveryExtension: assert empty routes + delegate) | P1 |
-| AccessoryLiveActivities | I | - | accessory Live Activity types build (iOS 27) | P3 |
-| AccessoryNotifications | I | - | accessory notification forwarding types | P5 |
-| AccessoryTransportExtension | I | - | transport extension types (needs extension) | P5 |
-| AdAttributionKit | I | - | AppImpression(compactJWS:) parse error on bad JWS, Postback.updateConversionValue -> sim error, AdAttributionKit events | P4 |
-| AppClip | I | - | APActivationPayload.confirmAcquired(in:) -> error outside an App Clip | P3 |
-| AppIntentsTypeSupport | IWV | - | port existing check(s) AppIntentsTypeSupport.value-containers (run on T) | P7 |
-| AppMigrationKit | I | - | AppMigrationExtension types / migration status APIs (iOS 26) | P3 |
-| AutomatedDeviceEnrollment | I | - | enrollment APIs on an unmanaged device -> assert not-enrolled state | P8 |
-| AutomaticAssessmentConfiguration | V | - | port existing check(s) AutomaticAssessmentConfiguration.configuration-session (run on I) | P8 |
-| BackgroundAssets | V | - | port existing check(s) BackgroundAssets.asset-pack-manager, BackgroundAssets.asset-pack-manager-downloads (run on I/T); BADownloaderExtension (needs extension) | P3 |
-| BrowserEngineCore | ITWV | - | be_kevent / JIT write-protect C API (BE_JIT) - assert behaviour without entitlement | P3 |
-| BrowserEngineKit | ITWV | - | BEWebContentProcess/BENetworkingProcess launch -> requires browser entitlement: assert error; BETextInput / BEScrollView UI objects | P3 |
-| BrowserKit | IWV | - | BrowserKit eligibility (BEAvailability) answer | P3 |
-| BusinessChat | I | - | BCChatButton render + BCChatAction.openTranscript URL (deprecated) | P3 |
-| ClassKit | V | - | port existing check(s) ClassKit.main-app-context (run on I); CLSActivity/CLSContext tree creation + save (sim: ClassKit needs entitlement) | P8 |
-| ClassKitUI | IV | - | CLSContextTopic UI build | P8 |
-| ClockKit | I | - | port existing check(s) ClockKit.complication-server, ClockKit.templates-providers-descriptors (run on W); ClockKit (CLKComplicationServer on iPhone?) minimal check | P6 |
-| ComputeGraph | ITV | - | build and evaluate a small ComputeGraph (343 public decls) on CPU; _RealityKit_ComputeGraph bridging | P2 |
-| ContactProvider | I | - | ContactProviderManager on an app without the extension -> error | P4 |
-| CoreAudio | ITWV | - | AudioObjectGetPropertyData on kAudioObjectSystemObject (devices, default output, nominal sample rate) - sim exposes the HAL; AudioHardwareBase property listener add/remove | P1 |
-| CoreMIDI | W | - | port existing check(s) CoreMIDI.event-list-ump, CoreMIDI.virtual-loopback (run on I/T/V); MIDINetworkSession (iOS) enable/contacts; MIDICIDiscoveryManager / MIDI-CI profile objects | P1 |
-| CoreSpotlight | T | - | port existing check(s) CoreSpotlight.index-delete (run on I/V); CSSearchQuery finds the indexed item; CSUserQuery (iOS 18); batch indexing with client state | P4 |
-| DeveloperToolsSupport | IWV | - | port existing check(s) DeveloperToolsSupport.design-time-values-library (run on T) | P6 |
-| DeviceActivity | W | - | port existing check(s) DeviceActivity.center-activities (run on I); DeviceActivityCenter.startMonitoring schedule -> error without FamilyControls authorization; DeviceActivityReport view | P3 |
-| DeviceDiscoveryExtension | IV | - | DDDiscoverySession types (needs extension) | P5 |
-| DeviceDiscoveryUI | I | - | port existing check(s) DeviceDiscoveryUI.device-picker (run on T); add NSApplicationServices to Info.plist so DDDevicePickerViewController's view loads (today only isSupported + init) | P5 |
-| EnergyKit | ITWV | - | ElectricityGuidance query for a location -> sim answer/error | P5 |
-| ExtensionFoundation | IWV | - | port existing check(s) ExtensionFoundation.extension-point-monitor (run on T); AppExtensionProcess launch of an in-app appex | P3 |
-| ExtensionKit | ITWV | - | bundle a minimal ExtensionKit appex: AppExtensionPoint discovery, EXHostViewController hosting it, AppExtensionProcess XPC connection | P3 |
-| FamilyControls | W | - | port existing check(s) FamilyControls.authorization-status (run on I); AuthorizationCenter.requestAuthorization(for: .individual) -> entitlement error on sim; FamilyActivityPicker render | P3 |
-| FileProviderUI | IV | - | FPUIActionExtensionViewController (needs extension) - build objects | P3 |
-| FinanceKit | IW | - | FinanceStore.isDataAvailable(.financialData) and authorization status (Apple sim: verify); FinanceKitUI TransactionPicker | P4 |
-| FinanceKitUI | I | - | TransactionPicker / AddOrderToWalletButton render | P4 |
-| FoundationModels | TW | - | port existing check(s) FoundationModels.system-model-availability (run on I/V); x86sim: model .modelNotReady (Apple's iOS sim answers "Pong" via the host Mac) - x86sim gap; @Generable guided generation, Tool calling, streaming responses; availability assertion (unsupported device?) | P7 |
-| GameSave | IV | - | GameSaveSyncedDirectory open/finishSyncing (needs iCloud: assert error/state on sim) | P2 |
-| HealthKitUI | W | - | port existing check(s) HealthKitUI.activity-ring-view (run on I/V) | P5 |
-| HomeExtensions | I | - | home extension types build | P5 |
-| IdentityDocumentServicesUI | I | - | provider UI objects build | P8 |
-| IdentityLookupUI | IV | - | ILClassificationUIExtensionViewController build (needs extension) | P8 |
-| ImmersiveMediaSupport | I | - | port existing check(s) ImmersiveMediaSupport.video-frame-fade-command (run on V); ImmersiveMediaRemotePreviewSender/VenueDescriptor/presentation commands JSON | P1 |
-| IntentsUI | T | - | port existing check(s) IntentsUI.voice-shortcut-button-controller (run on I/V) | P7 |
-| LocalAuthentication | T | - | port existing check(s) LocalAuthentication.input-biometric, LocalAuthentication.policies (run on I/V/W); LAContext evaluatePolicy with simulated enrolled biometry (input-biometric needs run.sh input mode); LARight / LAPersistedRight (iOS 16+) | P8 |
-| LocalAuthenticationEmbeddedUI | IV | - | LAAuthenticationView render bound to an LAContext | P8 |
-| ManagedApp | I | - | port existing check(s) ManagedApp.configuration-provider (run on V) | P8 |
-| ManagedAppDistribution | IV | - | ManagedAppDistribution API answer on an unmanaged device; _ManagedAppDistribution_SwiftUI | P8 |
-| ManagedSettings | IW | - | port existing check(s) ManagedSettings.store-read-write (run on T); ManagedSettingsStore shield/denyAppRemoval write+read back (needs authorization) | P3 |
-| ManagedSettingsUI | I | - | ShieldConfiguration objects build | P3 |
-| MarketplaceKit | I | - | AppLibrary / MarketplaceExtension types; ActionButton render (_MarketplaceKit_UIKit) -> EU-only behaviour | P4 |
-| MatterSupport | ITWV | - | MatterAddDeviceRequest.perform -> sim behaviour (needs extension) | P5 |
-| MediaIntelligence | IV | - | port existing check(s) MediaIntelligence.face-group-analyzer (run on T) | P7 |
-| MediaIntents | IW | - | port existing check(s) MediaIntents.audio-search-codable (run on T/V) | P1 |
-| MetalPerformancePrimitives | ITV | - | compile a Metal shader #including <MetalPerformancePrimitives/MetalPerformancePrimitives.h> (tensor ops matmul2d) and run if the device supports tensors; else assert compile error | P2 |
-| MetricKit | T | - | port existing check(s) MetricKit.manager (run on I/V); MXMetricManager.makeLogHandle + mxSignpost, extendLaunchMeasurement(forTaskID:), MXMetricPayload JSON decoding from a fixture | P3 |
-| MusicUnderstanding | IWV | - | port existing check(s) MusicUnderstanding.click-track-loudness-rhythm (run on T) | P1 |
-| NowPlaying | IWV | - | port existing check(s) NowPlaying.media-session-primary (run on T) | P1 |
-| OpenGLES | V | - | port existing check(s) OpenGLES.context-fbo-clear-readpixels (run on I/T) | P2 |
-| PermissionKit | IV | - | PermissionQuestion<CommunicationTopic> build, AskCenter.ask in a view controller -> sim behaviour (no family); _PermissionKit_SwiftUI / _PermissionKit_UIKit overlays | P3 |
-| PushToTalk | I | - | PTChannelManager.channelManager(delegate:restorationDelegate:) -> needs entitlement + background mode: assert error/behaviour | P3 |
-| QuartzCore | W | - | port existing check(s) QuartzCore.layers-render-animation (run on I/T/V); CAMetalLayer nextDrawable/present outside MetalKit; CAEmitterLayer, CAReplicatorLayer, CATransformLayer, CAShapeLayer strokeEnd animation sampled via presentation(); CATiledLayer, CATransaction completion blocks; CAMediaTimingFunction / CATransform3D math (watchOS QuartzCore subset) | P2 |
-| RelevanceKit | I | - | port existing check(s) RelevanceKit.contexts, RelevanceKit.contexts-widget-relevance (run on T/V/W); relevance contexts have no assertion: assert Codable/Equatable round trip, WidgetRelevance in a widget extension | P3 |
-| ScreenTime | I | - | STWebHistory / STWebpageController in a WKWebView host | P3 |
-| SecurityUI | IWV | - | port existing check(s) SecurityUI.certificate-sheet (run on T) | P8 |
-| ServicesAccountLinking | I | - | account linking request objects (iOS 27) | P8 |
-| SharedWithYouCore | T | - | port existing check(s) SharedWithYouCore.collaboration-metadata (run on I/V) | P4 |
-| StateReporting | I | - | port existing check(s) StateReporting.metadata-values-reporter, StateReporting.reporter-transitions (run on T/V/W) | P3 |
-| SuggestedActions | I | - | port existing check(s) SuggestedActions.message (run on V) | P7 |
-| SystemExtensions | I | - | OSSystemExtensionRequest on iOS (driverkit) -> error | P3 |
-| TabletopKit | V | - | TableSetup/TabletopGame with equipment + actions offline; _TabletopKit_RealityKit/SwiftUI/GroupActivities overlays | P2 |
-| Translation | TWV | - | port existing check(s) Translation.language-availability (run on I); LanguageAvailability.status(from:to:); TranslationSession.translate (assets: verify on Apple sim) | P7 |
-| TranslationUIProvider | I | - | TranslationUIProviderExtension types (needs extension) | P7 |
-| TrustInsights | IV | - | TrustInsights API answer (new): verify on Apple sim | P8 |
-| UserNotificationsUI | ITWV | - | UNNotificationContentExtension (needs extension): build an NSExtension-less view controller conforming to the protocol | P3 |
-| VisionEntitlementServices | V | - | enterprise entitlement queries (visionOS) answer | P5 |
-| _AVKit_SwiftUI | WV | - | port existing check(s) _AVKit_SwiftUI.video-player-hosted, _AVKit_SwiftUI.video-player-view (run on I/T); VideoPlayer playback check (port iOS video-player-view) | P1 |
-| _AdAttributionKit_StoreKit | I | - | SKOverlay/loadProduct with AppImpression | P4 |
-| _AppIntents_HealthKit | ITWV | - | HealthKit AppIntents entities | P7 |
-| _AppIntents_SwiftUI | IWV | - | port existing check(s) _AppIntents_SwiftUI.siri-tip-view (run on T) | P7 |
-| _AppIntents_UIKit | IWV | - | port existing check(s) _AppIntents_UIKit.collection-view-data-source (run on T) | P7 |
-| _AuthenticationServices_SwiftUI | WV | - | port existing check(s) _AuthenticationServices_SwiftUI.sign-in-button, _AuthenticationServices_SwiftUI.sign-in-with-apple-button (run on I/T); SignInWithAppleButton render (port) | P8 |
-| _Contacts_AppIntents | ITWV | - | CNContact AppEntity conversions | P7 |
-| _CoreData_CloudKit | IWV | - | port existing check(s) _CoreData_CloudKit.container-options-scope (run on T) | P4 |
-| _CoreHaptics_AudioToolbox | V | - | CHHapticEngine.intendedSpatialExperience round trip | P1 |
-| _CoreLocationUI_SwiftUI | IW | - | LocationButton SwiftUI render with assertion | P5 |
-| _CoreSpotlight_FoundationModels | IV | - | CoreSpotlight tool for FoundationModels sessions (needs model) | P7 |
-| _DataDetection_SwiftUI | IWV | - | dataDetection(_:) modifier on Text | P6 |
-| _DeviceActivity_SwiftUI | I | - | DeviceActivityReport view build | P3 |
-| _DeviceDiscoveryUI_SwiftUI | I | - | port existing check(s) _DeviceDiscoveryUI_SwiftUI.device-picker-supports (run on T) | P5 |
-| _FinanceKit_AppIntents | I | - | FinanceKit AppIntents types | P7 |
-| _FoundationModels_UIKit | IV | - | UIImage as PromptRepresentable in a session prompt | P7 |
-| _GameController_SwiftUI | ITV | - | handlesGameControllerEvents(matching:) modifier in a hosted view | P2 |
-| _GeoToolbox_AppIntents | ITWV | - | PlaceDescriptor AppEntity | P7 |
-| _GroupActivities_SwiftUI | V | - | SharePlay SwiftUI modifiers build | P4 |
-| _GroupActivities_UIKit | IV | - | GroupActivitySharingController build (iOS/visionOS) | P4 |
-| _HomeKit_SwiftUI | ITWV | - | HomeKit SwiftUI modifiers | P5 |
-| _LinkPresentation_AppIntents | ITWV | - | LPLinkMetadata AppIntents conversion | P7 |
-| _ManagedAppDistribution_SwiftUI | V | - | managed app distribution SwiftUI views | P8 |
-| _MapKit_SwiftUI | WV | - | port existing check(s) _MapKit_SwiftUI.map-camera-markers, _MapKit_SwiftUI.map-view-hosted (run on I/T); Map render (port) | P5 |
-| _MarketplaceKit_UIKit | I | - | MarketplaceKit UIKit ActionButton build | P4 |
-| _MediaIntents_AppIntents | ITWV | - | MediaIntents AppIntents types (AudioSearch as intent parameter) build | P7 |
-| _MediaPlayer_AppIntents | ITWV | - | MPAppEntityIdentifier secure-coding round trip | P7 |
-| _MusicKit_SwiftUI | ITWV | - | musicSubscriptionOffer modifier / ArtworkImage render (nil artwork placeholder) | P1 |
-| _NowPlaying_AppIntents | ITWV | - | NowPlaying AppIntents extensions build/encode | P7 |
-| _PassKit_SwiftUI | WV | - | port existing check(s) _PassKit_SwiftUI.wallet-pay-buttons (run on I) | P4 |
-| _PermissionKit_SwiftUI | IV | - | CommunicationLimitsButton render | P3 |
-| _PermissionKit_UIKit | IV | - | AskCenter.ask(_:in:) UIKit presentment | P3 |
-| _PhotosUI_SwiftUI | IWV | - | PhotosPicker render + selection binding (watchOS has photos-picker-view under PhotosUI) | P1 |
-| _PhotosUI_WidgetKit | IV | - | widget photo picker types (needs a widget extension) - build objects | P1 |
-| _Photos_AppIntents | ITV | - | PHAsset AppEntity conversions | P7 |
-| _QuickLook_SwiftUI | IV | - | quickLookPreview modifier present | P6 |
-| _RealityKit_ComputeGraph | ITV | - | ComputeGraph-driven RealityKit component | P2 |
-| _RealityKit_SwiftUI | I | - | port existing check(s) _RealityKit_SwiftUI.reality-view-in-window, _RealityKit_SwiftUI.reality-view-make (run on T/V); RealityView make/update (tvOS/visionOS covered) | P2 |
-| _RelevanceKit_MapKit | IWV | - | port existing check(s) _RelevanceKit_MapKit.poi-category-context (run on T); assert RelevantContext.location(category:) non-nil (no assertion today); iOS/watchOS/visionOS: port | P5 |
-| _SceneKit_SwiftUI | WV | - | port existing check(s) _SceneKit_SwiftUI.scene-view-render, _SceneKit_SwiftUI.scene-view-renders (run on I/T); SceneView render (iOS/tvOS covered) | P2 |
-| _SecureElementCredential_SwiftUI | I | - | SwiftUI presentment modifier build | P8 |
-| _SecureElementCredential_UIKit | I | - | UIKit presentment API build | P8 |
-| _SpriteKit_SwiftUI | WV | - | port existing check(s) _SpriteKit_SwiftUI.sprite-view-runs-scene, _SpriteKit_SwiftUI.sprite-view-updates (run on I/T); SpriteView render | P2 |
-| _StoreKit_SwiftUI | IWV | - | port existing check(s) _StoreKit_SwiftUI.product-store-views (run on T) | P4 |
-| _SwiftData_CoreData | IWV | - | port existing check(s) _SwiftData_CoreData.managed-object-model (run on T) | P4 |
-| _SwiftData_SwiftUI | IWV | - | port existing check(s) _SwiftData_SwiftUI.query-in-hosted-view (run on T) | P4 |
-| _TabletopKit_GroupActivities | V | - | TabletopKit SharePlay coordination types (no FaceTime) | P2 |
-| _TabletopKit_RealityKit | V | - | TabletopKit RealityKit rendering components | P2 |
-| _TabletopKit_SwiftUI | V | - | TabletopKit SwiftUI views | P2 |
-| _Translation_SwiftUI | IV | - | translationPresentation / translationTask modifiers | P7 |
-| _USDKit_RealityKit | ITV | - | USD stage -> Entity conversion | P2 |
-| _UserNotifications_AppIntents | ITWV | - | UNNotificationContent.appEntityIdentifiers | P7 |
-| _WebKit_SwiftUI | V | - | port existing check(s) _WebKit_SwiftUI.webpage-webview-javascript (run on I) | P6 |
-| _WorkoutKit_SwiftUI | IW | - | workoutPreview(_:isPresented:) modifier | P5 |
-| iAd | I | - | deprecated stub framework: ADClient requestAttributionDetails -> error | P4 |
-
-## (b) Trivial checks only (55 frameworks)
-
-| framework | platforms | existing checks | gaps / check ideas | package |
-|---|---|---|---|---|
-| ARKit | V | data-providers, session-authorization-query, world-tracking-run-outside-immersive | run WorldTrackingProvider + PlaneDetectionProvider inside the ImmersiveSpace (Apple sim supports both): assert device anchor + plane anchors, WorldAnchor add/remove; assert hands/scene/image providers isSupported == false | P2 |
-| AVKit | IV | player-view-controller | AVPlayerViewController with real playback (today only loadView; tvOS has transport-bar playback); AVPictureInPictureController: isPictureInPictureSupported, sample-buffer PiP content source (sim supports PiP on iOS); AVRoutePickerView render, AVPlayerViewControllerDelegate full-screen transitions | P1 |
-| AVRouting | TV | custom-routing-controller, playback-arbiter | AVCustomRoutingController/AVCustomDeviceRoute events (needs DeviceDiscoveryExtension: assert empty routes + delegate) | P1 |
-| AccessorySetupKit | I | session-activate | add NSAccessorySetupKitSupports to Info.plist: activate -> .activated event, showPicker -> sim behaviour (today SKIP: harness gap) | P5 |
-| Accounts | I | store | deprecated: ACAccountType lookup + requestAccess -> denied/unsupported | P8 |
-| ActivityKit | I | authorization, live-activity-lifecycle | add NSSupportsLiveActivities + a widget extension: Activity.request/update/end lifecycle (today SKIP unsupportedTarget, harness gap, Apple sim supports it); push-token updates (pushType .token) -> sim token | P3 |
-| AdSupport | IT | identifier | assert zeroed IDFA when not authorized | P4 |
-| AddressBookUI | I | people-picker-view | deprecated: keep | P4 |
-| AlarmKit | I | manager-state | AlarmManager.requestAuthorization + schedule a countdown alarm / cancel (needs NSAlarmKitUsageDescription) | P3 |
-| AppTrackingTransparency | ITV | status | requestTrackingAuthorization flow (prompt) -> status change | P4 |
-| AssetsLibrary | I | authorization-status | deprecated (unavailable to Swift): keep runtime authorizationStatus call | P1 |
-| AuthenticationServices | ITWV | apple-id-request, web-auth-session | ASAuthorizationController.performRequests -> sim error / sheet; passkey registration request objects (ASAuthorizationPlatformPublicKeyCredentialProvider); ASWebAuthenticationSession.start against a loopback server with callback scheme (assert callback URL); ASCredentialIdentityStore state; ASAuthorizationProviderExtension (SSO) objects | P8 |
-| BackgroundAssets | I | asset-pack-manager | add BAAppGroupID/BAInitialDownloadRestrictions to Info.plist so AssetPackManager runs (today SKIP); BADownloaderExtension (needs extension) | P3 |
-| CallKit | IWV | provider-observer | CXProvider reportNewIncomingCall + CXCallController request transaction (Apple sim supports CallKit UI); CXCallDirectoryManager status (extension) | P3 |
-| ClassKit | I | main-app-context | CLSActivity/CLSContext tree creation + save (sim: ClassKit needs entitlement) | P8 |
-| CloudKit | ITWV | account-status | local API: CKRecord/CKRecordZone/CKShare/CKQuery/CKOperation configuration, NSSecureCoding of CKRecord; CKSyncEngine state serialization round trip; server ops: Apple-sim N/A without team signing + account -> assert CKError.missingEntitlement/notAuthenticated | P4 |
-| ContactsUI | IV | contact-view-controller | CNContactPickerViewController present; CNContactViewController for a contact | P4 |
-| CryptoTokenKit | IT | watcher | port secure-element-tokens assertion; TKSmartCard slot manager (no readers: assert empty); TKTokenKeychainContents | P8 |
-| DeviceActivity | I | center-activities | DeviceActivityCenter.startMonitoring schedule -> error without FamilyControls authorization; DeviceActivityReport view | P3 |
-| DeviceDiscoveryUI | T | device-picker | add NSApplicationServices to Info.plist so DDDevicePickerViewController's view loads (today only isSupported + init) | P5 |
-| EventKit | IWV | authorization-event-recurrence | requestFullAccessToEvents (grant) then save/fetch/remove EKEvent + EKReminder, predicateForEvents; EKEventStoreChanged notification | P4 |
-| EventKitUI | IV | edit-view-controller | EKEventViewController / EKCalendarChooser present with an event | P4 |
-| ExposureNotification | I | authorization-status | deprecated: ENManager activate -> error | P5 |
-| FamilyControls | I | authorization-status | AuthorizationCenter.requestAuthorization(for: .individual) -> entitlement error on sim; FamilyActivityPicker render | P3 |
-| FileProvider | IV | domains-identifiers | in-app NSFileProviderReplicatedExtension appex: add domain, enumerate, materialize; NSFileProviderManager signalEnumerator / import | P3 |
-| GameKit | ITWV | local-player-leaderboard-objects | GKLocalPlayer.authenticateHandler -> sim without Game Center account: assert the sign-in VC / error; GKLeaderboard.loadLeaderboards / GKAchievement.loadAchievements error paths; GKAccessPoint show/hide; GKMatchRequest / GKMatchmakerViewController build; GKGameCenterViewController present | P2 |
-| GroupActivities | ITV | activity-metadata-prepare, activity-sessions, observer | GroupSessionMessenger / GroupSessionJournal objects; SharePlay sessions Apple-sim N/A (no FaceTime): assert no session + activationDisabled | P4 |
-| HomeKit | ITWV | manager | HMHomeManager homes + addHome/removeHome (Apple sim: needs iCloud?) - verify on ref-mac; HMAccessoryBrowser (no accessories); HMCharacteristic metadata objects | P5 |
-| ImagePlayground | IV | availability | ImageCreator (needs Apple Intelligence) -> assert unavailable error; ImagePlaygroundViewController.isAvailable | P7 |
-| Intents | ITWV | preferences-interaction | INInteraction donate/delete; INVoiceShortcutCenter getAllVoiceShortcuts; in-app intent handling (application(_:handlerFor:)) for INSendMessageIntent; INFocusStatusCenter | P7 |
-| ManagedSettings | T | store-read-write | assert effective values against the defaults (tvOS has only the read-only default store; no assertion today) | P3 |
-| MediaAccessibility | ITV | caption-appearance | MACaptionAppearance copy font/colors, MAAudibleMedia preferred characteristics, MAImageCaptioning set/get on an image file | P1 |
-| MetricKit | IV | manager | MXMetricManager.makeLogHandle + mxSignpost, extendLaunchMeasurement(forTaskID:), MXMetricPayload JSON decoding from a fixture | P3 |
-| MultipeerConnectivity | ITV | session | two MCPeerIDs in one process: advertiser + browser on loopback, invite/accept, send data/stream/resource (verify on Apple sim) | P8 |
-| MusicKit | ITWV | authorization-status | MusicCatalogSearchRequest/MusicDataRequest -> sim: needs developer token/account: assert error type; ApplicationMusicPlayer queue setup, MusicSubscription.current; MusicItemID / Song codable objects | P1 |
-| NetworkExtension | IWV | hotspot-helper-objects | port tvOS vpn-relay-managers-settings (NERelayManager, NETunnelProviderManager.loadAll); NEHotspotConfigurationManager.apply -> sim error; NEFilterManager / NEDNSSettingsManager load | P8 |
-| NotificationCenter | I | widget-controller | deprecated (Today widgets): NCWidgetProviding - keep minimal | P3 |
-| PassKit | IWV | library-payments | PKPaymentRequest build + PKPaymentAuthorizationController present (sim: Apple Pay sandbox sheet); PKAddPassesViewController with a signed test .pkpass (fixture); PKPass parsing; PKIdentityDocument requests (iOS) | P4 |
-| Photos | ITV | authorization | PHPhotoLibrary.performChanges: create image/video asset, album, favorite; fetch back (sim has sample photos; authorize via TCC grant); PHImageManager.requestImage / requestAVAsset, PHAssetResourceManager; PHPhotoLibraryChangeObserver delivery | P1 |
-| PushKit | IWV | registry | PKPushRegistry desiredPushTypes = [.voIP] -> token (or no token on sim: assert); pushType .fileProvider | P3 |
-| QuickLook | IV | preview-controller | QLPreviewController present with a data source (PDF/image) and assert current item / remote view; QLPreviewingController extension | P6 |
-| RelevanceKit | TWV | contexts, contexts-widget-relevance | relevance contexts have no assertion: assert Codable/Equatable round trip, WidgetRelevance in a widget extension | P3 |
-| ReplayKit | ITV | recorder | RPScreenRecorder startCapture handler (sim: recording works on Apple sim? verify) - assert sample buffers or error; RPSystemBroadcastPickerView; RPPreviewViewController after stopRecording | P1 |
-| SensitiveContentAnalysis | IV | policy | SCSensitivityAnalyzer.analyzeImage -> disabled policy answer/error | P7 |
-| SharedWithYou | ITV | highlight-center | SWAttributionView render, SWHighlightCenter delegate, SWCollaborationHighlight lookup error | P4 |
-| Speech | ITV | recognizer-availability, speech-transcriber-assets | SFSpeechRecognizer on-device recognition of an AVSpeechSynthesizer-generated buffer (SFSpeechAudioBufferRecognitionRequest); SpeechAnalyzer + SpeechTranscriber transcription (asset install may be Apple-sim N/A: verify) | P7 |
-| SuggestedActions | V | message | assert message/participant values; iOS: no check | P7 |
-| TipKit | ITWV | configure | Tip rules (#Rule with Tips.Event donation, parameters) evaluate shouldDisplay; TipView/TipUIView render, invalidate(reason:); Tips.resetDatastore / showAllTipsForTesting | P3 |
-| Translation | I | language-availability | LanguageAvailability.status(from:to:); TranslationSession.translate (assets: verify on Apple sim) | P7 |
-| Twitter | I | compose-can-send | deprecated (no Swift module): keep runtime call | P8 |
-| VideoSubscriberAccount | ITV | manager | VSAccountManager checkAccessStatus -> sim answer; VSUserAccountManager update | P1 |
-| VisionKit | IV | analyzer-scanner-support | ImageAnalyzer.analyze(text image) Live Text when supported; ImageAnalysisInteraction; DataScanner / document camera: Apple-sim N/A (assert isSupported false) | P7 |
-| WidgetKit | IV | center | a widget extension in the test app: TimelineProvider timelines via WidgetCenter.currentConfigurations (assert kind present); ControlCenter controls (ControlWidget) reload; render AccessoryWidgetBackground / widget views (port watchOS accessory-background-render) | P3 |
-| _RelevanceKit_MapKit | T | poi-category-context | assert RelevantContext.location(category:) non-nil (no assertion today); iOS/watchOS/visionOS: port | P5 |
-| _WatchKit_SwiftUI | W | now-playing-view | NowPlayingView: no assertion - assert hosted view hierarchy | P6 |
-
-## (c) Large frameworks with thin coverage of main areas (29 frameworks)
-
-| framework | platforms | existing checks | gaps / check ideas | package |
-|---|---|---|---|---|
-| AVFoundation | ITWV | assetreader-decoded-pixels-pixel-transfer, assetwriter-asset-imagegen, audio-asset-composition, capture-devices, composition-export-session, player-playback-video-output | AVVideoComposition / custom AVVideoCompositing (CI filter per frame, layer instructions) + export; AVAssetExportSession on tvOS/visionOS (composition-export-session is iOS-only) and export presets / fileLengthLimit / metadata; AVMutableMovie / AVMovie track editing and header write; AVQueuePlayer + AVPlayerLooper, AVPlayerItem seek/rate/stall notifications; HLS from a loopback HTTP server (m3u8 + TS/fMP4 segments), AVAssetResourceLoaderDelegate custom scheme; AVPlayerItem outputs: legible (WebVTT subtitles), metadata (timed ID3), chapters/AVMetadataItem loading; AVSampleBufferDisplayLayer + AVSampleBufferAudioRenderer + AVSampleBufferRenderSynchronizer; AVAsset async load(.tracks/.duration/.metadata) across formats (mp4, mov, m4a, caf, wav); capture: Apple-sim N/A (no cameras) - assert AVCaptureDevice.DiscoverySession empty, AVCaptureSession start w/o input errors, authorizationStatus; only audio-asset-composition; add AVAsset/AVPlayer audio playback | P1 |
-| AppIntents | ITWV | perform | AppShortcutsProvider registration + AppShortcut phrases; AppEntity/EntityQuery/EntityStringQuery resolution, IntentParameter dialogs; IntentDonationManager donate/delete; AppDependencyManager, OpenIntent / URLRepresentable; ControlWidget toggles (with WidgetKit) | P7 |
-| AudioToolbox | ITV | components-extaudiofile | AudioQueue output/input (offline AudioQueueOfflineRender); AudioFileStream parsing of an MP3/AAC byte stream; AUAudioUnit: instantiate Apple effect AUs (AUDelay, AUNBandEQ) and render through AURenderBlock; AUv3 in-process registration; MusicSequence / MusicPlayer with a MIDI file; AudioServicesCreateSystemSoundID / play | P1 |
-| Contacts | IWV | authorization-vcard-formatter | with authorization granted (simctl privacy grant equivalent): CNSaveRequest add/update/delete, fetch by predicate, CNChangeHistoryFetchRequest; limited-access (iOS 18) behaviour | P4 |
-| CoreLocation | ITWV | manager-geometry-simulated-location | CLLocationUpdate.liveUpdates with simulated location; CLMonitor conditions (circular geographic) enter/exit; CLGeocoder reverse/forward (needs network); CLServiceSession / CLBackgroundActivitySession; heading/beacons: Apple-sim N/A - assert headingAvailable false | P5 |
-| CoreMIDI | IV | virtual-loopback | port tvOS event-list-ump (UMP build/parse, MIDI 1<->2 conversion) - virtual endpoints are Apple-sim N/A; MIDINetworkSession (iOS) enable/contacts; MIDICIDiscoveryManager / MIDI-CI profile objects | P1 |
-| CoreML | W | arrays-features | MLUpdateTask on-device training (updatable model); MLState stateful models, MLComputePlan; async/batch predictions, MLModelAsset from spec data; port compile-load-predict | P7 |
-| CoreSpotlight | IV | index-delete | CSSearchQuery finds the indexed item; CSUserQuery (iOS 18); batch indexing with client state | P4 |
-| Foundation | TWV | bundle-localization-stringsdict-plurals, calendar-timezones-locale, filehandle-locks-streams-presenter, filemanager-links-attrs-copy-enumerate, files-urls-processinfo, json-dates-formatters, kvstore-synchronize, nsxpc-anonymous-listener-roundtrip, operationqueue-progress-undo, rename-follows-id, rename-timing, runloop-timer-notification-kvo, ubiquitous-kvstore, userdefaults-appgroup, xpc-missing-service-errors | port iOS-only urlsession-websocket-loopback, urlsession-download-upload-cache, attributed-markdown-formatters, file-coordination-xattr-capacity; background URLSessionConfiguration download (nsurlsessiond); #Predicate / NSPredicate evaluation, FormatStyle breadth; Process-less XPC (covered); NSUserActivity / Handoff | P8 |
-| FoundationModels | IV | system-model-availability | x86sim: model .modelNotReady (Apple's iOS sim answers "Pong" via the host Mac) - x86sim gap; @Generable guided generation, Tool calling, streaming responses | P7 |
-| GameController | ITV | controllers-keyboard-mouse, input-gamepad, tv-micro-gamepad-event-vc | GCVirtualController (iOS) connect -> appears in GCController.controllers; GCEventInteraction / GCUIEventTypes; controllers-keyboard-mouse has no assertion; input-gamepad is the real check (needs run.sh input mode) | P2 |
-| HealthKit | IV | store-units-samples | port watchOS healthd-queries-save (requestAuthorization, save HKQuantitySample, HKSampleQuery, HKStatisticsCollectionQuery); HKAnchoredObjectQuery / HKObserverQuery; HKWorkoutSession on iPhone (iOS 26) + HKLiveWorkoutBuilder; HKMedication / clinical records: Apple-sim N/A | P5 |
-| LinkPresentation | ITWV | metadata | LPMetadataProvider fetch from a loopback HTML page (og: tags); LPLinkView render | P6 |
-| MapKit | ITWV | geometry-local-objects, snapshotter | MKLocalSearch / MKLocalSearchCompleter (network); MKDirections ETA/route; MKMapView annotations/overlays render on screen (UIKit); MKGeocodingRequest / MKReverseGeocodingRequest (iOS 26); MKLookAroundSceneRequest | P5 |
-| Matter | ITWV | setup-payload-codes | MTRDeviceController (storage-based, offline) start/stop; MTR TLV / cluster object model encode/decode (MTRBaseClusterOnOff paths); MTRCertificates generate root/operational certs | P5 |
-| MediaPlayer | ITWV | nowplaying-remote-commands | MPMusicPlayerController.applicationQueuePlayer with a store-less queue (sim: empty library) - assert state/notifications; MPMediaLibrary authorization + MPMediaQuery (empty library on sim); MPVolumeView / MPNowPlayingSession (iOS 16+, AVPlayer-backed); MPRemoteCommandCenter skip/seek command dispatch | P1 |
-| Metal | ITV | argument-buffer-function-constants-indirect, compute-runtime-compiled, instancing-vertex-descriptor-indexed, msaa-depth-test-resolve, render-to-texture-readback, shared-event-heap-completion-order, textures-mipmaps-blit-formats-srgb, threadgroup-atomics-simdgroup | Metal 4: MTL4CommandQueue/MTL4CommandBuffer/MTL4ArgumentTable/MTL4Compiler (verify Apple-sim support first); ray tracing: acceleration structures + intersection functions (supportsRaytracing on sim: verify); mesh/object shaders, tile shaders/imageblocks (GPU-family dependent); MTLBinaryArchive, dynamic libraries, function pointers / visible function tables; residency sets, MTLIO command queue (file -> buffer loads), counters/timestamps, MTLCaptureManager to file | P2 |
-| MetalPerformanceShaders | ITV | blur-matmul | MPSCNN conv/pool/fully-connected inference; MPSImage histogram, Sobel, Lanczos scale, morphology; MPSNDArray matmul, MPSMatrixFindTopK/SoftMax | P2 |
-| ModelIO | ITV | mesh-asset-export | MDLAsset import of OBJ/USDA and round trip; MDLNoiseTexture/MDLSkyCubeTexture/normal map generation; MDLVoxelArray, MDLSkeleton/animation, MDLMesh UV unwrapping | P2 |
-| PDFKit | ITV | create-annotate-search-roundtrip, document-text-render | PDFView display/pagination/selection on screen, PDFThumbnailView; encrypted PDF unlock, outline, form-field widgets; PDFPageOverlayViewProvider | P6 |
-| QuartzCore | ITV | layers-render-animation | CAMetalLayer nextDrawable/present outside MetalKit; CAEmitterLayer, CAReplicatorLayer, CATransformLayer, CAShapeLayer strokeEnd animation sampled via presentation(); CATiledLayer, CATransaction completion blocks | P2 |
-| RealityKit | ITV | ecs-system-animation-raycast, entities-meshes, reality-renderer-offscreen | only entities-meshes; port visionOS reality-renderer-offscreen + ecs-system-animation-raycast; physics simulation (PhysicsBodyComponent collisions/CollisionEvents); Entity(named:/contentsOf:) USDZ load, ShaderGraphMaterial, VideoMaterial, particles; SpatialAudioComponent / AudioFileResource playback; LowLevelMesh / LowLevelTexture | P2 |
-| SceneKit | ITWV | offscreen-render, scnview-onscreen-continuous | physics contact delegate + hit tests; SCNScene load from .usdz/.scn and SCNSceneSource; SCNAnimation/CAAnimation playback, morphers/skinning; SCNTechnique / shader modifiers / SCNProgram; WKInterfaceSCNScene / SceneView render (no SCNRenderer) | P2 |
-| ShazamKit | ITWV | signature-generation | SHSession matching against a custom SHCustomCatalog built from the generated signature; SHLibrary items (iOS 17+); SHManagedSession | P1 |
-| StoreKit | ITWV | products-storefront, storefront-sandbox | a .storekit configuration (StoreKit Test in-app via SKTestSession is macOS/Xcode-only): verify what Apple sim answers without it; Transaction.updates / currentEntitlements empty, AppStore.sync error, requestReview (SKStoreReviewController); Product.SubscriptionInfo.status, AppTransaction.shared (sim sandbox); SKAdNetwork / StoreKit external purchase APIs | P4 |
-| SwiftData | ITWV | container-insert-fetch-predicate | VersionedSchema + SchemaMigrationPlan; #Index/#Unique, relationships with delete rules; HistoryDescriptor / fetchHistory; ModelActor background context, custom DataStore | P4 |
-| SwiftUI | TWV | animation-timing-completion-canvas, depth-geometry3d-glass, image-renderer-layout, layout-stacks-grid-custom-layout-pixels, open-dismiss-immersive-space, open-dismiss-window-volume, tv-focus-state-default-focus, watch-gauges-crown-modifier | controls: Picker/Toggle/Slider/Stepper/DatePicker/TextField editing; presentation: sheet/fullScreenCover/popover/alert/confirmationDialog lifecycle; List swipe actions, ScrollView scrollPosition/ScrollViewReader, Lazy grids; TimelineView, Menu/contextMenu, toolbar; DocumentGroup / FileDocument; drag & drop with Transferable; navigation-state-list is iOS-only | P6 |
-| UIKit | V | accessibility-elements-actions-swiftui-tree, attributed-html-import-print-renderer, input-memory-warning, input-shake, pasteboard-text-input, textkit2-vs-textkit1-layout-hit-test, views-autolayout-render-symbols, window-scene-geometry-resize, window-scene-viewcontroller | UIMenu / UIContextMenuInteraction / UIEditMenuInteraction; UISearchController, UIPageViewController, UISheetPresentationController detents; UITextField secure entry/autofill, UIFindInteraction; UIDatePicker/UIColorPickerViewController/UIFontPickerViewController; scene lifecycle (background/foreground, state restoration via NSUserActivity); UITabBarController sidebar (iOS 18 UITab), UIUpdateLink; port iOS collection/table/navigation/alert/scrollview/document/first-responder checks; printing: UIPrintInteractionController (no printers: assert) | P6 |
-| UserNotifications | T | settings-schedule-pending | UNNotificationServiceExtension mutating a delivered push (simctl push equivalent); communication notifications (INSendMessageIntent update); badge-only notification delivery/removal (only settings-schedule-pending today) | P3 |
-
-## Apple-sim N/A (verified by SKIP reasons / ref-mac.sh, or hardware-only) (30 frameworks)
-
-Not to be chased; each needs a check asserting what Apple's simulator does (most today SKIP instead of asserting).
-
-| framework | platforms | existing checks | gaps / check ideas | package |
-|---|---|---|---|---|
-| ARKit | I | configurations | assert ARWorldTrackingConfiguration.isSupported == false (today SKIP) and ARSession run -> error (iOS: no ARKit tracking in Apple's simulator) | P2 |
-| AdServices | IV | attribution-token | assert AAAttribution.attributionToken error code 3 (today SKIP); add a check asserting the simulator behaviour (unsupported / proper error); port existing check(s) AdServices.attribution-token (run on I) (attributionToken errors in the simulator) | P4 |
-| BackgroundTasks | ITWV | register-submit | BGContinuedProcessingTask request (iOS 26) submit -> unavailable; add a check asserting the simulator behaviour (unsupported / proper error); port existing check(s) BackgroundTasks.register-submit (run on I/T/V); register/submit check (port) (BGTaskScheduler.submit -> .unavailable in Apple's simulator (asserted by register-submit)) | P3 |
-| CarKey | IW | - | add a check asserting the simulator behaviour (unsupported / proper error); car key API isSupported -> false (needs Wallet car keys (NFC/UWB)) | P5 |
-| CoreBluetooth | ITWV | central-state | assert .unsupported (today SKIP); CBPeripheralManager state (no Bluetooth radio in the simulator) | P5 |
-| CoreMotion | IWV | availability | assert availability false (today SKIP) + CMMotionActivityManager/CMPedometer query errors, CMHeadphoneMotionManager isDeviceMotionAvailable (no motion sensors in the simulator) | P5 |
-| CoreNFC | I | reading-available | assert readingAvailable == false (today SKIP); NFCTagReaderSession.readingAvailable (no NFC in the simulator) | P5 |
-| CoreTelephony | I | network-info | assert serviceSubscriberCellularProviders empty / CTCellularPlanProvisioning.supportsEmbeddedSIM false (no cellular radios in the simulator) | P5 |
-| DeclaredAgeRange | I | eligibility | assert no answer / requestAgeRange error (today SKIP after 8 s) (isEligibleForAgeFeatures never answers in Apple's simulator) | P3 |
-| DeviceCheck | ITWV | support | assert DCDevice.isSupported == false and generateToken -> featureUnsupported; DCAppAttestService.generateKey -> error (DCDevice / App Attest unsupported in Apple's simulator) | P8 |
-| ExternalAccessory | ITV | manager | assert connectedAccessories empty, EAWiFiUnconfiguredAccessoryBrowser (no MFi accessories) | P5 |
-| IdentityDocumentServices | I | - | add a check asserting the simulator behaviour (unsupported / proper error); IdentityDocumentProvider registration types / ISO 18013 request objects (mobile ID documents need Wallet IDs (not in the simulator)) | P8 |
-| ImageCaptureCore | IV | device-browser | assert no devices + browser start/stop (no cameras/scanners attached) | P5 |
-| LinkSecurity | ITWV | flag-urls | add a check asserting the simulator behaviour (unsupported / proper error); port existing check(s) LinkSecurity.flag-urls (run on T); assert no answer / error from LSLinkSecurityManager (today SKIP after 10 s) (flagged-URL store lives in imagent, absent from simulator runtimes) | P3 |
-| LockedCameraCapture | IV | - | add a check asserting the simulator behaviour (unsupported / proper error); LockedCameraCaptureManager / session content URLs: requires a capture extension -> assert API availability & error (camera capture extension (no cameras in the simulator)) | P1 |
-| MessageUI | IV | can-send | assert canSendMail/canSendText false and composer init behaviour (today SKIP) (no Mail account / Messages in the simulator) | P6 |
-| MetalPerformanceShadersGraph | IV | graph-run | keep SKIP; add a check that builds an MPSGraph (no device) and compiles to an executable without running (MPSGraphDevice init aborts in Apple's simulator too) | P2 |
-| NearbyInteraction | IW | capabilities | assert capabilities false (today SKIP); NISession run with NINearbyAccessoryConfiguration -> error (no UWB in the simulator) | P5 |
-| ProximityReader | I | reader-support | assert PaymentCardReader.isSupported == false, MobileDocumentReader (Tap to Pay needs NFC hardware) | P5 |
-| RoomPlan | I | - | add a check asserting the simulator behaviour (unsupported / proper error); assert RoomCaptureSession.isSupported == false; CapturedRoom JSON decoding from fixture (needs LiDAR) | P5 |
-| SafetyKit | IW | crash-detection | add a check asserting the simulator behaviour (unsupported / proper error); port existing check(s) SafetyKit.crash-detection (run on W) (Apple-only entitlement) | P5 |
-| SecureElementCredential | I | - | add a check asserting the simulator behaviour (unsupported / proper error); credential session isSupported -> false on sim (needs a Secure Element (NFC)) | P8 |
-| SensorKit | I | reader-authorization | assert SRSensorReader.requestAuthorization -> entitlement error (research entitlement + sensors) | P5 |
-| TelephonyMessagingKit | I | - | add a check asserting the simulator behaviour (unsupported / proper error); messaging types (iOS 27) build; carrier service -> Apple-sim N/A (needs a carrier SIM / telephony) | P3 |
-| TouchController | IV | layout-render-touch | assert TCTouchController.isSupported == false (today SKIP), build descriptor/controls offscreen; add a check asserting the simulator behaviour (unsupported / proper error); port existing check(s) TouchController.layout-render-touch (run on I) (TCTouchController.isSupported is false in Apple's simulator) | P2 |
-| WatchConnectivity | IWV | session-activate | assert WCSession.isSupported() == false (today SKIP); watch-only app gets no session state; a companion-app setup would be needed for transfer APIs (no paired device (iOS/visionOS); watch-only app on watchOS) | P3 |
-| WeatherKit | ITWV | service-answers | add a check asserting the simulator behaviour (unsupported / proper error); port existing check(s) WeatherKit.service-answers (run on T); assert WeatherService error type (today SKIP) (needs a team-signed WeatherKit entitlement; auth service absent in sim runtimes) | P5 |
-| WiFiAware | IV | - | add a check asserting the simulator behaviour (unsupported / proper error); WACapabilities / isSupported -> false on sim (no Wi-Fi Aware radio) | P5 |
-| _AVKit_GroupActivities | V | - | add a check asserting the simulator behaviour (unsupported / proper error); AVPlayerPlaybackCoordinator with a GroupSession: no FaceTime in sim - assert coordinator objects (needs a SharePlay session (FaceTime)) | P1 |
-| _CoreNFC_UIKit | I | - | add a check asserting the simulator behaviour (unsupported / proper error); NFC UIKit overlay build (no NFC in the simulator) | P5 |
 
 ## Covered, with secondary gaps
 
 | framework | platforms | secondary gaps |
 |---|---|---|
-| AVFAudio | ITWV | AVAudioRecorder / input node capture (sim mic input; assert record + file length); AVAudioSequencer + AVAudioUnitSampler (MIDI file render offline); AVAudioSession interruption / route-change notifications, setPreferredSampleRate/IOBufferDuration; AVAudioSourceNode/SinkNode, AVAudioUnitTimePitch/Varispeed in offline render |
-| AVKit | T | AVPictureInPictureController: isPictureInPictureSupported, sample-buffer PiP content source (sim supports PiP on iOS); AVRoutePickerView render, AVPlayerViewControllerDelegate full-screen transitions |
-| Accelerate | ITWV | BNNS Graph compile/execute, LAPACK solve |
-| Accessibility | ITWV | AccessibilityNotification.Announcement post, AXBrailleMap, AXSettings queries |
-| AppIntentsTypeSupport | T | port tvOS value-containers to iOS/watchOS/visionOS |
-| BackgroundAssets | T | BADownloaderExtension (needs extension) |
-| CFNetwork | ITWV | URLSessionStreamTask, HTTP/2 to loopback TLS, proxy (connectionProxyDictionary), CFHTTPMessage |
-| CarPlay | I | CPTemplateApplicationScene in CarPlay simulator window (Apple sim has I/O > External Displays > CarPlay) |
-| Charts | ITWV | SectorMark pie, chart selection/scroll APIs, Chart3D (visionOS) |
-| CompositorServices | V | LayerRenderer drawable depth/stereo views, foveation config (visionOS) |
-| CoreAudioKit | IV | CABTMIDILocalPeripheralViewController / CAInterAppAudio views: Apple-sim N/A (no BT), assert view loads |
-| CoreData | ITWV | NSPersistentCloudKitContainer local mirror setup (no account: assert event/error); NSStagedMigrationManager / lightweight + custom migration stages; composite attributes, derived attributes, NSPersistentStoreCoordinator with multiple stores; NSFetchRequest async (NSAsynchronousFetchRequest) + child contexts |
-| CoreGraphics | ITWV | CGPDFDocument parsing/scanning (CGPDFScanner), CGImageSource-less JPEG via CGDataProvider, shading/patterns |
-| CoreHaptics | ITV | engine: Apple-sim N/A (pattern API covered); AHAP file parse |
-| CoreImage | ITV | CIRAWFilter / CIImage from HEIF/RAW, CIImageProcessorKernel, custom CIKernel (Metal) at runtime; CIDetector face/text (Vision-backed: verify on Apple sim) |
-| CoreLocationUI | IW | LocationButton tap -> one-time authorization (input) |
-| CoreMIDI | T | MIDINetworkSession (iOS) enable/contacts; MIDICIDiscoveryManager / MIDI-CI profile objects |
-| CoreML | ITV | MLUpdateTask on-device training (updatable model); MLState stateful models, MLComputePlan; async/batch predictions, MLModelAsset from spec data |
-| CoreMedia | ITWV | CMSimpleQueue/CMBufferQueue, CMTimebase rates & timers, CMMemoryPool |
-| CoreTransferable | ITWV | FileRepresentation / DataRepresentation import/export |
-| CreateMLComponents | ITWV | classifier pipeline + serialization |
-| CryptoKit | ITWV | SecureEnclave keys: assert SecureEnclave.isAvailable on sim (verify); ML-KEM / ML-DSA (iOS 26) |
-| CryptoTokenKit | WV | TKSmartCard slot manager (no readers: assert empty); TKTokenKeychainContents |
-| DeveloperToolsSupport | T | port tvOS design-time-values-library to iOS/watchOS/visionOS |
-| ExtensionFoundation | T | port tvOS extension-point-monitor to iOS/watchOS/visionOS; AppExtensionProcess launch of an in-app appex |
-| Foundation | I | background URLSessionConfiguration download (nsurlsessiond); #Predicate / NSPredicate evaluation, FormatStyle breadth; Process-less XPC (covered); NSUserActivity / Handoff |
-| GLKit | IT | GLKView/GLKBaseEffect draw (iOS/tvOS) |
-| GSS | IV | Kerberos auth needs a KDC (not available) |
-| GameplayKit | ITV | GKAgent/GKGoal/GKBehavior steering; GKMinmaxStrategist / GKMonteCarloStrategist; GKRuleSystem, GKEntity/GKComponentSystem, GKQuadtree/GKRTree |
-| HealthKit | W | HKAnchoredObjectQuery / HKObserverQuery; HKMedication / clinical records: Apple-sim N/A |
-| IOSurface | ITV | IOSurface sharing to Metal texture + CVPixelBuffer (partly via CoreVideo check) |
-| ImmersiveMediaSupport | V | port visionOS video-frame-fade-command to iOS; ImmersiveMediaRemotePreviewSender/VenueDescriptor/presentation commands JSON |
-| JavaScriptCore | ITV | JSExport ObjC class bridging, JSVirtualMachine across contexts |
-| LiveCommunicationKit | IWV | ConversationManager.reportNewIncomingConversation + actions |
-| LocalAuthentication | IWV | LAContext evaluatePolicy with simulated enrolled biometry (input-biometric needs run.sh input mode); LARight / LAPersistedRight (iOS 16+) |
-| MediaIntelligence | T | port tvOS face-group-analyzer to iOS/visionOS |
-| MediaIntents | TV | port audio-search-codable to iOS/watchOS |
-| MediaToolbox | ITV | MTAudioProcessingTap is the main API - fine; MTRegisterProfessionalVideoWorkflowFormatReaders |
-| Messages | I | MSMessagesAppViewController (needs iMessage extension) |
-| MetalKit | ITV | MTKMesh from MDLAsset with custom vertex descriptor; port mtkview-draw-loop-on-screen (iOS-only) |
-| MusicUnderstanding | T | port tvOS click-track-loudness-rhythm to iOS/watchOS/visionOS |
-| NaturalLanguage | ITWV | NLEmbedding / NLContextualEmbedding (assets); NLModel from a CreateML text classifier |
-| Network | ITWV | NWProtocolWebSocket client/server on loopback; QUIC (NWProtocolQUIC) loopback; NWProtocolFramer custom framing; NWConnectionGroup multicast; Swift NetworkConnection/NetworkListener API (iOS 26) |
-| NetworkExtension | T | NEHotspotConfigurationManager.apply -> sim error; NEFilterManager / NEDNSSettingsManager load |
-| NowPlaying | T | port tvOS media-session-primary to iOS/watchOS/visionOS |
-| OSLog | ITWV | OSLogStore position filtering, signpost entries (OSLogEntrySignpost) |
-| OpenAL | IT | playback with alSourcePlay + state polling, 3D listener/source positions |
-| PHASE | ITV | port visionOS spatial-sound-event-playback (engine-only today); PHASEOccluder/material, ambient mixer |
-| PencilKit | IV | PKCanvasView drawing via touch input |
-| PhotosUI | ITWV | iOS presents picker; tvOS/watchOS/visionOS only build views - assert selection via PhotosPickerItem loadTransferable; PHPickerViewController delegate result handling |
-| QuickLookThumbnailing | IV | thumbnails for PDF/movie/text types |
-| RealityFoundation | ITV | no RealityFoundation check id (re-exported by RealityKit; exercised in RealityKit checks) |
-| SafariServices | IV | SFAuthenticationSession deprecated; SSReadingList add (iOS) |
-| Security | ITWV | SecKey RSA/EC sign/verify/encrypt (SecKeyCreateSignature); SecAccessControl with .biometryAny (sim enrolled); shared web credentials |
-| SecurityUI | T | port tvOS certificate-sheet to iOS/watchOS/visionOS |
-| SoundAnalysis | ITWV | SNClassifySoundRequest on a file (SNAudioFileAnalyzer), custom MLModel request |
-| SpriteKit | ITWV | SKView onscreen frame loop (iOS/tvOS covered via _SpriteKit_SwiftUI); SKEmitterNode, SKShader, SKTileMapNode, SKTextureAtlas |
-| SwiftUI | I | controls: Picker/Toggle/Slider/Stepper/DatePicker/TextField editing; presentation: sheet/fullScreenCover/popover/alert/confirmationDialog lifecycle; List swipe actions, ScrollView scrollPosition/ScrollViewReader, Lazy grids; TimelineView, Menu/contextMenu, toolbar; DocumentGroup / FileDocument; drag & drop with Transferable |
-| SystemConfiguration | ITV | SCNetworkReachability callbacks, CNCopyCurrentNetworkInfo (entitlement) |
-| TabularData | ITWV | JSON read/write, joins, summaries |
-| UIKit | ITW | UIMenu / UIContextMenuInteraction / UIEditMenuInteraction; UISearchController, UIPageViewController, UISheetPresentationController detents; UITextField secure entry/autofill, UIFindInteraction; UIDatePicker/UIColorPickerViewController/UIFontPickerViewController; scene lifecycle (background/foreground, state restoration via NSUserActivity); UITabBarController sidebar (iOS 18 UITab), UIUpdateLink; printing: UIPrintInteractionController (no printers: assert) |
-| USDKit | ITV | _USDKit_RealityKit: convert a USD stage to RealityKit entities |
-| UserNotifications | IWV | UNNotificationServiceExtension mutating a delivered push (simctl push equivalent); communication notifications (INSendMessageIntent update) |
-| VideoToolbox | ITV | VTPixelRotationSession / VTPixelTransferSession (check covers transfer via AVFoundation); VTCompressionSession multi-pass, ProRes (Apple-sim: verify); VTFrameProcessor (frame-rate conversion, super-resolution) - likely Apple-sim N/A, assert isSupported |
-| Vision | ITWV | face rectangles/landmarks, person segmentation, body/hand pose, foreground mask (many fail on Apple sim: "no inference context" - verify each with ref-mac first); VNTranslationalImageRegistration / optical flow; only swift-requests-rectangles-contours |
-| WebKit | IV | WKContentRuleListStore compile + block; WKDownload, WKFindInteraction; WKWebsiteDataStore fetch/remove records, IndexedDB/service workers; WKWebExtension (iOS 18.4+) |
-| WidgetKit | W | a widget extension in the test app: TimelineProvider timelines via WidgetCenter.currentConfigurations (assert kind present); ControlCenter controls (ControlWidget) reload |
-| WorkoutKit | IW | WorkoutScheduler.schedule on iOS (authorization); WorkoutPlan export to file |
-| _SwiftData_CoreData | T | port managed-object-model to iOS/watchOS/visionOS |
-| _SwiftData_SwiftUI | T | port query-in-hosted-view to iOS/watchOS/visionOS |
+| ARKit | V | [c] assert the simulator provider answers (world true; planes/scene/hands/images/room false) in data-providers (today reported, not asserted); [c] assert WorldTrackingProvider.addAnchor -> addWorldAnchorFailed (both simulators; today reported, not asserted) |
+| AVFAudio | ITWV | [a] AVAudioRecorder / AVAudioEngine.inputNode capture (sim mic input): assert record + file length; [a] AVAudioSession interruption / route-change notifications, setPreferredSampleRate / setPreferredIOBufferDuration; [a] AVAudioSinkNode in a manual-render engine; W: [a] port source-node-time-pitch-offline / sequencer-sampler-offline where the units exist on watchOS |
+| AVFoundation | ITWV | [a] AVContentKeySession (clear key) / AVAssetDownloadURLSession offline HLS; [a] chapter metadata: timed-metadata-chapters reports chapters (empty) - assert chapterMetadataGroups from a chaptered m4a/mov; [a] AVPlayerItem failed/stall notifications (AVPlayerItemPlaybackStalled, failedToPlayToEndTime); [a] AVAssetExportSession fileLengthLimit / metadata write-through on export |
+| AVKit | ITWV | I: [a] AVPlayerViewControllerDelegate full-screen enter/exit transitions; T: [a] AVPlayerViewControllerDelegate full-screen enter/exit transitions; T: [a] AVPictureInPictureController.isPictureInPictureSupported + sample-buffer content source (iOS/visionOS check only); V: [a] AVPlayerViewControllerDelegate full-screen enter/exit transitions |
+| AVRouting | ITV | I: [a] DeviceDiscoveryExtension appex to drive AVCustomRoutingController route events (today asserts empty routes + no delegate events); V: [a] DeviceDiscoveryExtension appex to drive AVCustomRoutingController route events (today asserts empty routes + no delegate events) |
+| Accelerate | ITWV | [a] BNNS Graph compile/execute, LAPACK solve |
+| Accessibility | ITWV | [a] AccessibilityNotification.Announcement post, AXBrailleMap, AXSettings queries |
+| ActivityKit | I | [a] pushType .token: pushTokenUpdates answer (token or none in the sim: assert) |
+| AdSupport | IT | [c] non-zero IDFA needs tracking authorized (ATT prompt answer) |
+| AppIntents | ITWV | [a] ControlWidget toggles / SetValueIntent (with WidgetKit); [a] AppShortcut phrases/titles asserted (app-shortcuts-provider only checks the count); T: [run] donations: x86 FAIL 4099 (2026-11-15 20:04) predates the com.apple.linkd job in boot-a64.sh's tvOS list: rerun |
+| AudioToolbox | ITV | [a] AudioQueue input (record) on the sim mic; [a] AudioComponentInstanceNew RemoteIO with a realtime render callback |
+| AuthenticationServices | I | [c] ASAuthorizationController.performRequests with a passkey request: Apple's iPad sim shows its passkey sheet and the app hangs (assert the sheet without blocking); [a] ASAuthorizationProviderExtension / ASCredentialProviderViewController objects (AutoFill/SSO extension side) |
+| BackgroundAssets | T | [a] BADownloaderExtension: a scheduled BADownload running in the downloader extension (extension registered, seen by ExtensionFoundation monitor on tvOS/visionOS) |
+| CFNetwork | ITWV | [a] HTTP/2 to loopback TLS (results show http/1.1 negotiated); [a] URLSessionConfiguration.connectionProxyDictionary through a loopback proxy; W: [a] CFHTTPMessage (stream-task check skips it there; verify SDK availability) |
+| CallKit | I | [a] CXCallDirectoryManager status (needs a call directory extension) |
+| CarPlay | I | [a] CPTemplateApplicationScene in CarPlay simulator window (Apple sim has I/O > External Displays > CarPlay) |
+| Charts | ITWV | [a] chart selection/scroll APIs (chartXSelection, chartScrollableAxes, chartScrollPosition); [a] LineMark/AreaMark/RuleMark positions by pixels, axis labels; V: [a] Chart3D |
+| ClockKit | IW | W: [a] CLKComplicationDataSource timeline (reloadTimeline/extendTimeline) - complication-server only reports a count |
+| CloudKit | ITWV | [c] server ops (fetch/query/subscription/share accept) need team signing + account: only save -> CKError 8 asserted; [c] assert accountStatus answer instead of SKIP in account-status |
+| CompositorServices | V | [a] LayerRenderer drawable depth/stereo views, foveation config (visionOS) |
+| ComputeGraph | ITV | [a] assert the ComputeNodeGraph.Assembly result (uniform buffer size / uniforms) and evaluate an assembled graph |
+| Contacts | IV | [a] limited-access (iOS 18) authorization behaviour |
+| ContactsUI | IV | [a] CNContactViewController(forNewContact:) edit + delegate |
+| CoreAudio | ITWV | [a] property listener actually firing on a default-device / sample-rate change |
+| CoreAudioKit | IV | [a] CABTMIDILocalPeripheralViewController / CAInterAppAudio views: Apple-sim N/A (no BT), assert view loads |
+| CoreData | ITWV | T: [a] x86 run of the P4 CoreData checks (ref only so far) |
+| CoreGraphics | ITWV | [a] CGPDFDocument parsing/scanning (CGPDFScanner), CGImageSource-less JPEG via CGDataProvider, shading/patterns |
+| CoreHaptics | ITV | [a] engine: Apple-sim N/A (pattern API covered); AHAP file parse |
+| CoreImage | ITV | [a] CIRAWFilter / CIImage from HEIF/RAW, CIImageProcessorKernel, custom CIKernel (Metal) at runtime; [a] CIDetector face/text (Vision-backed: verify on Apple sim) |
+| CoreLocation | ITWV | I: [c] CLMonitor events: Apple's simulator delivers none for a simulated location (reported, not asserted); I: [a] startUpdatingLocation stream / significant-change / CLVisit monitoring start-stop; I: [a] beacon ranging (CLBeaconIdentityConstraint) -> no beacons |
+| CoreLocationUI | IW | [a] LocationButton tap -> one-time authorization (input) |
+| CoreMIDI | ITWV | I: [c] virtual-loopback SKIPs - assert the simulator answer of MIDISourceCreate/MIDIDestinationCreate (error code) instead of skipping; I: [c] MIDICIDiscoveryManager.discover gives no answer in 8 s (reported, not asserted) - assert the simulator answer; V: [c] virtual-loopback SKIPs - assert the simulator answer of MIDISourceCreate/MIDIDestinationCreate (error code) instead of skipping; V: [c] MIDICIDiscoveryManager.discover gives no answer in 8 s (reported, not asserted) - assert the simulator answer |
+| CoreML | ITWV | [a] MLState stateful models (makeState, prediction(from:using:)); W: [a] port model-asset-batch-async-compute-plan without the compile step (MLModelAsset(specification:), batch/async) |
+| CoreServices | ITWV | I: [a] get a ref-mac.sh result for fsevents-stream-file-events (no Apple result in the table); [b: fseventsd stand-in lacks IgnoreSelf/MarkSelf] FSEvents IgnoreSelf / MarkSelf flags; T: [a] run fsevents-stream-file-events (only an iOS x86 result exists); W: [a] run fsevents-stream-file-events (only an iOS x86 result exists); V: [a] run fsevents-stream-file-events (only an iOS x86 result exists) |
+| CoreSpotlight | IV | [a] CSUserQuery: assert responses / error (user-query reports only) |
+| CoreTransferable | ITWV | [a] FileRepresentation / DataRepresentation import/export |
+| CreateMLComponents | ITWV | [a] estimator/transformer pipeline composition (appending) + write/read of a fitted pipeline |
+| CryptoTokenKit | ITWV | [a] TKTokenKeychainContents (needs a token extension) |
+| EventKitUI | IV | [a] EKEventEditViewController save/cancel through editViewDelegate |
+| ExtensionFoundation | ITV | V: [run] x86 result missing |
+| FileProvider | IV | I: [b: fileproviderd volume caps DOCUMENT_ID/WRITE_GENERATION_COUNT/CLONE/RENAME_EXCL + dataless materialization upcall] replicated-extension-domain enumerate/materialize/create; [a] NSFileProviderManager evictItem / import / pending items; V: [run] x86 result missing |
+| Foundation | ITWV | T: [a] user-activity saved-activity deletion (check skips it on tvOS) |
+| FoundationModels | I | [a] PrivateCloudComputeLanguageModel: assert availability/reason (check only reports it); [b: config] respond/guided/tools/stream need X86SIM_FM_RELAY (a Mac with Apple Intelligence); without it x86 answers modelNotReady where Apple's sim (host Mac) PASSes; with the relay iPad = Apple |
+| GLKit | IT | [a] GLKView/GLKBaseEffect draw (iOS/tvOS) |
+| GSS | IV | [a] Kerberos auth needs a KDC (not available) |
+| GameController | ITV | [a] input-gamepad: await a real button press (SDKCOV_INPUT_WAIT, run.sh input mode); [a] GCKeyboard / GCMouse input handlers (controllers-keyboard-mouse only reports counts) |
+| GameplayKit | ITV | [a] GKObstacleGraph pathfinding around polygon obstacles, GKScene loaded from an .sks file |
+| HealthKit | IWV | [a] authorized round trip: grant Health access (run.sh / ref-mac.sh) so save/query/statistics/delete run authorized (only the refusal path HK 4/5 is asserted today); I: [c] clinical records / HKMedication: assert supportsHealthRecords() == false (reported today) |
+| HealthKitUI | IWV | W: [a] trigger change -> healthDataAccessRequest result (needs the Health sheet answered unattended) |
+| HomeKit | ITWV | [c] HMHome rooms/accessories/action sets: Apple's simulator refuses addHome (HMErrorDomain 2040 / no answer); [a] HMEventTrigger / HMSignificantTimeEvent / HMCalendarEvent construction and predicates (no home needed) |
+| IOSurface | ITV | [a] IOSurface sharing to Metal texture + CVPixelBuffer (partly via CoreVideo check) |
+| ImmersiveMediaSupport | IV | [a] ImmersiveMediaRemotePreviewSender / VenueDescriptor |
+| Intents | ITWV | [a] in-app intent handling (application(_:handlerFor:) / INExtension) for INSendMessageIntent; I: [a] INFocusStatusCenter: assert authorization status / requestAuthorization answer (check only reports); [a] assert INInteraction delete answers (tvOS: 1900 on both); W: [a] INFocusStatusCenter: assert authorization status / requestAuthorization answer (check only reports); V: [a] INFocusStatusCenter: assert authorization status / requestAuthorization answer (check only reports) |
+| IntentsUI | ITV | I: [a] INUIAddVoiceShortcutViewController / INUIEditVoiceShortcutViewController presentation |
+| JavaScriptCore | ITV | [a] JSExport ObjC class bridging, JSVirtualMachine across contexts |
+| LinkPresentation | ITWV | [a] LPMetadataProvider remote video / iconProvider vs imageProvider split, cancel() |
+| LiveCommunicationKit | IWV | [a] ConversationManager.reportNewIncomingConversation + actions |
+| LocalAuthentication | ITWV | I: [a] evaluatePolicy with simulated enrolled biometry (input-biometric needs run.sh input mode); V: [a] evaluatePolicy with simulated enrolled biometry (input-biometric needs run.sh input mode) |
+| LocalAuthenticationEmbeddedUI | IV | [a] LAAuthenticationView(context:) render bound to an LAContext |
+| MapKit | ITWV | I: [a] MKMapView annotation views on screen (MKMarkerAnnotationView pixels); [a] MKMapItemRequest (place ID) / MKMapItem identifiers; T: [a] MKMapView annotation views on screen (MKMarkerAnnotationView pixels); V: [a] MKMapView annotation views on screen (MKMarkerAnnotationView pixels) |
+| MediaAccessibility | ITV | [a] caption appearance settings-changed notification |
+| MediaPlayer | ITV | [a] MPMediaQuery on an authorized library (auth 0 on the sim: grant media-library TCC so songs/albums queries run); V: [a] add NSAppleMusicUsageDescription so the queue player / library path runs (today skipped) |
+| MediaToolbox | ITV | [a] MTAudioProcessingTap is the main API - fine; MTRegisterProfessionalVideoWorkflowFormatReaders |
+| Messages | I | [a] MSMessagesAppViewController (needs iMessage extension) |
+| Metal | ITV | [a] MTLParallelRenderCommandEncoder, stencil test, texture views / swizzle, MTLFence across encoders |
+| MetalKit | ITV | [a] MTKMesh from MDLAsset with custom vertex descriptor; T: [a] port mtkview-draw-loop-on-screen (iOS-only); V: [a] port mtkview-draw-loop-on-screen (iOS-only) |
+| MetalPerformanceShaders | ITV | [a] MPSImageConversion / threshold / median, MPSMatrixDecompositionCholesky / LU solve |
+| ModelIO | ITV | [a] MDLMaterial / MDLScatteringFunction, MDLLight light probes, ambient occlusion baking |
+| MusicUnderstanding | ITWV | [a] assert rhythm beat count / bpm ~120 (reported only; loudness is asserted) |
+| NaturalLanguage | ITWV | [a] NLModel from a compiled text classifier (MLModel) via NLModel(contentsOf:) |
+| Network | ITWV | [b: build-host ufw drops inbound multicast] NWConnectionGroup loopback receive (check only asserts group ready + send) |
+| NetworkExtension | ITWV | V: [a] NEHotspotConfigurationManager.apply -> sim error, if available |
+| OSLog | ITWV | [a] OSLogStore position filtering, signpost entries (OSLogEntrySignpost) |
+| PDFKit | ITV | [a] PDFView text selection (PDFSelection, currentSelection) and find highlighting on screen; [a] outline does not survive write on Apple's simulator too (counted, not asserted); T: [c] assert PDFView init raises (UIEditMenuInteraction unavailable) instead of SKIP |
+| PHASE | ITV | I: [a] port visionOS spatial-sound-event-playback (engine-only today); [a] PHASEOccluder/material, ambient mixer; T: [a] port visionOS spatial-sound-event-playback (engine-only today) |
+| PassKit | IWV | I: [c] PKIdentityAuthorizationController needs the in-app identity entitlement (Apple ends the app); [a] PKAddPassesViewController with a signed test .pkpass fixture |
+| PencilKit | IV | [a] PKCanvasView drawing via touch input |
+| PermissionKit | IV | V: [run] x86 result missing |
+| Photos | ITV | [a] PHCachingImageManager / PHLivePhoto request; [c] asset delete (PHAssetChangeRequest.deleteAssets prompts: assert simulator answer) |
+| PhotosUI | ITWV | [a] iOS presents picker; tvOS/watchOS/visionOS only build views - assert selection via PhotosPickerItem loadTransferable; [a] PHPickerViewController delegate result handling |
+| QuartzCore | ITWV | [a] CAGradientLayer / CATextLayer rendered pixels, CADisplayLink frame cadence; W: [a] CATransform3D math through the runtime |
+| QuickLook | IV | [a] QLPreviewingController preview extension (appex); [a] QLPreviewController editing (QLPreviewItemEditingMode, didSaveEditedCopy) |
+| QuickLookThumbnailing | IV | [a] thumbnails for PDF/movie/text types |
+| RealityFoundation | ITV | V: [a] no RealityFoundation check id (re-exported by RealityKit; exercised in RealityKit checks) |
+| RealityKit | ITV | [a] ShaderGraphMaterial, VideoMaterial; I: [a] ARView in nonAR camera mode render |
+| SafariServices | IV | [a] SFAuthenticationSession deprecated; SSReadingList add (iOS) |
+| SceneKit | ITV | [a] SCNParticleSystem, light shadows, SCNAudioSource |
+| ScreenTime | I | [a] STWebpageController hosting a page: urlIsBlocked / suppressUsageRecording behaviour; [a] STScreenTimeConfigurationObserver |
+| Security | ITWV | I: [a] SecAddSharedWebCredential / SecRequestSharedWebCredential -> sim error; [a] SecAccessControl .biometryAny item read with enrolled biometry (needs run.sh input mode) |
+| ShazamKit | ITWV | [a] SHLibrary.default items add/read |
+| SoundAnalysis | ITWV | [a] SNClassifySoundRequest(mlModel:) with a custom sound classifier |
+| SpriteKit | ITWV | W: [a] SKShader / tile map / atlas / emitter (only scene-physics-actions runs there) |
+| StoreKit | ITWV | [c] purchases need a .storekit configuration (SKTestSession is Xcode-only); [a] AppStore.requestReview / SKStoreReviewController; T: [a] x86 run of P4 StoreKit checks (ref only); x86 tvOS storefront none vs Apple USA |
+| SwiftData | ITWV | [a] custom DataStore; T: [a] x86 run of P4 SwiftData checks (ref only) |
+| SwiftUI | ITWV | [a] Menu/contextMenu, toolbar items; [a] DocumentGroup / FileDocument; [a] drag & drop with Transferable (draggable/dropDestination); [a] List swipeActions, popover; [a] DatePicker / Picker menu style; W: [a] port controls-bindings-textfield-focus-submit (Toggle/Slider/Stepper/Picker bindings) |
+| SystemConfiguration | ITV | I: [a] CNCopyCurrentNetworkInfo -> nil without the Wi-Fi info entitlement |
+| TabletopKit | V | [a] TabletopInteraction gesture / dice roll handling |
+| TipKit | ITWV | [a] Tips.resetDatastore / showAllTipsForTesting; T: [a] SwiftUI TipView render; W: [a] SwiftUI TipView render |
+| Translation | ITWV | I: [c] TranslationSession.translate with installed assets (Apple sim: not installed -> error, asserted); I: [a] TranslationSession.translations(from:) batch / prepareTranslation |
+| UIKit | ITWV | [a] scene lifecycle (background/foreground, state restoration via NSUserActivity); [a] UIContextMenuInteraction (preview + actions); [a] UITextField secure entry / autofill (textContentType) behaviour; T: [a] UIMenu / UITextField text input (menus and text-input checks run on iOS/visionOS only); V: [a] port alert-actionsheet-present, scrollview-zoom-offset, document-save-open, first-responder-text-input |
+| USDKit | ITV | [a] _USDKit_RealityKit: convert a USD stage to RealityKit entities |
+| UserNotifications | IWV | [a] UNNotificationServiceExtension mutating a delivered push (simctl push equivalent); [a] communication notifications (INSendMessageIntent update) |
+| VideoToolbox | ITV | [a] VTCompressionSession multi-pass, ProRes encode (verify on Apple sim); [c] VTFrameProcessor (frame-rate conversion / super-resolution) isSupported answer |
+| Vision | ITWV | [a] VNGenerateOpticalFlowRequest / homographic registration; [c] faces/landmarks/body/hand/classify/saliency: Apple sim has no inference context - checks accept the error (done); W: [a] port translational-registration-horizon |
+| VisionEntitlementServices | V | [a] assert licenseStatus valid (Apple's answer) and AppComputeCategory status (reported today) |
+| VisionKit | I | [a] ImageAnalysisInteraction text selection / subject lifting asserted (hasActiveTextSelection only reported) |
+| WebKit | IV | [a] IndexedDB / service workers; [a] WKWebExtension (iOS 18.4+); [a] WKFindInteraction UI (find bar), not just WKWebView.find |
+| WidgetKit | IW | [a] timelines reach currentConfigurations (0 configured today): assert a kind; [a] ControlCenter with a placed control; I: [a] render AccessoryWidgetBackground / widget views (port watchOS accessory-background-render) |
+| WorkoutKit | IW | I: [c] WorkoutScheduler.shared authorizationState / scheduledWorkouts never answer on Apple's iPhone simulator (static answers asserted only) |
+| _DeviceDiscoveryUI_SwiftUI | IT | I: [a] pin DevicePicker's label (Apple's answer) instead of accepting label or fallback |
+| _MusicKit_SwiftUI | ITWV | V: [a] musicSubscriptionOffer attach (iOS only today) |
+| _PassKit_SwiftUI | IWV | I: [a] assert per-button ink (x86: pay box 0% ink, wallet 65%; Apple ref hung 70 s so unconfirmed) |
+| _PhotosUI_SwiftUI | IWV | [a] loadTransferable of a picker-handed item (needs a selection in the out-of-process picker) |
+| _RealityKit_ComputeGraph | ITV | [a] attach a ComputeGraph resource/pipeline and assert simulated output |
+| _RealityKit_SwiftUI | ITV | V: [a] RealityView attachments and entity gestures |
+| _SwiftData_SwiftUI | T | [a] port query-in-hosted-view to iOS/watchOS/visionOS |
+| _USDKit_RealityKit | ITV | [c] USDStageComponent.render completes only on a real GPU family (simulator answers failed, no errors - asserted) |
+| _WebKit_SwiftUI | IV | [a] WebPage navigation decisions / callJavaScript arguments |
 
-## Work packages
+## Check -> framework map: framework use inside checks named after another
 
-Size = framework x platform entries with status none / trivial / thin / apple-sim-na; est. checks = new or reworked checks (one per none/trivial framework, one per uncovered area of a thin one, 1/2 for turning an Apple-sim-N/A SKIP into an assertion; ports count once).
+Every check id `func:<Framework>.<name>` counts for its named framework (per-platform lists: `existing_checks` in the JSON). Extra frameworks exercised inside other checks (>= 2 SDK symbols of the framework in the body; common frameworks dropped):
 
-| package | frameworks | entries | est. checks | platforms | none / trivial / thin / sim-N/A |
-|---|---|---|---|---|---|
-| P1 Media & AV | 25 | 69 | 44 | ITWV | 13 / 8 / 5 / 2 |
-| P2 Graphics, 3D, AR & games | 25 | 60 | 44 | ITWV | 15 / 2 / 7 / 3 |
-| P3 App extensions, system services, communication & parental controls | 40 | 87 | 41 | ITWV | 26 / 14 / 1 / 5 |
-| P4 Data, cloud, contacts/calendars & commerce | 31 | 69 | 40 | ITWV | 17 / 10 / 4 / 1 |
-| P5 Health, home, location, sensors & accessories | 37 | 82 | 44 | ITWV | 15 / 5 / 4 / 15 |
-| P6 UI frameworks depth & platform UI | 12 | 26 | 26 | ITWV | 5 / 2 / 4 / 1 |
-| P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language | 29 | 83 | 36 | ITWV | 22 / 7 / 3 / 0 |
-| P8 Foundation, networking, security, identity & device management | 27 | 49 | 28 | ITWV | 17 / 7 / 1 / 3 |
-
-### P1 Media & AV
-
-AVFoundation editing/export depth (AVVideoComposition + custom compositor, export on tvOS/visionOS, AVMutableMovie, HLS from a loopback server, resource loader, legible/metadata outputs, sample-buffer renderers + synchronizer); AudioToolbox (AudioQueue offline render, AudioFileStream, AUAudioUnit instantiate+render, MusicSequence); CoreAudio HAL property queries; Photos library writes/fetches (sim has sample photos); MediaPlayer/MusicKit player + library (empty-library assertions); ShazamKit custom-catalog match; ports: MusicUnderstanding, NowPlaying, MediaIntents, CoreMIDI UMP, PHASE spatial, ImmersiveMediaSupport.
-
-- **thin**: AVFoundation [ITWV], AudioToolbox [ITV], CoreMIDI [IV], MediaPlayer [ITWV], ShazamKit [ITWV]
-- **trivial**: AVKit [IV], AVRouting [TV], AssetsLibrary [I], MediaAccessibility [ITV], MusicKit [ITWV], Photos [ITV], ReplayKit [ITV], VideoSubscriberAccount [ITV]
-- **none**: AVKit [W], AVRouting [I], CoreAudio [ITWV], CoreMIDI [W], ImmersiveMediaSupport [I], MediaIntents [IW], MusicUnderstanding [IWV], NowPlaying [IWV], _AVKit_SwiftUI [WV], _CoreHaptics_AudioToolbox [V], _MusicKit_SwiftUI [ITWV], _PhotosUI_SwiftUI [IWV], _PhotosUI_WidgetKit [IV]
-- **Apple-sim N/A**: LockedCameraCapture [IV], _AVKit_GroupActivities [V]
-
-### P2 Graphics, 3D, AR & games
-
-Metal 4 / ray tracing / mesh + tile shaders / binary archives / residency sets / MTLIO (verify each feature on Apple's sim first: GPU-family limits); MPS CNN + image kernels; QuartzCore CAMetalLayer/emitter/replicator; SceneKit physics/loading/animation; ModelIO import + texture generation; RealityKit physics, USDZ load, audio, LowLevelMesh (and port visionOS renderer/ECS checks to iOS/tvOS); GameKit sim-account behaviour; GameplayKit agents/strategists/rules; visionOS ARKit providers inside the ImmersiveSpace; new ComputeGraph, TabletopKit, GameSave, MetalPerformancePrimitives (shader-only header lib).
-
-- **thin**: GameController [ITV], Metal [ITV], MetalPerformanceShaders [ITV], ModelIO [ITV], QuartzCore [ITV], RealityKit [ITV], SceneKit [ITWV]
-- **trivial**: ARKit [V], GameKit [ITWV]
-- **none**: ComputeGraph [ITV], GameSave [IV], MetalPerformancePrimitives [ITV], OpenGLES [V], QuartzCore [W], TabletopKit [V], _GameController_SwiftUI [ITV], _RealityKit_ComputeGraph [ITV], _RealityKit_SwiftUI [I], _SceneKit_SwiftUI [WV], _SpriteKit_SwiftUI [WV], _TabletopKit_GroupActivities [V], _TabletopKit_RealityKit [V], _TabletopKit_SwiftUI [V], _USDKit_RealityKit [ITV]
-- **Apple-sim N/A**: ARKit [I], MetalPerformanceShadersGraph [IV], TouchController [IV]
-
-### P3 App extensions, system services, communication & parental controls
-
-Needs harness work: a widget extension (WidgetKit timelines, ActivityKit Live Activities with NSSupportsLiveActivities, ControlWidget), an ExtensionKit appex (AppExtensionPoint discovery + EXHostViewController), a File Provider appex, Info.plist keys (BAAppGroupID, NSAccessorySetupKitSupports). Then TipKit rules/events, AlarmKit scheduling, CallKit incoming-call report, MetricKit log handles + payload fixtures, PushKit/PushToTalk behaviour, BrowserEngineKit/Core entitlement errors, Screen Time family (FamilyControls/ManagedSettings/DeviceActivity/PermissionKit) sim behaviour.
-
-- **thin**: UserNotifications [T]
-- **trivial**: ActivityKit [I], AlarmKit [I], BackgroundAssets [I], CallKit [IWV], DeviceActivity [I], FamilyControls [I], FileProvider [IV], ManagedSettings [T], MetricKit [IV], NotificationCenter [I], PushKit [IWV], RelevanceKit [TWV], TipKit [ITWV], WidgetKit [IV]
-- **none**: AccessoryLiveActivities [I], AppClip [I], AppMigrationKit [I], BackgroundAssets [V], BrowserEngineCore [ITWV], BrowserEngineKit [ITWV], BrowserKit [IWV], BusinessChat [I], DeviceActivity [W], ExtensionFoundation [IWV], ExtensionKit [ITWV], FamilyControls [W], FileProviderUI [IV], ManagedSettings [IW], ManagedSettingsUI [I], MetricKit [T], PermissionKit [IV], PushToTalk [I], RelevanceKit [I], ScreenTime [I], StateReporting [I], SystemExtensions [I], UserNotificationsUI [ITWV], _DeviceActivity_SwiftUI [I], _PermissionKit_SwiftUI [IV], _PermissionKit_UIKit [IV]
-- **Apple-sim N/A**: BackgroundTasks [ITWV], DeclaredAgeRange [I], LinkSecurity [ITWV], TelephonyMessagingKit [I], WatchConnectivity [IWV]
-
-### P4 Data, cloud, contacts/calendars & commerce
-
-CloudKit local API (CKRecord/CKShare/CKQuery/CKSyncEngine state) + server errors; CoreData CloudKit mirror setup and staged migrations; SwiftData migrations/history/ModelActor; CoreSpotlight query; Contacts/EventKit store writes after a TCC grant; StoreKit transaction/sync/review paths; PassKit payment sheet + .pkpass; AdAttributionKit / MarketplaceKit / FinanceKit answers; port SwiftData/CoreData/StoreKit SwiftUI overlay checks from tvOS.
-
-- **thin**: Contacts [IWV], CoreSpotlight [IV], StoreKit [ITWV], SwiftData [ITWV]
-- **trivial**: AdSupport [IT], AddressBookUI [I], AppTrackingTransparency [ITV], CloudKit [ITWV], ContactsUI [IV], EventKit [IWV], EventKitUI [IV], GroupActivities [ITV], PassKit [IWV], SharedWithYou [ITV]
-- **none**: AdAttributionKit [I], ContactProvider [I], CoreSpotlight [T], FinanceKit [IW], FinanceKitUI [I], MarketplaceKit [I], SharedWithYouCore [T], _AdAttributionKit_StoreKit [I], _CoreData_CloudKit [IWV], _GroupActivities_SwiftUI [V], _GroupActivities_UIKit [IV], _MarketplaceKit_UIKit [I], _PassKit_SwiftUI [WV], _StoreKit_SwiftUI [IWV], _SwiftData_CoreData [IWV], _SwiftData_SwiftUI [IWV], iAd [I]
-- **Apple-sim N/A**: AdServices [IV]
-
-### P5 Health, home, location, sensors & accessories
-
-HealthKit store save/query on iOS/visionOS (port the watchOS healthd check), anchored/observer/statistics-collection queries, iPhone workout sessions; CoreLocation liveUpdates/CLMonitor/geocoder; MapKit search/directions/MKMapView overlays; HomeKit home add/remove (verify on Apple first); Matter controller/TLV/certs; most of the Apple-sim N/A list (Bluetooth, NFC, UWB, motion, accessories, RoomPlan, WiFiAware, CarKey...) where the work is turning SKIPs into assertions of the unsupported answer.
-
-- **thin**: CoreLocation [ITWV], HealthKit [IV], MapKit [ITWV], Matter [ITWV]
-- **trivial**: AccessorySetupKit [I], DeviceDiscoveryUI [T], ExposureNotification [I], HomeKit [ITWV], _RelevanceKit_MapKit [T]
-- **none**: AccessoryNotifications [I], AccessoryTransportExtension [I], DeviceDiscoveryExtension [IV], DeviceDiscoveryUI [I], EnergyKit [ITWV], HealthKitUI [W], HomeExtensions [I], MatterSupport [ITWV], VisionEntitlementServices [V], _CoreLocationUI_SwiftUI [IW], _DeviceDiscoveryUI_SwiftUI [I], _HomeKit_SwiftUI [ITWV], _MapKit_SwiftUI [WV], _RelevanceKit_MapKit [IWV], _WorkoutKit_SwiftUI [IW]
-- **Apple-sim N/A**: CarKey [IW], CoreBluetooth [ITWV], CoreMotion [IWV], CoreNFC [I], CoreTelephony [I], ExternalAccessory [ITV], ImageCaptureCore [IV], NearbyInteraction [IW], ProximityReader [I], RoomPlan [I], SafetyKit [IW], SensorKit [I], WeatherKit [ITWV], WiFiAware [IV], _CoreNFC_UIKit [I]
-
-### P6 UI frameworks depth & platform UI
-
-UIKit (menus/context menus, search controller, page VC, sheet detents, pickers, scene lifecycle, UITab sidebar; port the iOS UIKit set to visionOS); SwiftUI controls/presentations/lists/scroll/grid/DocumentGroup/drag-drop on all platforms; PDFKit PDFView + encryption; QuickLook presentation; LinkPresentation metadata fetch from loopback; WebKit content rules / downloads / data store; small overlays (_QuickLook_SwiftUI, _DataDetection_SwiftUI).
-
-- **thin**: LinkPresentation [ITWV], PDFKit [ITV], SwiftUI [TWV], UIKit [V]
-- **trivial**: QuickLook [IV], _WatchKit_SwiftUI [W]
-- **none**: ClockKit [I], DeveloperToolsSupport [IWV], _DataDetection_SwiftUI [IWV], _QuickLook_SwiftUI [IV], _WebKit_SwiftUI [V]
-- **Apple-sim N/A**: MessageUI [IV]
-
-### P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language
-
-FoundationModels: x86Sim gap - Apple's iOS simulator answers via the host Mac (check PASSes "Pong" on ref-mac), x86Sim reports modelNotReady; then guided generation/tools/streaming. App Intents depth (AppShortcutsProvider, EntityQuery, donations) + all the _X_AppIntents overlays; Intents donations/voice shortcuts; Speech recognition of a synthesized buffer + SpeechAnalyzer; Translation sessions; CoreML training/state; Vision face/pose/segmentation (many fail on Apple's sim too: verify first); NaturalLanguage embeddings; VisionKit ImageAnalyzer.
-
-- **thin**: AppIntents [ITWV], CoreML [W], FoundationModels [IV]
-- **trivial**: ImagePlayground [IV], Intents [ITWV], SensitiveContentAnalysis [IV], Speech [ITV], SuggestedActions [V], Translation [I], VisionKit [IV]
-- **none**: AppIntentsTypeSupport [IWV], FoundationModels [TW], IntentsUI [T], MediaIntelligence [IV], SuggestedActions [I], Translation [TWV], TranslationUIProvider [I], _AppIntents_HealthKit [ITWV], _AppIntents_SwiftUI [IWV], _AppIntents_UIKit [IWV], _Contacts_AppIntents [ITWV], _CoreSpotlight_FoundationModels [IV], _FinanceKit_AppIntents [I], _FoundationModels_UIKit [IV], _GeoToolbox_AppIntents [ITWV], _LinkPresentation_AppIntents [ITWV], _MediaIntents_AppIntents [ITWV], _MediaPlayer_AppIntents [ITWV], _NowPlaying_AppIntents [ITWV], _Photos_AppIntents [ITV], _Translation_SwiftUI [IV], _UserNotifications_AppIntents [ITWV]
-
-### P8 Foundation, networking, security, identity & device management
-
-Foundation: port the 4 iOS-only checks (websocket, download/upload/cache, markdown formatters, file coordination) to tvOS/watchOS/visionOS + background URLSession; Network QUIC/WebSocket/framer/NetworkConnection; NetworkExtension managers (port tvOS check); Security SecKey ops; AuthenticationServices passkey/ASWebAuthenticationSession loopback callback; LocalAuthentication on tvOS + LARight; CryptoTokenKit SE tokens on iOS/tvOS; DeviceCheck unsupported assertions; MultipeerConnectivity two-peer loopback; device management (ManagedApp port, ManagedAppDistribution, AutomatedDeviceEnrollment, ClassKit).
-
-- **thin**: Foundation [TWV]
-- **trivial**: Accounts [I], AuthenticationServices [ITWV], ClassKit [I], CryptoTokenKit [IT], MultipeerConnectivity [ITV], NetworkExtension [IWV], Twitter [I]
-- **none**: AutomatedDeviceEnrollment [I], AutomaticAssessmentConfiguration [V], ClassKit [V], ClassKitUI [IV], IdentityDocumentServicesUI [I], IdentityLookupUI [IV], LocalAuthentication [T], LocalAuthenticationEmbeddedUI [IV], ManagedApp [I], ManagedAppDistribution [IV], SecurityUI [IWV], ServicesAccountLinking [I], TrustInsights [IV], _AuthenticationServices_SwiftUI [WV], _ManagedAppDistribution_SwiftUI [V], _SecureElementCredential_SwiftUI [I], _SecureElementCredential_UIKit [I]
-- **Apple-sim N/A**: DeviceCheck [ITWV], IdentityDocumentServices [I], SecureElementCredential [I]
+| framework | exercised inside |
+|---|---|
+| AVFAudio | AVFoundation.sample-buffer-renderers-synchronizer, AudioToolbox.auaudiounit-effects-auv3 |
+| AppIntents | _AppIntents_UIKit.display-image-system-name |
+| AudioToolbox | CoreMIDI.event-list-ump, CoreMIDI.ump-ci-network, CoreMIDI.virtual-loopback, UIKit.input-shake, _CoreHaptics_AudioToolbox.intended-spatial-experience |
+| Contacts | ContactsUI.picker-and-contact-view-on-screen |
+| CoreAudioTypes | AudioToolbox.auaudiounit-effects-auv3, AudioToolbox.audioqueue-offline-render, AudioToolbox.components-extaudiofile |
+| CoreImage | AVFoundation.video-composition-compositor-ci-export, Vision.barcodes-from-coreimage-generators |
+| CoreML | CreateMLComponents.logistic-classifier-export-coreml |
+| CoreText | PDFKit.document-text-render |
+| CryptoKit | Security.seckey-algorithms-exchange-interop |
+| EventKit | EventKitUI.event-view-calendar-chooser |
+| ExtensionFoundation | ExtensionKit.app-extension-process-xpc |
+| GameplayKit | RealityKit.reality-file-roundtrip-usdz-load, SceneKit.animation-player-morpher-skinner, SceneKit.offscreen-render, SceneKit.scene-write-source-load-usdz, SceneKit.scnview-onscreen-continuous, SceneKit.shader-modifier-program-technique, SpriteKit.scene-physics-actions, _SceneKit_SwiftUI.scene-view-render, _SceneKit_SwiftUI.scene-view-renders |
+| HealthKit | HealthKitUI.access-request-modifier, HealthKitUI.activity-ring-view |
+| HomeKit | _HomeKit_SwiftUI.camera-view-hosted |
+| ImageIO | LinkPresentation.loopback-fetch-og-tags-linkview, MediaAccessibility.caption-style-audible-image-caption, libAppleEXR.imageio-openexr-roundtrip |
+| Network | Foundation.urlsession-websocket-loopback |
+| PermissionKit | _PermissionKit_SwiftUI.communication-limits-button |
+| RealityFoundation | RealityKit.ecs-system-animation-raycast, RealityKit.entities-meshes, RealityKit.lowlevel-mesh-texture-render, RealityKit.particles-audio-resource, RealityKit.physics-collision-events, RealityKit.reality-file-roundtrip-usdz-load, RealityKit.reality-renderer-offscreen, _RealityKit_SwiftUI.reality-view-in-window, _RealityKit_SwiftUI.reality-view-make, _RealityKit_SwiftUI.reality-view-make-update, _TabletopKit_RealityKit.entity-equipment-snapshot |
+| SwiftData | _SwiftData_SwiftUI.query-in-hosted-view |
+| TabletopKit | _TabletopKit_RealityKit.entity-equipment-snapshot, _TabletopKit_SwiftUI.tabletop-game-modifier-in-reality-view |
+| UserNotifications | _UserNotifications_AppIntents.content-entity-identifiers |
+| VideoToolbox | AVFoundation.assetreader-decoded-pixels-pixel-transfer |
+| Vision | SwiftUI.image-renderer-layout |
+| WidgetKit | RelevanceKit.contexts-widget-relevance |
+| WorkoutKit | _WorkoutKit_SwiftUI.workout-preview-modifier, _WorkoutKit_SwiftUI.workout-preview-modifier-watch |
+| _PhotosUI_SwiftUI | PhotosUI.photos-picker-view |
 
