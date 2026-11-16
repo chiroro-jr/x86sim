@@ -34,8 +34,13 @@
 // Watching: Linux inotify on every directory under the streams' paths (Darling processes make Linux system calls; the
 // guest's path opened here, its /proc/self/fd/N handed to inotify_add_watch). Event ids and history (the last
 // HISTORY_MAX events) persist in <data>/.fseventsd, as fseventsd keeps them in each volume's .fseventsd.
+//   - extended data (kFSEventStreamCreateFlagUseExtendedData, 0x40): each path in the strings blob is followed by the
+//     item's u64 inode (its file id); create flag 0x100 adds its u32 document id (0 unless UF_TRACKED), after the inode
+//     when both are asked for (as the Mac sends them: "<path>\0" [u64 inode] [u32 doc id]). The inode is taken when
+//     the change is seen (a removed item keeps the one it had while it was there). FileProvider's VFS monitor drops a
+//     change without a file id: a file an app created in a replicated domain was never imported (createItem).
 // Not done: kFSEventStreamCreateFlagIgnoreSelf / MarkSelf (inotify doesn't say which process made a change), hard
-// link flags, extended data / document ids beyond what the client fills in itself.
+// link flags.
 #include <mach/mach.h>
 #include <mach/notify.h>
 #include <pthread.h>
@@ -49,6 +54,7 @@
 #include <errno.h>
 #include <time.h>
 #include <sys/stat.h>
+#include <sys/attr.h>
 #include <sys/time.h>
 #include <uuid/uuid.h>
 
@@ -88,6 +94,8 @@ extern kern_return_t bootstrap_check_in(mach_port_t bp, const char* name, mach_p
 // FSEventStreamCreateFlags
 #define CF_NODEFER 0x2
 #define CF_FILEEVENTS 0x10
+#define CF_EXTENDED 0x40   // kFSEventStreamCreateFlagUseExtendedData: u64 inode after each path
+#define CF_DOCID 0x100     // (private) u32 document id after each path (and inode)
 #define SINCE_NOW 0xffffffffffffffffULL
 
 static FILE* logf_;
@@ -149,7 +157,7 @@ static char* statedir;
 static char home_uuid[37], root_uuid[37];
 static dev_t home_dev, root_dev;
 
-struct ev { uint64_t id; uint32_t flags; char* path; };
+struct ev { uint64_t id; uint32_t flags; char* path; uint64_t ino; uint32_t docid; };
 struct stream {
 	int used;
 	mach_port_t port, client;
@@ -178,7 +186,7 @@ static FILE* histf;
 static int hist_lines;
 
 // per-path accumulated flags (fseventsd's in-memory buffer)
-struct accum { char* path; uint32_t flags; uint64_t t; };
+struct accum { char* path; uint32_t flags; uint64_t t; uint64_t ino; uint32_t docid; };
 static struct accum* acc;
 static int nacc, capacc;
 static uint64_t acc_epoch;
@@ -528,19 +536,23 @@ static void wake_main(void)
 	mach_msg(&m, MACH_SEND_MSG | MACH_SEND_TIMEOUT, sizeof m, 0, MACH_PORT_NULL, 0, MACH_PORT_NULL);
 }
 
-static void pend_add(struct stream* s, uint64_t id, uint32_t flags, const char* path)
+static void pend_add_ino(struct stream* s, uint64_t id, uint32_t flags, const char* path, uint64_t ino, uint32_t docid)
 {
 	for (int i = 0; i < s->npend; i++)
 		if (strcmp(s->pend[i].path, path) == 0) {
 			s->pend[i].flags |= flags;
 			s->pend[i].id = id;
+			if (ino) {
+				s->pend[i].ino = ino;
+				s->pend[i].docid = docid;
+			}
 			goto schedule;
 		}
 	if (s->npend == s->cappend) {
 		s->cappend = s->cappend ? 2 * s->cappend : 16;
 		s->pend = realloc(s->pend, s->cappend * sizeof *s->pend);
 	}
-	s->pend[s->npend++] = (struct ev){ id, flags, strdup(path) };
+	s->pend[s->npend++] = (struct ev){ id, flags, strdup(path), ino, docid };
 schedule:
 	if (!s->deadline) {
 		uint64_t t = now_us();
@@ -548,6 +560,25 @@ schedule:
 		if (!s->deadline)
 			s->deadline = 1;
 	}
+}
+static void pend_add(struct stream* s, uint64_t id, uint32_t flags, const char* path)
+{
+	pend_add_ino(s, id, flags, path, 0, 0);
+}
+
+// an item's file id (inode) and document id, 0 when it is gone. Through getattrlist, as the clients ask for them:
+// Darling resolves an object id back to a path (fsgetpath, openbyid_np) only for ids getattrlist handed out, and
+// FileProvider opens an event's item by its file id (sim2host sim_openByID)
+static void item_ids(const char* path, uint64_t* ino, uint32_t* docid)
+{
+	struct attrlist al = { ATTR_BIT_MAP_COUNT, 0, ATTR_CMN_DOCUMENT_ID | ATTR_CMN_FILEID, 0, 0, 0, 0 };
+	struct __attribute__((packed)) { uint32_t len; uint32_t docid; uint64_t fileid; } buf;
+	*ino = 0;
+	*docid = 0;
+	if (getattrlist(path, &al, &buf, sizeof buf, FSOPT_NOFOLLOW) != 0)
+		return;
+	*ino = buf.fileid;
+	*docid = buf.docid;
 }
 
 static int excluded(struct stream* s, const char* path)
@@ -589,7 +620,7 @@ static const char* stream_path(struct stream* s, const char* path, int filelevel
 	return buf;
 }
 
-static void deliver_to_streams(uint64_t id, uint32_t flags, const char* path)
+static void deliver_to_streams(uint64_t id, uint32_t flags, const char* path, uint64_t ino, uint32_t docid)
 {
 	char buf[2048];
 	for (int i = 0; i < nstreams; i++) {
@@ -599,7 +630,7 @@ static void deliver_to_streams(uint64_t id, uint32_t flags, const char* path)
 		int file = s->flags & CF_FILEEVENTS;
 		const char* p = stream_path(s, path, file, buf, sizeof buf);
 		if (p)
-			pend_add(s, id, file ? flags : flags & (FS_MUSTSCAN | FS_USERDROPPED | FS_KERNELDROPPED), p);
+			pend_add_ino(s, id, file ? flags : flags & (FS_MUSTSCAN | FS_USERDROPPED | FS_KERNELDROPPED), p, file ? ino : 0, file ? docid : 0);
 	}
 }
 
@@ -624,7 +655,7 @@ static void raw_event(const char* path, uint32_t flags)
 			capacc = capacc ? 2 * capacc : 64;
 			acc = realloc(acc, capacc * sizeof *acc);
 		}
-		acc[nacc++] = (struct accum){ strdup(path), 0, t };
+		acc[nacc++] = (struct accum){ strdup(path), 0, t, 0, 0 };
 	}
 	uint32_t typ = flags & (FS_ISFILE | FS_ISDIR | FS_ISSYMLINK);
 	if (typ) // a path that became another kind of item: only that kind
@@ -634,12 +665,20 @@ static void raw_event(const char* path, uint32_t flags)
 		strcmp(hist[(hhead + hcount - 1) % HISTORY_MAX].path, path) == 0)
 		return;
 	acc[k].flags |= flags;
+	// the item's ids now; a removed one keeps those it had when last seen
+	uint64_t ino;
+	uint32_t docid;
+	item_ids(path, &ino, &docid);
+	if (ino) {
+		acc[k].ino = ino;
+		acc[k].docid = docid;
+	}
 	uint64_t id = ++cur_id;
 	hist_add(id, acc[k].flags, path, t / 1000000, 1);
 	if (hist_lines > 2 * HISTORY_MAX)
 		hist_compact();
 	DBG("event %llu %08x %s", (unsigned long long)id, acc[k].flags, path);
-	deliver_to_streams(id, acc[k].flags, path);
+	deliver_to_streams(id, acc[k].flags, path, acc[k].ino, acc[k].docid);
 }
 
 static uint32_t item_type(const char* path, int isdir)
@@ -862,9 +901,10 @@ static int send_events(struct stream* s, struct ev* ev, int n)
 		uint32_t* offs = malloc(4 * k);
 		uint32_t* flags = malloc(4 * k);
 		uint64_t* ids = malloc(8 * k);
+		size_t extra = ((s->flags & CF_EXTENDED) ? 8 : 0) + ((s->flags & CF_DOCID) ? 4 : 0);
 		size_t size = 0;
 		for (int i = 0; i < k; i++)
-			size += strlen(ev[base + i].path) + 1;
+			size += strlen(ev[base + i].path) + 1 + extra;
 		char* strs = malloc(size ? size : 1);
 		size_t o = 0;
 		for (int i = 0; i < k; i++) {
@@ -875,6 +915,14 @@ static int send_events(struct stream* s, struct ev* ev, int n)
 			size_t l = strlen(e->path) + 1;
 			memcpy(strs + o, e->path, l);
 			o += l;
+			if (s->flags & CF_EXTENDED) {
+				memcpy(strs + o, &e->ino, 8);
+				o += 8;
+			}
+			if (s->flags & CF_DOCID) {
+				memcpy(strs + o, &e->docid, 4);
+				o += 4;
+			}
 			DBG("  -> stream %x: %llu %08x %s", s->port, (unsigned long long)e->id, e->flags, e->path);
 		}
 		callback_msg m = { 0 };
@@ -961,7 +1009,7 @@ static void replay(struct stream* s)
 	if (s->since < hist_floor)
 		// part of what was asked for is no longer kept: rescan, as fseventsd says when its history was purged
 		for (int j = 0; j < s->npaths; j++) {
-			ev[n++] = (struct ev){ hist_floor, FS_MUSTSCAN | FS_USERDROPPED, strdup(s->paths[j]) };
+			ev[n++] = (struct ev){ hist_floor, FS_MUSTSCAN | FS_USERDROPPED, strdup(s->paths[j]), 0, 0 };
 			if (n == cap)
 				ev = realloc(ev, (cap *= 2) * sizeof *ev);
 		}
@@ -979,7 +1027,9 @@ static void replay(struct stream* s)
 		if (k == n) {
 			if (n == cap)
 				ev = realloc(ev, (cap *= 2) * sizeof *ev);
-			ev[n++] = (struct ev){ 0, 0, strdup(p) };
+			ev[n++] = (struct ev){ 0, 0, strdup(p), 0, 0 };
+			if (file)
+				item_ids(h->path, &ev[n - 1].ino, &ev[n - 1].docid);
 		}
 		ev[k].flags |= file ? h->flags : 0;
 		if (h->id > ev[k].id)
@@ -995,7 +1045,7 @@ static void replay(struct stream* s)
 	if (!ok)
 		return;
 	char* root = s->paths[0];
-	struct ev done = { maxid ? maxid : s->since, FS_HISTORYDONE, root };
+	struct ev done = { maxid ? maxid : s->since, FS_HISTORYDONE, root, 0, 0 };
 	send_events(s, &done, 1);
 }
 
