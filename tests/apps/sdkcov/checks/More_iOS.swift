@@ -1006,7 +1006,9 @@ extension Registry {
             catch where !supports { throw Skip("enabled; request refused (\(error)) as on Apple's simulator: the app has no NSSupportsLiveActivities") }
             try expect(Activity<IOSLiveAttributes>.activities.contains { $0.id == a.id }, "not listed")
             await a.update(ActivityContent(state: IOSLiveAttributes.ContentState(step: 2), staleDate: nil))
-            try expect(a.content.state.step == 2, "state after update \(a.content.state.step)")
+            // the update reaches the activity's content through liveactivitiesd a moment later (Apple's simulator too)
+            for _ in 0..<100 where a.content.state.step != 2 { try await Task.sleep(for: .milliseconds(100)) }
+            try expect(a.content.state.step == 2, "state 10 s after the update \(a.content.state.step)")
             await a.end(nil, dismissalPolicy: .immediate)
             return "activity \(a.id.prefix(8)) state \(a.activityState)"
         })
