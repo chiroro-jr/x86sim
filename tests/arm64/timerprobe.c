@@ -14,6 +14,10 @@ static void one(const char* name, dispatch_queue_t q, dispatch_time_t when) {
 int main(void) {
 	sem = dispatch_semaphore_create(0);
 	const uint64_t d = 300 * NSEC_PER_MSEC;
+	// absolute deadlines are mach ticks, not ns: Apple silicon's timebase is 125/3 (24 MHz), which the guest sees too
+	// (Speed 11); adding ns to mach_absolute_time() waits 41.67x longer there (12.5 s), on a Mac as well
+	mach_timebase_info_data_t tb; mach_timebase_info(&tb);
+	const uint64_t dt = d * tb.denom / tb.numer;
 	one("global default, uptime", dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), dispatch_time(DISPATCH_TIME_NOW, d));
 	one("global overcommit, uptime", dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0x2), dispatch_time(DISPATCH_TIME_NOW, d));
 	one("global cooperative, uptime", dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0x4), dispatch_time(DISPATCH_TIME_NOW, d));
@@ -23,13 +27,13 @@ int main(void) {
 	one("global cooperative, monotonic", dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0x4), dispatch_time((1ull << 63), d));
 	one("global default, wall", dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), dispatch_walltime(NULL, d));
 	// what Swift Concurrency passes: absolute deadlines (uptime: raw mach ticks; continuous: bit 63 | continuous ticks)
-	one("absolute uptime", dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0x4), mach_absolute_time() + d);
-	one("absolute continuous", dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0x4), (1ull << 63) | (mach_continuous_time() + d));
+	one("absolute uptime", dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0x4), mach_absolute_time() + dt);
+	one("absolute continuous", dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0x4), (1ull << 63) | (mach_continuous_time() + dt));
 	// dispatch_source timer (Swift's path when a tolerance is given)
 	t0 = now();
 	dispatch_source_t src = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0x4));
 	dispatch_source_set_event_handler_f(src, fired); dispatch_set_context(src, (void*)"source timer, absolute uptime");
-	dispatch_source_set_timer(src, mach_absolute_time() + d, DISPATCH_TIME_FOREVER, 0); dispatch_resume(src);
+	dispatch_source_set_timer(src, mach_absolute_time() + dt, DISPATCH_TIME_FOREVER, 0); dispatch_resume(src);
 	if (dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC))) printf("source timer never fired\n");
 	dispatch_source_cancel(src);
 	return 0;
