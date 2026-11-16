@@ -8,6 +8,7 @@
 	<key>com.apple.security.application-groups</key><array><string>group.com.x86sim.test.sdkcov</string></array>
 	<key>com.apple.developer.healthkit</key><true/>
 	<key>com.apple.developer.healthkit.access</key><array/>
+	<key>com.apple.developer.healthkit.background-delivery</key><true/>
 	<key>com.apple.developer.homekit</key><true/>
 	<key>com.apple.developer.siri</key><true/>
 	<key>aps-environment</key><string>development</string>
