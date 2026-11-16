@@ -13,8 +13,15 @@
 // All 16 methods are answered: open by id, openat/mkdirat/unlinkat/
 // renameat, xattrs, package lookup (FileProvider's own fpfs_pkg_path_lookup on the path), directory entries
 // (getattrlistbulk records), dataless files (SF_DATALESS + sparse logical size; materialize copies the content in and
-// clears the flag; nothing faults on read), purgeable and sync-root marks (kept in xattrs), materialization handlers
-// (kept, never called: there are no dataless faults).
+// clears the flag), purgeable and sync-root marks (kept in xattrs), materialization handlers.
+//
+// Dataless faults: on a Mac the host kernel's upcall for a dataless item under a registered URL reaches the host's
+// fileproviderd, which calls the simulator fileproviderd's FPSimulatorMaterializationHandler (materializeURL:withInfo:
+// completionHandler:) and lets the faulting thread go on when it answers. Here Darling's open() faults (libsystem_kernel
+// helper/misc/dataless.c) and sends the request (operation, pid, path) to the Unix socket /private/var/run/com.x86sim.nspace
+// this job listens on; the handler of the deepest registered URL enclosing the path is called with an
+// NSFileProvidingInfo as the host builds it (the faulting process's audit token, the kernel operation) and its answer
+// (0 or an errno) goes back to the waiting open.
 #import <Foundation/Foundation.h>
 #include <objc/runtime.h>
 #include <objc/message.h>
@@ -30,6 +37,9 @@
 #include <stdio.h>
 
 #include <dlfcn.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <signal.h>
 static NSXPCInterface* (*FPSimulatorSupportInterface)(void);   // FileProvider.framework, not in the SDK stubs
 extern ssize_t fsgetpath(char* buf, size_t bufsize, fsid_t* fsid, uint64_t objid);
 extern int renameatx_np(int fromfd, const char* from, int tofd, const char* to, unsigned int flags);
@@ -317,8 +327,8 @@ static void replyv(NSInvocation* inv, NSArray* objs, const long long* nums, int 
 	}
 	if (!strcmp(name, "sim_makeDatalessFileAt:type:documentSize:entryCount:completionHandler:")) {
 		// APFS makes the item dataless: SF_DATALESS, the logical size, no data; reading it faults the provider in to
-		// materialize it. Here: the flag (Darling keeps BSD flags per file) and, for a file, a sparse file of the
-		// logical size. There are no faults: reading gives zeros until materializeFile.
+		// materialize it. Here: the flag (Darling keeps BSD flags per file; its open() faults on it, see the top) and,
+		// for a file, a sparse file of the logical size.
 		NSFileHandle* fh = objArg(inv, 2);
 		long long size = intArg(inv, 4);
 		struct stat st;
@@ -382,18 +392,17 @@ static void replyv(NSInvocation* inv, NSArray* objs, const long long* nums, int 
 		return;
 	}
 	if (!strcmp(name, "sim_registerMaterializationHandler:forURL:completionHandler:")) {
-		// the host calls the handler when something reads a dataless item under the URL. Without dataless faults
-		// (see makeDatalessFileAt) it is never called; it is kept so unregister finds it.
+		// the host calls the handler when something reads a dataless item under the URL (nspaceServe)
 		id handler = objArg(inv, 2);
 		NSURL* url = objArg(inv, 3);
-		if (url && handler) handlers[url.path] = handler;
+		@synchronized (handlers) { if (url && handler) handlers[url.path] = handler; }
 		LOG("  -> registered (%lu)", (unsigned long) handlers.count);
 		reply(inv, @[], 0, nil);
 		return;
 	}
 	if (!strcmp(name, "sim_unregisterMaterializationHandlerForURL:completionHandler:")) {
 		NSURL* url = objArg(inv, 2);
-		if (url) [handlers removeObjectForKey:url.path];
+		@synchronized (handlers) { if (url) [handlers removeObjectForKey:url.path]; }
 		LOG("  -> unregistered (%lu)", (unsigned long) handlers.count);
 		reply(inv, @[], 0, nil);
 		return;
@@ -427,6 +436,108 @@ static void replyv(NSInvocation* inv, NSArray* objs, const long long* nums, int 
 	reply(inv, @[], 0, posixError(ENOTSUP));
 }
 @end
+
+// ---- dataless faults (see the top): the request and its answer, as libsystem_kernel's helper/misc/dataless.c sends them
+#define NSPACE_SOCKET "/private/var/run/com.x86sim.nspace"
+#define NSPACE_MAGIC 0x3150534eu // "NSP1"
+struct nspace_request { uint32_t magic, op; int32_t pid; uint32_t reserved; char path[1024]; };
+struct nspace_reply { uint32_t magic; int32_t error; };
+
+// the handler registered for the deepest URL enclosing path
+static id handlerFor(NSString* path, NSString** root) {
+	id best = nil;
+	NSString* bestKey = nil;
+	@synchronized (handlers) {
+		for (NSString* key in handlers) {
+			if (!([path isEqualToString:key] || [path hasPrefix:[key stringByAppendingString:@"/"]])) continue;
+			if (!bestKey || key.length > bestKey.length) { bestKey = key; best = handlers[key]; }
+		}
+	}
+	if (root) *root = bestKey;
+	return best;
+}
+
+// an NSError as the errno the faulting open fails with
+static int errnoFor(NSError* e) {
+	for (NSError* x = e; x; x = x.userInfo[NSUnderlyingErrorKey])
+		if ([x.domain isEqualToString:NSPOSIXErrorDomain] && x.code > 0) return (int) x.code;
+	return EIO;
+}
+
+static void nspaceServe(int fd) {
+	struct nspace_request req;
+	size_t got = 0;
+	while (got < sizeof(req)) {
+		ssize_t n = read(fd, (char*) &req + got, sizeof(req) - got);
+		if (n < 0 && errno == EINTR) continue;
+		if (n <= 0) { close(fd); return; }
+		got += n;
+	}
+	req.path[sizeof(req.path) - 1] = 0;
+	__block int answered = 0;
+	void (^answer)(int) = ^(int e) {
+		if (__sync_lock_test_and_set(&answered, 1)) return;
+		struct nspace_reply rep = { NSPACE_MAGIC, e };
+		if (write(fd, &rep, sizeof(rep)) != sizeof(rep)) {}
+		close(fd);
+	};
+	NSString* path = @(req.path);
+	NSString* root = nil;
+	id handler = req.magic == NSPACE_MAGIC ? handlerFor(path, &root) : nil;
+	LOG("%.3f fault op %#x pid %d %s -> handler %s", CFAbsoluteTimeGetCurrent(), req.op, req.pid, req.path, root.UTF8String ?: "(none)");
+	if (!handler) { answer(ETIMEDOUT); return; }   // nobody resolves it: as XNU with no resolver
+	// NSFileProvidingInfo (Foundation): the reader is the faulting process (its audit token: pid in val[5]), the
+	// options and operation as the host passes them (Apple's fileproviderd logs "options: --------m (0x40000000)",
+	// "kernelOperation: 0x1001" for an app listing a dataless root)
+	Class infoC = NSClassFromString(@"NSFileProvidingInfo"), kmiC = NSClassFromString(@"NSFileProviderKernelMaterializationInfo");
+	id kmi = ((id (*)(id, SEL, unsigned)) objc_msgSend)(kmiC, sel_registerName("kernelMaterializationInfoWithOperation:"), req.op);
+	audit_token_t tok;
+	memset(&tok, 0, sizeof(tok));
+	tok.val[1] = tok.val[3] = getuid();
+	tok.val[2] = tok.val[4] = getgid();
+	tok.val[5] = (unsigned) req.pid;
+	id info = ((id (*)(id, SEL, id, NSUInteger, audit_token_t, id)) objc_msgSend)(infoC,
+		sel_registerName("infoWithReaderID:options:auditToken:kernelMaterializationInfo:"), [NSUUID UUID].UUIDString,
+		(NSUInteger) 0x40000000, tok, kmi);
+	if (!info) { answer(EIO); return; }
+	id proxy = [handler respondsToSelector:@selector(remoteObjectProxyWithErrorHandler:)]
+		? [handler remoteObjectProxyWithErrorHandler:^(NSError* err) {
+			LOG("fault %s: handler unreachable: %s", req.path, err.description.UTF8String);
+			answer(EIO);
+		}] : handler;
+	NSURL* url = [NSURL fileURLWithPath:path];
+	((void (*)(id, SEL, id, id, id)) objc_msgSend)(proxy, sel_registerName("materializeURL:withInfo:completionHandler:"), url, info,
+		^(id response, NSError* err) {
+			NSError* e = err ?: (response ? ((id (*)(id, SEL)) objc_msgSend)(response, sel_registerName("error")) : nil);
+			LOG("%.3f fault %s -> %s", CFAbsoluteTimeGetCurrent(), req.path, e ? e.description.UTF8String : "materialized");
+			answer(e ? errnoFor(e) : 0);
+		});
+}
+
+static void nspaceListen(void) {
+	signal(SIGPIPE, SIG_IGN);   // a waiter that gave up closed its end
+	int s = socket(AF_UNIX, SOCK_STREAM, 0);
+	struct sockaddr_un sun = { .sun_family = AF_UNIX };
+	strlcpy(sun.sun_path, NSPACE_SOCKET, sizeof(sun.sun_path));
+	unlink(NSPACE_SOCKET);
+	if (s < 0 || bind(s, (struct sockaddr*) &sun, sizeof(sun)) < 0 || listen(s, 32) < 0) {
+		LOG("fpsim2host: no dataless fault socket %s (errno %d)", NSPACE_SOCKET, errno);
+		if (s >= 0) close(s);
+		return;
+	}
+	chmod(NSPACE_SOCKET, 0666);
+	fcntl(s, F_SETFD, FD_CLOEXEC);
+	static dispatch_source_t src;
+	src = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, s, 0, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0));
+	dispatch_source_set_event_handler(src, ^{
+		int c = accept(s, NULL, NULL);
+		if (c < 0) return;
+		fcntl(c, F_SETFD, FD_CLOEXEC);
+		dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{ nspaceServe(c); });
+	});
+	dispatch_resume(src);
+	LOG("fpsim2host: dataless faults on %s", NSPACE_SOCKET);
+}
 
 @interface Delegate : NSObject <NSXPCListenerDelegate>
 @end
@@ -466,6 +577,7 @@ int main(int argc, char** argv) {
 		NSXPCListener* l = ((id (*)(id, SEL, id)) objc_msgSend)([NSXPCListener alloc], sel_registerName("initWithMachServiceName:"), @"com.apple.FileProvider.sim2host");
 		l.delegate = d;
 		[l resume];
+		nspaceListen();
 		[[NSRunLoop mainRunLoop] run];
 	}
 	return 0;

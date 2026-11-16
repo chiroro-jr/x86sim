@@ -420,11 +420,14 @@ XR_UI="com.apple.installcoordinationd com.apple.backboardd com.apple.SurfBoard c
 XR_UI_SLIM="com.apple.backboardd com.apple.SurfBoard com.apple.vhmdd com.apple.wakeboardd com.apple.RealityEnvironment com.apple.TextInput.kbd
 	com.apple.FileCoordination"
 # No fpsim2host on tvOS / watchOS: their FileProvider has no FPSimulatorSupportInterface (no Files app), so it exited 1
-# at every boot.
+# at every boot. visionOS's has it, and fileproviderd needs the sim2host service there too: without it every sim2host
+# call failed and an app's replicated FileProvider domain could not even be added ("cannotSetXattr" for its
+# com.apple.file-provider-domain-id, POSIX 22; tests/apps/sdkcov func:FileProvider.replicated-extension-domain).
 case $A64_PLATFORM in
 	tvos) UI=$TV_UI; UI_SLIM=$TV_UI_SLIM; FULLUI=; OUR_JOBS="com.x86sim.openurl=host/openurl/$A64_HOSTDIR/openurl $FSE_JOB" ;;
 	watchos) UI=$WATCH_UI; UI_SLIM=$WATCH_UI_SLIM; FULLUI=; OUR_JOBS="com.x86sim.openurl=host/openurl/$A64_HOSTDIR/openurl $NI_JOB $FSE_JOB" ;;
-	xros) UI=$XR_UI; UI_SLIM=$XR_UI_SLIM; FULLUI=; OUR_JOBS="$MM_JOB com.x86sim.openurl=host/openurl/$A64_HOSTDIR/openurl $NI_JOB $FSE_JOB" ;;
+	xros) UI=$XR_UI; UI_SLIM=$XR_UI_SLIM; FULLUI=; OUR_JOBS="$MM_JOB com.x86sim.openurl=host/openurl/$A64_HOSTDIR/openurl
+		com.x86sim.fpsim2host=host/fpsim2host/$A64_HOSTDIR/fpsim2host|mach:com.apple.FileProvider.sim2host $NI_JOB $FSE_JOB" ;;
 esac
 case "${A64_JOBS:-std}" in
 	min) JOBS="$MIN $OUR_JOBS" ;;
@@ -734,8 +737,9 @@ if [ "${A64_STOP_ONLY:-0}" = 1 ]; then
 	exit 0
 fi
 # the marks of the last boot (Darling pids are reused)
+# (x86sim-iopol: the dataless-materialization policy apps were spawned with, Darling's iopolicysys.c)
 rm -rf "$DPREFIX/private/var/run/x86sim-suspended" "$DPREFIX/private/var/run/x86sim-jetsam" \
-	"$DPREFIX/private/var/run/x86sim-unsupported.log"
+	"$DPREFIX/private/var/run/x86sim-iopol" "$DPREFIX/private/var/run/x86sim-unsupported.log"
 # libarm64jit's per-process logs (X86SIM_A64_LOG, <exe>.<pid>.log): the last boot's are kept as x86sim-a64.prev, older
 # ones go. They were never removed: ~100 files a boot, 7000 files / 253 MB in a day on an sdkcov device.
 if [ -d "$DPREFIX/private/var/tmp/x86sim-a64" ]; then
