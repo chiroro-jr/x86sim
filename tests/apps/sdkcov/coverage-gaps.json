@@ -139,15 +139,14 @@
   },
   "AccessorySetupKit": {
    "apple_sim_na": "ASAccessorySession never activates in Apple's simulator (and traps without NSAccessorySetupKitSupports)",
-   "apple_sim_na_done": false,
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:AccessorySetupKit.session-activate",
     "func:AccessorySetupKit.descriptors-display-items"
    ],
-   "gaps": [
-    "[c] add NSAccessorySetupKitSupports to Info.plist and assert ASAccessorySession.activate gives no .activated event (Apple: session never activates); session-activate SKIPs today"
-   ],
-   "note": "Picker object model asserted (ASDiscoveryDescriptor, ASPickerDisplayItem, ASAccessorySettings); the session itself is not.",
+   "gaps": [],
+   "note": "Info.plist has NSAccessorySetupKitSupports Bluetooth; session-activate asserts no activated event in 10 s and no accessories (Apple: events [11]); the session is kept (invalidating it kills the app on Apple).",
+   "p9": true,
    "package": "P5 Health, home, location, sensors & accessories",
    "rejudged": true,
    "status": "apple-sim-na"
@@ -191,14 +190,13 @@
   },
   "AdAttributionKit": {
    "apple_sim_na": "AdAttributionKit is unsupported in the simulator (every call NSCocoaErrorDomain 3328)",
-   "apple_sim_na_done": false,
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:AdAttributionKit.impression-postback-answers"
    ],
-   "gaps": [
-    "[c] assert Postback.updateConversionValue -> NSCocoaErrorDomain 3328 (today reported, not asserted)"
-   ],
-   "note": "Done: asserts junk JWS -> NSCocoaErrorDomain 3328, isSupported false, PostbackUpdate values; same as Apple.",
+   "gaps": [],
+   "note": "impression-postback-answers asserts NSCocoaErrorDomain 3328 for AppImpression and Postback.updateConversionValue, isSupported false (Apple).",
+   "p9": true,
    "package": "P4 Data, cloud, contacts/calendars & commerce",
    "rejudged": true,
    "status": "apple-sim-na"
@@ -255,13 +253,13 @@
     "func:AlarmKit.authorization-alarms-updates"
    ],
    "gaps": [
-    "[a] AlarmManager.requestAuthorization + schedule a countdown alarm / cancel (NSAlarmKitUsageDescription; system prompt needs auto-accept)",
-    "[a] assert authorizationState notDetermined and the empty alarmUpdates answer (today only reported)"
+    "[a] AlarmManager.requestAuthorization + schedule a countdown alarm / cancel (NSAlarmKitUsageDescription; system prompt needs auto-accept)"
    ],
-   "note": "authorization state, alarm list and first alarmUpdates are reported, not asserted; only CountdownDuration values asserted.",
+   "note": "manager-state / authorization-alarms-updates assert notDetermined, 0 alarms and an empty first alarmUpdates (Apple).",
+   "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
-   "status": "trivial"
+   "status": "thin"
   },
   "AppClip": {
    "existing_checks": [
@@ -307,13 +305,13 @@
     "func:AppMigrationKit.status-identifiers"
    ],
    "gaps": [
-    "[a] assert MigrationStatus.importStatus (nil in the sim; today only reported)",
     "[a] AppMigrationExtension (needs an extension)"
    ],
-   "note": "only MigrationPlatform Codable round trip asserted.",
+   "note": "status-identifiers asserts importStatus nil (Apple) and the identifier / platform Codable round trip.",
+   "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
-   "status": "trivial"
+   "status": "thin"
   },
   "AppTrackingTransparency": {
    "existing_checks": [
@@ -427,15 +425,14 @@
   },
   "BackgroundTasks": {
    "apple_sim_na": "BGTaskScheduler.submit -> .unavailable in Apple's simulator (asserted by register-submit)",
-   "apple_sim_na_done": false,
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:BackgroundTasks.continued-processing-request",
     "func:BackgroundTasks.register-submit"
    ],
-   "gaps": [
-    "[c] assert BGContinuedProcessingTaskRequest submit -> BGTaskSchedulerErrorDomain 3 (today only reported)"
-   ],
-   "note": "register-submit asserts .unavailable; continued-processing builds the request and reports error 3.",
+   "gaps": [],
+   "note": "register-submit asserts .unavailable; continued-processing-request asserts BGTaskSchedulerErrorDomain 3, 0 resources, 0 pending (Apple).",
+   "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
    "status": "apple-sim-na"
@@ -445,13 +442,14 @@
     "func:BrowserEngineCore.kevent-jit-restrict"
    ],
    "gaps": [
-    "[a] assert be_kevent -> 1 with the timer ident (today only reported)",
-    "[c] JIT witness supported is a CPU feature (1 Apple silicon, 0 on x86): not assertable across hosts"
+    "[c] JIT witness supported is a CPU feature (1 Apple silicon, 0 on x86): not assertable across hosts",
+    "[a] BEAudioSession (iOS 26) on an AVAudioSession"
    ],
-   "note": "kevent-jit-restrict has no expect(); be_kevent fires the timer on both.",
+   "note": "kevent-jit-restrict asserts be_kevent -> 1 timer event, ident 1 (Apple); JIT witness support is host CPU (1 Apple, 0 x86), reported.",
+   "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
-   "status": "trivial"
+   "status": "thin"
   },
   "BrowserEngineKit": {
    "apple_sim_na": "browser process launches need the web-browser-engine entitlement + extensions",
@@ -469,15 +467,16 @@
   },
   "BrowserKit": {
    "apple_sim_na": "BEAvailability.isEligible raises in Apple's simulator",
-   "apple_sim_na_done": false,
+   "apple_sim_na_done": true,
    "existing_checks": [
-    "func:BrowserKit.data-exchange-types"
+    "func:BrowserKit.data-exchange-types",
+    "func:BrowserKit.content-filter-import-answers"
    ],
    "gaps": [
-    "[c] BEAvailability.isEligible(for:) raises NSInvalidArgumentException in Apple's sim (XPC proxy lacks the selector): not assertable",
-    "[a] BEBrowserDataExportManager / ImportManager flows (entitlement): assert the refusal"
+    "[c] BEAvailability.isEligible(for:) raises NSInvalidArgumentException in Apple's sim (XPC proxy lacks the selector): not assertable"
    ],
-   "note": "data-exchange-types only asserts the activity type constants.",
+   "note": "content-filter-import-answers asserts BEBrowserContentFilter blocks nothing and requestImport fails BrowserDataExchangeError 2 (Apple).",
+   "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
    "status": "apple-sim-na"
@@ -487,13 +486,13 @@
     "func:BusinessChat.chat-button"
    ],
    "gaps": [
-    "[a] assert BCChatButton intrinsicContentSize (163x52) and its pixels",
     "[a] BCChatAction.openTranscript URL (deprecated)"
    ],
-   "note": "chat-button assertion is vacuous (frame set by the test); intrinsic size only reported.",
+   "note": "chat-button asserts the 163.24 x 52 intrinsic size (light and dark, Apple) and the intent parameters.",
+   "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
-   "status": "trivial"
+   "status": "covered"
   },
   "CFNetwork": {
    "existing_checks": [
@@ -642,16 +641,16 @@
   },
   "ContactProvider": {
    "apple_sim_na": "needs a contact provider extension",
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:ContactProvider.manager-without-extension"
    ],
-   "gaps": [
-    "[a] assert ContactProviderManager() throws domainNotRegistered (today returned, not asserted)"
-   ],
-   "note": "Without the extension init fails domainNotRegistered on Apple and x86, but the check does not assert it.",
+   "gaps": [],
+   "note": "manager-without-extension asserts ContactProviderManager() throws domainNotRegistered (Apple).",
+   "p9": true,
    "package": "P4 Data, cloud, contacts/calendars & commerce",
    "rejudged": true,
-   "status": "trivial"
+   "status": "apple-sim-na"
   },
   "Contacts": {
    "existing_checks": [
@@ -1021,15 +1020,14 @@
   },
   "DeclaredAgeRange": {
    "apple_sim_na": "isEligibleForAgeFeatures / requestAgeRange never answer in Apple's simulator",
-   "apple_sim_na_done": false,
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:DeclaredAgeRange.eligibility",
     "func:DeclaredAgeRange.request-age-range"
    ],
-   "gaps": [
-    "[c] assert the no-answer (PASS after the timeout) for isEligibleForAgeFeatures / requestAgeRange instead of SKIP"
-   ],
-   "note": "both checks SKIP on ref and x86 after 8/10 s.",
+   "gaps": [],
+   "note": "eligibility / request-age-range assert that neither answers (8 s / 10 s), as Apple's simulator.",
+   "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
    "status": "apple-sim-na"
@@ -1135,15 +1133,14 @@
   },
   "ExposureNotification": {
    "apple_sim_na": "needs Apple's Exposure Notification entitlement (deprecated)",
-   "apple_sim_na_done": false,
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:ExposureNotification.authorization-status",
     "func:ExposureNotification.manager-activate-answer"
    ],
-   "gaps": [
-    "[c] pin the activate error (NSOSStatusErrorDomain -71148) instead of only asserting an answer"
-   ],
-   "note": "ENManager.activate asserted to answer; error -71148 reported on both.",
+   "gaps": [],
+   "note": "manager-activate-answer asserts NSOSStatusErrorDomain -71148, status / authorization 0 (Apple).",
+   "p9": true,
    "package": "P5 Health, home, location, sensors & accessories",
    "rejudged": true,
    "status": "apple-sim-na"
@@ -1287,10 +1284,10 @@
     "func:FoundationModels.private-cloud-compute-model"
    ],
    "gaps": [
-    "[a] PrivateCloudComputeLanguageModel: assert availability/reason (check only reports it)",
     "[b: config] respond/guided/tools/stream need X86SIM_FM_RELAY (a Mac with Apple Intelligence); without it x86 answers modelNotReady where Apple's sim (host Mac) PASSes; with the relay iPad = Apple"
    ],
    "note": "schemas/GeneratedContent/Transcript/ToolDefinition asserted without a model; iOS respond+guided+tool+stream PASS on Apple; iOS system-model-availability SKIPs on Apple (no 30 s wait) while the respond check passes.",
+   "p9": true,
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
    "rejudged": true,
    "status": "covered"
@@ -1351,14 +1348,13 @@
   },
   "GameSave": {
    "apple_sim_na": "GameSaveSyncedDirectory needs an iCloud account",
-   "apple_sim_na_done": false,
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:GameSave.synced-directory-without-icloud"
    ],
-   "gaps": [
-    "[c] assert openDirectory state == .error without iCloud (today only close is asserted; state is reported)"
-   ],
-   "note": "Both simulators answer state error, then closed.",
+   "gaps": [],
+   "note": "synced-directory-without-icloud asserts states [error], error after finishSyncing (Apple).",
+   "p9": true,
    "package": "P2 Graphics, 3D, AR & games",
    "rejudged": true,
    "status": "apple-sim-na"
@@ -1396,15 +1392,16 @@
   },
   "GroupActivities": {
    "apple_sim_na": "SharePlay sessions need FaceTime",
-   "apple_sim_na_done": false,
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:GroupActivities.no-call-activation-coding",
     "func:GroupActivities.observer"
    ],
    "gaps": [
-    "[c] GroupSessionMessenger / GroupSessionJournal need a session (FaceTime call)"
+    "[c] GroupSessionMessenger / GroupSessionJournal need a session (FaceTime call): only the no-session answer is assertable"
    ],
-   "note": "Done: asserts metadata + Codable, not eligible, no session, prepareForActivation activationDisabled (iOS/tvOS/visionOS).",
+   "note": "no-call-activation-coding / activity-metadata-prepare / activity-sessions assert not eligible, no session, activationDisabled (Apple).",
+   "p9": true,
    "package": "P4 Data, cloud, contacts/calendars & commerce",
    "rejudged": true,
    "status": "apple-sim-na"
@@ -1642,14 +1639,13 @@
   },
   "LinkSecurity": {
    "apple_sim_na": "flagged-URL store lives in imagent, absent from simulator runtimes",
-   "apple_sim_na_done": false,
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:LinkSecurity.flag-urls-port"
    ],
-   "gaps": [
-    "[c] assert the no-answer (PASS after timeout) instead of SKIP"
-   ],
-   "note": "ports on iOS/watchOS/visionOS; all SKIP on ref and x86.",
+   "gaps": [],
+   "note": "flag-urls(-port) assert imagent's store never answers in 10 s (tvOS: after isFlaggedURL returned), as Apple.",
+   "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
    "status": "apple-sim-na"
@@ -1728,14 +1724,13 @@
   },
   "ManagedSettings": {
    "apple_sim_na": "store writes need Family Controls authorization (unavailable in the sim)",
-   "apple_sim_na_done": false,
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:ManagedSettings.store-write-read-clear"
    ],
-   "gaps": [
-    "[c] assert written shield/denyAppRemoval values read back nil (store ignores writes without authorization; today only clear asserted)"
-   ],
-   "note": "iOS: written values read back nil on Apple and x86; tvOS store-read-write only reports effectiveDenyExplicitContent.",
+   "gaps": [],
+   "note": "store-write-read-clear asserts writes read back nil without Family Controls authorization (Apple), clear nil.",
+   "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
    "status": "apple-sim-na"
@@ -1774,14 +1769,15 @@
   },
   "MarketplaceKit": {
    "apple_sim_na": "marketplace install APIs need an EU marketplace install; AppLibrary/satisfiedByDevice block on Apple",
-   "apple_sim_na_done": false,
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:MarketplaceKit.distributor-requirements"
    ],
    "gaps": [
-    "[c] AppDistributor.current / eligibilityRegion: Apple never answers for a simctl install (x86 answers at once, not asserted)"
+    "[b: AppDistributor answers] x86 answers AppDistributor.current at once (\"error Unknown\") / eligibilityRegion nil; Apple never answers (now asserted)"
    ],
-   "note": "InstallRequirements Codable + AppVersion asserted.",
+   "note": "distributor-requirements asserts no answer to AppDistributor.current / eligibilityRegion in 15 s (Apple) + InstallRequirements round trip.",
+   "p9": true,
    "package": "P4 Data, cloud, contacts/calendars & commerce",
    "rejudged": true,
    "status": "apple-sim-na"
@@ -1826,14 +1822,15 @@
   },
   "MediaIntelligence": {
    "apple_sim_na": "face ingest needs Vision espresso inference contexts (absent in Apple sim, aborts)",
-   "apple_sim_na_done": false,
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:MediaIntelligence.face-group-analyzer"
    ],
    "gaps": [
     "[c] FaceGroupAnalyzer ingest: Vision face networks fail in Apple sim and the framework double-resumes a continuation (abort) - unassertable; only the empty store lifecycle is checkable"
    ],
-   "note": "now on iOS/tvOS/visionOS: empty analyzer, deleteAllAssets, state, purge.",
+   "note": "face-group-analyzer asserts the empty store (0 faces / assets) is ready (Apple); ingest aborts in Apple's sim.",
+   "p9": true,
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
    "rejudged": true,
    "status": "apple-sim-na"
@@ -1983,18 +1980,20 @@
    "status": "apple-sim-na"
   },
   "MetricKit": {
+   "apple_sim_na": "no MetricKit payloads in the simulator (pastPayloads / diagnostics empty)",
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:MetricKit.log-handles-signposts-launch-task",
     "func:MetricKit.manager"
    ],
    "gaps": [
-    "[c] payload delivery: assert pastPayloads / didReceive empty in the sim (today only reported)",
     "[a] assert signposts reach the log (mxSignpost / MetricManager.logHandle emitted, not checked)"
    ],
-   "note": "asserts extendLaunchMeasurement MXErrorDomain 2, finish 4 and iOS trackLaunchTask result.",
+   "note": "manager asserts no payloads / diagnostics; log-handles asserts extend 2 / finish 4, iOS trackLaunchTask pastDeadline + 0 state domains (Apple).",
+   "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
-   "status": "thin"
+   "status": "apple-sim-na"
   },
   "MobileCoreServices": {
    "existing_checks": [
@@ -2295,16 +2294,16 @@
   },
   "PushKit": {
    "apple_sim_na": "no VoIP token on a fresh simulator device (apsd not connected to APNs sandbox)",
-   "apple_sim_na_done": false,
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:PushKit.voip-credentials",
     "func:PushKit.registry"
    ],
    "gaps": [
-    "[c] VoIP token needs apsd's APNs sandbox connection: assert no token on a fresh device (today SKIP; iOS ref FAIL to investigate)",
     "[a] pushType .fileProvider"
    ],
-   "note": "voip-credentials SKIPs on x86 and ref watch/vision; registry is construction only.",
+   "note": "voip-credentials asserts no token and none cached in 10 s on a fresh device (Apple), a token must be cached when one comes.",
+   "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
    "status": "apple-sim-na"
@@ -2401,16 +2400,17 @@
   },
   "RelevanceKit": {
    "existing_checks": [
-    "func:RelevanceKit.contexts-port"
+    "func:RelevanceKit.contexts-port",
+    "func:RelevanceKit.context-descriptions"
    ],
    "gaps": [
-    "[a] assert RelevantContext Codable/Equatable round trip (no check asserts anything)",
     "[a] WidgetRelevance answered by the widget extension (relevance(), WidgetCenter.invalidateRelevance)"
    ],
-   "note": "contexts / contexts-port / contexts-widget-relevance only build contexts and report counts.",
+   "note": "context-descriptions asserts each RelevantContext's description (date, range, interval, inferred location, headphones, watch sleep/fitness) as Apple prints it (not Equatable / Codable); watchOS asserts 0 configured widgets.",
+   "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
-   "status": "trivial"
+   "status": "covered"
   },
   "ReplayKit": {
    "apple_sim_na": "no screen-capture sample buffers in the simulator (startCapture starts, 0 buffers in 5 s)",
@@ -2536,15 +2536,15 @@
   },
   "SensitiveContentAnalysis": {
    "apple_sim_na": "needs the client entitlement and user setting (policy disabled)",
-   "apple_sim_na_done": false,
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:SensitiveContentAnalysis.analyze-image-policy",
-    "func:SensitiveContentAnalysis.policy"
+    "func:SensitiveContentAnalysis.policy",
+    "func:SensitiveContentAnalysis.video-analysis-disabled-policy"
    ],
-   "gaps": [
-    "[c] SCVideoStreamAnalyzer / analyzeVideo(at:): assert the same disabled-policy error"
-   ],
-   "note": "done: analyze-image-policy asserts policy disabled -> analyzeImage error SensitiveContentAnalysis 100, PASS on Apple.",
+   "gaps": [],
+   "note": "analyze-image-policy / video-analysis-disabled-policy assert policy disabled and error 100 for images and video files; iOS SCVideoStreamAnalyzer init error 21 (Apple).",
+   "p9": true,
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
    "rejudged": true,
    "status": "apple-sim-na"
@@ -2769,14 +2769,13 @@
   },
   "SystemExtensions": {
    "apple_sim_na": "DriverKit system extensions cannot be activated in the simulator",
-   "apple_sim_na_done": false,
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:SystemExtensions.workspace"
    ],
-   "gaps": [
-    "[c] assert OSSystemExtensionsWorkspace error OSSystemExtensionErrorDomain 1 (today only reported)"
-   ],
-   "note": "workspace answers OSSystemExtensionErrorDomain 1 on both.",
+   "gaps": [],
+   "note": "workspace asserts OSSystemExtensionErrorDomain 1 (Apple).",
+   "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
    "status": "apple-sim-na"
@@ -2988,15 +2987,14 @@
   },
   "VideoSubscriberAccount": {
    "apple_sim_na": "no TV-provider service in the simulator (checkAccessStatus -5, user account update 4099)",
-   "apple_sim_na_done": false,
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:VideoSubscriberAccount.access-status-user-accounts",
     "func:VideoSubscriberAccount.manager"
    ],
-   "gaps": [
-    "[c] assert the exact simulator answers (VSPrivateErrorDomain -5, VSUserAccountManager update NSCocoaErrorDomain 4099) instead of only no-hang"
-   ],
-   "note": "iOS/tvOS: checkAccessStatus and VSUserAccountManager answer with errors; on tvOS the ref run SKIPs (usage key missing in that build) while x86 PASSes.",
+   "gaps": [],
+   "note": "access-status-user-accounts asserts checkAccessStatus status 0 VSPrivateErrorDomain -5 and the update NSCocoaErrorDomain 4097 (videosubscriptionsd interrupted) on Apple's iOS / tvOS / visionOS.",
+   "p9": true,
    "package": "P1 Media & AV",
    "rejudged": true,
    "status": "apple-sim-na"
@@ -3495,12 +3493,12 @@
   },
   "_PhotosUI_WidgetKit": {
    "existing_checks": [],
-   "gaps": [
-    "[a] widget photo picker types (needs a widget extension) - build objects"
-   ],
+   "gaps": [],
+   "note": "swiftinterface has no public declarations (imports PhotosUI / _PhotosUI_SwiftUI only)",
+   "p9": true,
    "package": "P1 Media & AV",
-   "rejudged": false,
-   "status": "none"
+   "rejudged": true,
+   "status": "excluded"
   },
   "_Photos_AppIntents": {
    "existing_checks": [
@@ -3627,13 +3625,15 @@
    "status": "covered"
   },
   "_SwiftData_SwiftUI": {
-   "existing_checks": [],
-   "gaps": [
-    "[a] port existing check(s) _SwiftData_SwiftUI.query-in-hosted-view (run on T)"
+   "existing_checks": [
+    "func:_SwiftData_SwiftUI.query-hosted-port"
    ],
+   "gaps": [],
+   "note": "query-hosted-port: @Query in a view on screen sees the 7 inserted notes (Apple).",
+   "p9": true,
    "package": "P4 Data, cloud, contacts/calendars & commerce",
-   "rejudged": false,
-   "status": "none"
+   "rejudged": true,
+   "status": "covered"
   },
   "_Translation_SwiftUI": {
    "existing_checks": [
@@ -3889,13 +3889,14 @@
   "AuthenticationServices": {
    "existing_checks": [
     "func:AuthenticationServices.passkey-requests-controller",
-    "func:AuthenticationServices.apple-id-request"
+    "func:AuthenticationServices.apple-id-request",
+    "func:AuthenticationServices.web-auth-loopback-port"
    ],
    "gaps": [
-    "[a] assert a controller answer beyond pending-in-25s (cancel() -> error 1001/1004 as on visionOS)",
     "[a] ASAuthorizationProviderExtension / ASCredentialProviderViewController objects (AutoFill/SSO extension side)"
    ],
-   "note": "Passkey/security-key request objects, loopback web-auth callback (iOS), SSO canPerform false and credential identity store disabled; Apple tvOS/watchOS controller never answers in 25 s, visionOS answers 1004 after cancel.",
+   "note": "web-auth-loopback-port asserts Apple's tvOS answer: canStart false, start() false, no request; passkey controller pending in 25 s (Apple; cancel() is unavailable on tvOS).",
+   "p9": true,
    "package": "P8 Foundation, networking, security, identity & device management",
    "rejudged": true,
    "status": "thin"
@@ -3938,17 +3939,17 @@
   },
   "BrowserEngineKit": {
    "apple_sim_na": "browser process launches need the web-browser-engine entitlement + extensions",
-   "apple_sim_na_done": false,
-   "existing_checks": [],
-   "gaps": [
-    "[c] add a check asserting the simulator answer (unsupported / proper error)",
-    "[a] port existing check(s) BrowserEngineKit.processes-without-entitlement (run on I)",
-    "[a] BETextInput / BEScrollView behaviour (only a BEScrollView built)"
+   "existing_checks": [
+    "func:BrowserEngineKit.scroll-view-text-objects"
    ],
-   "note": "done: asserts WebContent/Networking/Rendering process launches fail without the entitlement (same error on Apple).",
+   "gaps": [
+    "[a] BETextInput delegate / BEKeyEntry behaviour (process launches are iOS-only API: @available(tvOS/visionOS, unavailable))"
+   ],
+   "note": "scroll-view-text-objects asserts BEScrollView geometry and BETextSuggestion (the processes are unavailable API here).",
+   "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
-   "status": "apple-sim-na"
+   "status": "thin"
   },
   "CFNetwork": {
    "existing_checks": [
@@ -4350,12 +4351,13 @@
   },
   "ExtensionKit": {
    "apple_sim_na": "tvOS/watchOS/visionOS installd refuse an app extension on a non-Apple extension point (Apple's simulator too)",
-   "apple_sim_na_done": false,
-   "existing_checks": [],
-   "gaps": [
-    "[c] installd refuses an appex on an app-defined extension point (ExtensionKit appex works on iOS only): assert AppExtensionPoint/AppExtensionIdentity lookup answers no extension (bundle-less) instead of nothing"
+   "apple_sim_na_done": true,
+   "existing_checks": [
+    "func:ExtensionKit.app-defined-point-refused"
    ],
-   "note": "iOS: AppExtensionProcess XPC echo and EXHostViewController scene activation in the in-app appex.",
+   "gaps": [],
+   "note": "app-defined-point-refused asserts the app-defined point does not resolve (NSOSStatusErrorDomain -10814, Apple) and builds an AppExtensionSceneConfiguration (EXHostViewController is iOS-only API).",
+   "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
    "status": "apple-sim-na"
@@ -4492,16 +4494,17 @@
   },
   "GroupActivities": {
    "apple_sim_na": "SharePlay sessions need FaceTime",
-   "apple_sim_na_done": false,
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:GroupActivities.activity-metadata-prepare",
     "func:GroupActivities.no-call-activation-coding",
     "func:GroupActivities.observer"
    ],
    "gaps": [
-    "[c] GroupSessionMessenger / GroupSessionJournal need a session (FaceTime call)"
+    "[c] GroupSessionMessenger / GroupSessionJournal need a session (FaceTime call): only the no-session answer is assertable"
    ],
-   "note": "Done: asserts metadata + Codable, not eligible, no session, prepareForActivation activationDisabled (iOS/tvOS/visionOS).",
+   "note": "no-call-activation-coding / activity-metadata-prepare / activity-sessions assert not eligible, no session, activationDisabled (Apple).",
+   "p9": true,
    "package": "P4 Data, cloud, contacts/calendars & commerce",
    "rejudged": true,
    "status": "apple-sim-na"
@@ -4609,14 +4612,13 @@
   },
   "LinkSecurity": {
    "apple_sim_na": "flagged-URL store lives in imagent, absent from simulator runtimes",
-   "apple_sim_na_done": false,
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:LinkSecurity.flag-urls"
    ],
-   "gaps": [
-    "[c] assert the no-answer (PASS after timeout) instead of SKIP"
-   ],
-   "note": "ports on iOS/watchOS/visionOS; all SKIP on ref and x86.",
+   "gaps": [],
+   "note": "flag-urls(-port) assert imagent's store never answers in 10 s (tvOS: after isFlaggedURL returned), as Apple.",
+   "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
    "status": "apple-sim-na"
@@ -4633,17 +4635,17 @@
   },
   "ManagedSettings": {
    "apple_sim_na": "store writes need Family Controls authorization (unavailable in the sim)",
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:ManagedSettings.store-read-write",
     "func:ManagedSettings.tv-default-store-effective"
    ],
-   "gaps": [
-    "[a] run tv-default-store-effective (never run; asserts effective values nil/false)"
-   ],
-   "note": "iOS: written values read back nil on Apple and x86; tvOS store-read-write only reports effectiveDenyExplicitContent.",
+   "gaps": [],
+   "note": "tv-default-store-effective asserts effectiveDenyExplicitContent false (Apple run 2026-11-16).",
+   "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
-   "status": "trivial"
+   "status": "apple-sim-na"
   },
   "MapKit": {
    "existing_checks": [
@@ -4702,14 +4704,15 @@
   },
   "MediaIntelligence": {
    "apple_sim_na": "face ingest needs Vision espresso inference contexts (absent in Apple sim, aborts)",
-   "apple_sim_na_done": false,
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:MediaIntelligence.face-group-analyzer"
    ],
    "gaps": [
     "[c] FaceGroupAnalyzer ingest: Vision face networks fail in Apple sim and the framework double-resumes a continuation (abort) - unassertable; only the empty store lifecycle is checkable"
    ],
-   "note": "now on iOS/tvOS/visionOS: empty analyzer, deleteAllAssets, state, purge.",
+   "note": "face-group-analyzer asserts the empty store (0 faces / assets) is ready (Apple); ingest aborts in Apple's sim.",
+   "p9": true,
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
    "rejudged": true,
    "status": "apple-sim-na"
@@ -5091,16 +5094,17 @@
   },
   "RelevanceKit": {
    "existing_checks": [
-    "func:RelevanceKit.contexts"
+    "func:RelevanceKit.contexts",
+    "func:RelevanceKit.context-descriptions"
    ],
    "gaps": [
-    "[a] assert RelevantContext Codable/Equatable round trip (no check asserts anything)",
     "[a] WidgetRelevance answered by the widget extension (relevance(), WidgetCenter.invalidateRelevance)"
    ],
-   "note": "contexts / contexts-port / contexts-widget-relevance only build contexts and report counts.",
+   "note": "context-descriptions asserts each RelevantContext's description (date, range, interval, inferred location, headphones, watch sleep/fitness) as Apple prints it (not Equatable / Codable); watchOS asserts 0 configured widgets.",
+   "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
-   "status": "trivial"
+   "status": "covered"
   },
   "ReplayKit": {
    "apple_sim_na": "no screen-capture sample buffers in the simulator (startCapture starts, 0 buffers in 5 s)",
@@ -5172,13 +5176,15 @@
    "status": "covered"
   },
   "SharedWithYouCore": {
+   "api_unavailable": "every class API_AVAILABLE(ios, macos) only: none imported for tvOS (Swift: cannot find SWCollaborationMetadata)",
    "existing_checks": [],
    "gaps": [
-    "[a] port existing check(s) SharedWithYouCore.collaboration-metadata (run on I/V)"
+    "none: load-only (SDK: every class API_AVAILABLE(ios, macos) only: none imported for tvOS (Swift: cannot find SWCollaborationMetadata))"
    ],
+   "p9": true,
    "package": "P4 Data, cloud, contacts/calendars & commerce",
-   "rejudged": false,
-   "status": "none"
+   "rejudged": true,
+   "status": "api-unavailable"
   },
   "ShazamKit": {
    "existing_checks": [
@@ -5474,27 +5480,27 @@
    ]
   },
   "UserNotificationsUI": {
+   "api_unavailable": "UNNotificationContentExtension and its NSExtensionContext category API_UNAVAILABLE(watchos, tvos)",
    "existing_checks": [],
    "gaps": [
-    "[a] port existing check(s) UserNotificationsUI.content-extension-controller (run on I/V)",
-    "[a] UNNotificationContentExtension appex receiving didReceive(_:) for a delivered notification"
+    "none: load-only (SDK: UNNotificationContentExtension and its NSExtensionContext category API_UNAVAILABLE(watchos, tvos))"
    ],
    "note": "content-extension-controller has no assertion.",
+   "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
-   "status": "none"
+   "status": "api-unavailable"
   },
   "VideoSubscriberAccount": {
    "apple_sim_na": "no TV-provider service in the simulator (checkAccessStatus -5, user account update 4099)",
-   "apple_sim_na_done": false,
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:VideoSubscriberAccount.access-status-user-accounts",
     "func:VideoSubscriberAccount.manager"
    ],
-   "gaps": [
-    "[c] assert the exact simulator answers (VSPrivateErrorDomain -5, VSUserAccountManager update NSCocoaErrorDomain 4099) instead of only no-hang"
-   ],
-   "note": "iOS/tvOS: checkAccessStatus and VSUserAccountManager answer with errors; on tvOS the ref run SKIPs (usage key missing in that build) while x86 PASSes.",
+   "gaps": [],
+   "note": "access-status-user-accounts asserts checkAccessStatus status 0 VSPrivateErrorDomain -5 and the update NSCocoaErrorDomain 4097 (videosubscriptionsd interrupted) on Apple's iOS / tvOS / visionOS.",
+   "p9": true,
    "package": "P1 Media & AV",
    "rejudged": true,
    "status": "apple-sim-na"
@@ -5538,14 +5544,13 @@
   },
   "WeatherKit": {
    "apple_sim_na": "needs a team-signed WeatherKit entitlement; auth service absent in sim runtimes",
-   "apple_sim_na_done": false,
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:WeatherKit.service-answers"
    ],
-   "gaps": [
-    "[c] assert the xpcConnectionFailed (com.apple.weatherkit.authservice) answer instead of SKIP, as the iOS/watchOS/visionOS check does"
-   ],
-   "note": "Done on iOS/watchOS/visionOS: WeatherService asserted to throw xpcConnectionFailed.",
+   "gaps": [],
+   "note": "service-answers asserts xpcConnectionFailed NSCocoaErrorDomain 4097 on com.apple.weatherkit.authservice (Apple).",
+   "p9": true,
    "package": "P5 Health, home, location, sensors & accessories",
    "rejudged": true,
    "status": "apple-sim-na"
@@ -5561,14 +5566,16 @@
    "status": "covered"
   },
   "_AppIntents_HealthKit": {
+   "api_unavailable": "the module imports HealthKit, which the tvOS SDK lacks (not importable); dlopen of the runtime overlay wedges the app in Apple's tvOS simulator",
    "existing_checks": [],
    "gaps": [
-    "[a] port existing check(s) _AppIntents_HealthKit.workout-audio-contexts (run on I/W/V)"
+    "none: load-only (SDK: the module imports HealthKit, which the tvOS SDK lacks (not importable); dlopen of the runtime overlay wedges the app in Apple's tvOS simulator)"
    ],
    "note": "AudioContext workout contexts and intensity levels asserted.",
+   "p9": true,
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
    "rejudged": true,
-   "status": "none"
+   "status": "api-unavailable"
   },
   "_AppIntents_SwiftUI": {
    "existing_checks": [
@@ -5603,14 +5610,15 @@
    "status": "covered"
   },
   "_Contacts_AppIntents": {
-   "existing_checks": [],
-   "gaps": [
-    "[a] port existing check(s) _Contacts_AppIntents.postal-address-entity-type (run on I/W/V)"
+   "existing_checks": [
+    "func:_Contacts_AppIntents.tv-runtime-postal-address-entity"
    ],
-   "note": "no public API: CNPostalAddressEntity found in the image, AppEntity type name asserted.",
+   "gaps": [],
+   "note": "no Contacts in the tvOS SDK: the runtime overlay is dlopened, CNPostalAddressEntity's AppEntity name asserted (Apple).",
+   "p9": true,
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
    "rejudged": true,
-   "status": "none"
+   "status": "covered"
   },
   "_CoreData_CloudKit": {
    "existing_checks": [
@@ -5978,30 +5986,30 @@
   "AuthenticationServices": {
    "existing_checks": [
     "func:AuthenticationServices.passkey-requests-controller",
-    "func:AuthenticationServices.apple-id-request"
+    "func:AuthenticationServices.apple-id-request",
+    "func:AuthenticationServices.web-auth-loopback-port"
    ],
    "gaps": [
-    "[a] port web-auth-loopback-callback (ASWebAuthenticationSession start, assert callback URL; visionOS check only asserts canStart false)",
-    "[a] assert a controller answer beyond pending-in-25s (cancel() -> error 1001/1004 as on visionOS)",
     "[a] ASAuthorizationProviderExtension / ASCredentialProviderViewController objects (AutoFill/SSO extension side)"
    ],
-   "note": "Passkey/security-key request objects, loopback web-auth callback (iOS), SSO canPerform false and credential identity store disabled; Apple tvOS/watchOS controller never answers in 25 s, visionOS answers 1004 after cancel.",
+   "note": "web-auth-loopback-port asserts the loopback redirect reaches the callback (Apple watchOS / visionOS); passkey controller pending / apple-id request; ASAuthorizationController never answers on Apple's watch (asserted not authorized / not 4099).",
+   "p9": true,
    "package": "P8 Foundation, networking, security, identity & device management",
    "rejudged": true,
-   "status": "thin"
+   "status": "covered"
   },
   "BackgroundTasks": {
+   "api_unavailable": "every BGTaskScheduler / BGTaskRequest declaration API_UNAVAILABLE(watchos)",
    "apple_sim_na": "BGTaskScheduler.submit -> .unavailable in Apple's simulator (asserted by register-submit)",
-   "apple_sim_na_done": false,
    "existing_checks": [],
    "gaps": [
-    "[c] add a check asserting the simulator answer (unsupported / proper error)",
-    "[a] port existing check(s) BackgroundTasks.continued-processing-request, BackgroundTasks.register-submit (run on I/T/V)"
+    "none: load-only (SDK: every BGTaskScheduler / BGTaskRequest declaration API_UNAVAILABLE(watchos))"
    ],
    "note": "register-submit asserts .unavailable; continued-processing builds the request and reports error 3.",
+   "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
-   "status": "apple-sim-na"
+   "status": "api-unavailable"
   },
   "BrowserEngineCore": {
    "api_unavailable": "BEMemory/BEkevent/BEAudioSession all API_UNAVAILABLE(watchos)",
@@ -6014,33 +6022,30 @@
    "status": "api-unavailable"
   },
   "BrowserEngineKit": {
+   "api_unavailable": "processes @available(watchOS, unavailable); BETextSuggestion / text input / accessibility API_UNAVAILABLE(watchos)",
    "apple_sim_na": "browser process launches need the web-browser-engine entitlement + extensions",
-   "apple_sim_na_done": false,
    "existing_checks": [],
    "gaps": [
-    "[c] add a check asserting the simulator answer (unsupported / proper error)",
-    "[a] port existing check(s) BrowserEngineKit.processes-without-entitlement (run on I)",
-    "[a] BETextInput / BEScrollView behaviour (only a BEScrollView built)"
+    "none: load-only (SDK: processes @available(watchOS, unavailable); BETextSuggestion / text input / accessibility API_UNAVAILABLE(watchos))"
    ],
    "note": "done: asserts WebContent/Networking/Rendering process launches fail without the entitlement (same error on Apple).",
+   "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
-   "status": "apple-sim-na"
+   "status": "api-unavailable"
   },
   "BrowserKit": {
+   "api_unavailable": "BEAvailability, BEBrowserContentFilter, BEBrowserDataExport/ImportManager all API_UNAVAILABLE(watchos)",
    "apple_sim_na": "BEAvailability.isEligible raises in Apple's simulator",
-   "apple_sim_na_done": false,
    "existing_checks": [],
    "gaps": [
-    "[c] add a check asserting the simulator answer (unsupported / proper error)",
-    "[a] port existing check(s) BrowserKit.data-exchange-types (run on I)",
-    "[c] BEAvailability.isEligible(for:) raises NSInvalidArgumentException in Apple's sim (XPC proxy lacks the selector): not assertable",
-    "[a] BEBrowserDataExportManager / ImportManager flows (entitlement): assert the refusal"
+    "none: load-only (SDK: BEAvailability, BEBrowserContentFilter, BEBrowserDataExport/ImportManager all API_UNAVAILABLE(watchos))"
    ],
    "note": "data-exchange-types only asserts the activity type constants.",
+   "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
-   "status": "apple-sim-na"
+   "status": "api-unavailable"
   },
   "CFNetwork": {
    "existing_checks": [
@@ -6469,12 +6474,13 @@
   },
   "ExtensionKit": {
    "apple_sim_na": "tvOS/watchOS/visionOS installd refuse an app extension on a non-Apple extension point (Apple's simulator too)",
-   "apple_sim_na_done": false,
-   "existing_checks": [],
-   "gaps": [
-    "[c] installd refuses an appex on an app-defined extension point (ExtensionKit appex works on iOS only): assert AppExtensionPoint/AppExtensionIdentity lookup answers no extension (bundle-less) instead of nothing"
+   "apple_sim_na_done": true,
+   "existing_checks": [
+    "func:ExtensionKit.app-defined-point-refused"
    ],
-   "note": "iOS: AppExtensionProcess XPC echo and EXHostViewController scene activation in the in-app appex.",
+   "gaps": [],
+   "note": "app-defined-point-refused asserts the app-defined point does not resolve (NSOSStatusErrorDomain -10814, Apple) and builds an AppExtensionSceneConfiguration (EXHostViewController is iOS-only API).",
+   "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
    "status": "apple-sim-na"
@@ -6531,17 +6537,16 @@
    "status": "covered"
   },
   "FoundationModels": {
-   "apple_sim_na": "Apple's visionOS/watchOS simulators refuse generation (ModelManagerError 1026)",
-   "apple_sim_na_done": false,
+   "apple_sim_na": "no on-device model on watchOS; Private Cloud Compute: deviceNotEligible in the sim",
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:FoundationModels.schemas-content-transcript",
-    "func:FoundationModels.private-cloud-compute-model"
+    "func:FoundationModels.private-cloud-compute-model",
+    "func:FoundationModels.watch-pcc-session-refused"
    ],
-   "gaps": [
-    "[c] port the respond check asserting the simulator answer (1026 refusal)",
-    "[a] PrivateCloudComputeLanguageModel: assert availability/reason (check only reports it)"
-   ],
-   "note": "schemas/GeneratedContent/Transcript/ToolDefinition asserted without a model; iOS respond+guided+tool+stream PASS on Apple; iOS system-model-availability SKIPs on Apple (no 30 s wait) while the respond check passes.",
+   "gaps": [],
+   "note": "watch-pcc-session-refused asserts a PCC session's respond fails \"This device does not support Apple Intelligence.\"; private-cloud-compute-model asserts deviceNotEligible + quota below limit (Apple).",
+   "p9": true,
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
    "rejudged": true,
    "status": "apple-sim-na"
@@ -6662,14 +6667,13 @@
   },
   "LinkSecurity": {
    "apple_sim_na": "flagged-URL store lives in imagent, absent from simulator runtimes",
-   "apple_sim_na_done": false,
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:LinkSecurity.flag-urls-port"
    ],
-   "gaps": [
-    "[c] assert the no-answer (PASS after timeout) instead of SKIP"
-   ],
-   "note": "ports on iOS/watchOS/visionOS; all SKIP on ref and x86.",
+   "gaps": [],
+   "note": "flag-urls(-port) assert imagent's store never answers in 10 s (tvOS: after isFlaggedURL returned), as Apple.",
+   "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
    "status": "apple-sim-na"
@@ -6915,16 +6919,16 @@
   },
   "PushKit": {
    "apple_sim_na": "no VoIP token on a fresh simulator device (apsd not connected to APNs sandbox)",
-   "apple_sim_na_done": false,
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:PushKit.voip-credentials",
     "func:PushKit.registry"
    ],
    "gaps": [
-    "[c] VoIP token needs apsd's APNs sandbox connection: assert no token on a fresh device (today SKIP; iOS ref FAIL to investigate)",
     "[a] pushType .fileProvider"
    ],
-   "note": "voip-credentials SKIPs on x86 and ref watch/vision; registry is construction only.",
+   "note": "voip-credentials asserts no token and none cached in 10 s on a fresh device (Apple), a token must be cached when one comes.",
+   "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
    "status": "apple-sim-na"
@@ -6946,16 +6950,17 @@
   "RelevanceKit": {
    "existing_checks": [
     "func:RelevanceKit.contexts-widget-relevance",
-    "func:RelevanceKit.contexts-port"
+    "func:RelevanceKit.contexts-port",
+    "func:RelevanceKit.context-descriptions"
    ],
    "gaps": [
-    "[a] assert RelevantContext Codable/Equatable round trip (no check asserts anything)",
     "[a] WidgetRelevance answered by the widget extension (relevance(), WidgetCenter.invalidateRelevance)"
    ],
-   "note": "contexts / contexts-port / contexts-widget-relevance only build contexts and report counts.",
+   "note": "context-descriptions asserts each RelevantContext's description (date, range, interval, inferred location, headphones, watch sleep/fitness) as Apple prints it (not Equatable / Codable); watchOS asserts 0 configured widgets.",
+   "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
-   "status": "trivial"
+   "status": "covered"
   },
   "SafetyKit": {
    "apple_sim_na": "Apple-only entitlement",
@@ -6973,16 +6978,17 @@
   },
   "SceneKit": {
    "existing_checks": [
-    "func:SceneKit.offscreen-render"
+    "func:SceneKit.offscreen-render",
+    "func:SceneKit.watch-scene-file-morpher-skinner"
    ],
    "gaps": [
-    "[a] SCNParticleSystem, light shadows, SCNAudioSource",
-    "[a] port animation-player-morpher-skinner and scene-write-source-load-usdz (no SCNRenderer needed)"
+    "[a] SCNParticleSystem, light shadows, SCNAudioSource"
    ],
-   "note": "Offscreen pixels, physics contact + hit tests, .scn/usdz load, animation player/morpher/skinner, shader modifier/SCNProgram/technique; watchOS: scene graph here, physics via _SceneKit_SwiftUI.",
+   "note": "offscreen-render + watch-scene-file-morpher-skinner: .scn keyed-archive round trip, morpher / skinner kept, SCNAction (no SCNScene.write / Core Animation on watchOS).",
+   "p9": true,
    "package": "P2 Graphics, 3D, AR & games",
    "rejudged": true,
-   "status": "thin"
+   "status": "covered"
   },
   "Security": {
    "existing_checks": [
@@ -7212,15 +7218,16 @@
    ]
   },
   "UserNotificationsUI": {
+   "api_unavailable": "UNNotificationContentExtension and its NSExtensionContext category API_UNAVAILABLE(watchos, tvos)",
    "existing_checks": [],
    "gaps": [
-    "[a] port existing check(s) UserNotificationsUI.content-extension-controller (run on I/V)",
-    "[a] UNNotificationContentExtension appex receiving didReceive(_:) for a delivered notification"
+    "none: load-only (SDK: UNNotificationContentExtension and its NSExtensionContext category API_UNAVAILABLE(watchos, tvos))"
    ],
    "note": "content-extension-controller has no assertion.",
+   "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
-   "status": "none"
+   "status": "api-unavailable"
   },
   "Vision": {
    "existing_checks": [
@@ -7584,13 +7591,15 @@
    "status": "covered"
   },
   "_SwiftData_SwiftUI": {
-   "existing_checks": [],
-   "gaps": [
-    "[a] port existing check(s) _SwiftData_SwiftUI.query-in-hosted-view (run on T)"
+   "existing_checks": [
+    "func:_SwiftData_SwiftUI.query-hosted-port"
    ],
+   "gaps": [],
+   "note": "query-hosted-port: @Query in a view on screen sees the 7 inserted notes (Apple).",
+   "p9": true,
    "package": "P4 Data, cloud, contacts/calendars & commerce",
-   "rejudged": false,
-   "status": "none"
+   "rejudged": true,
+   "status": "covered"
   },
   "_UserNotifications_AppIntents": {
    "existing_checks": [
@@ -7832,16 +7841,17 @@
    "existing_checks": [
     "func:AuthenticationServices.passkey-requests-controller",
     "func:AuthenticationServices.apple-id-request",
-    "func:AuthenticationServices.web-auth-session"
+    "func:AuthenticationServices.web-auth-session",
+    "func:AuthenticationServices.web-auth-loopback-port"
    ],
    "gaps": [
-    "[a] port web-auth-loopback-callback (ASWebAuthenticationSession start, assert callback URL; visionOS check only asserts canStart false)",
     "[a] ASAuthorizationProviderExtension / ASCredentialProviderViewController objects (AutoFill/SSO extension side)"
    ],
-   "note": "Passkey/security-key request objects, loopback web-auth callback (iOS), SSO canPerform false and credential identity store disabled; Apple tvOS/watchOS controller never answers in 25 s, visionOS answers 1004 after cancel.",
+   "note": "web-auth-loopback-port asserts the loopback redirect reaches the callback (Apple watchOS / visionOS); passkey controller pending / apple-id request; ASAuthorizationController never answers on Apple's watch (asserted not authorized / not 4099).",
+   "p9": true,
    "package": "P8 Foundation, networking, security, identity & device management",
    "rejudged": true,
-   "status": "thin"
+   "status": "covered"
   },
   "AutomaticAssessmentConfiguration": {
    "api_unavailable": "all 6 ObjC classes API_UNAVAILABLE(visionos) or (ios) (visionOS inherits iOS), 6/6 Swift decls unavailable",
@@ -7883,29 +7893,32 @@
    "status": "apple-sim-na"
   },
   "BrowserEngineCore": {
-   "existing_checks": [],
-   "gaps": [
-    "[a] BEMemory only (be_kevent/BEAudioSession are unavailable on visionOS): be_memory_inline_jit_restrict_rwx_to_rw_with_witness / _rw_to_rx_with_witness round trip on a MAP_JIT page"
+   "existing_checks": [
+    "func:BrowserEngineCore.bememory-symbols"
    ],
-   "note": "kevent-jit-restrict has no expect(); be_kevent fires the timer on both.",
+   "gaps": [
+    "[c] BEMemory is C-only inline asm (__SWIFT_UNAVAILABLE): from Swift only the exported _impl / _supported symbols; be_kevent / BEAudioSession are unavailable on visionOS"
+   ],
+   "note": "bememory-symbols asserts the BEMemory symbols and witness support 0/1 (Apple 1).",
+   "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
    "sdk_availability": "only BEMemory (be_memory_inline_jit_restrict_*) is available; be_kevent and BEAudioSession are API_UNAVAILABLE(visionos)",
-   "status": "none"
+   "status": "trivial"
   },
   "BrowserEngineKit": {
    "apple_sim_na": "browser process launches need the web-browser-engine entitlement + extensions",
-   "apple_sim_na_done": false,
-   "existing_checks": [],
-   "gaps": [
-    "[c] add a check asserting the simulator answer (unsupported / proper error)",
-    "[a] port existing check(s) BrowserEngineKit.processes-without-entitlement (run on I)",
-    "[a] BETextInput / BEScrollView behaviour (only a BEScrollView built)"
+   "existing_checks": [
+    "func:BrowserEngineKit.scroll-view-text-objects"
    ],
-   "note": "done: asserts WebContent/Networking/Rendering process launches fail without the entitlement (same error on Apple).",
+   "gaps": [
+    "[a] BETextInput delegate / BEKeyEntry behaviour (process launches are iOS-only API: @available(tvOS/visionOS, unavailable))"
+   ],
+   "note": "scroll-view-text-objects asserts BEScrollView geometry and BETextSuggestion (the processes are unavailable API here).",
+   "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
-   "status": "apple-sim-na"
+   "status": "thin"
   },
   "BrowserKit": {
    "api_unavailable": "both ObjC classes (BEAvailability...) API_UNAVAILABLE(..., visionos)",
@@ -8453,12 +8466,13 @@
   },
   "ExtensionKit": {
    "apple_sim_na": "tvOS/watchOS/visionOS installd refuse an app extension on a non-Apple extension point (Apple's simulator too)",
-   "apple_sim_na_done": false,
-   "existing_checks": [],
-   "gaps": [
-    "[c] installd refuses an appex on an app-defined extension point (ExtensionKit appex works on iOS only): assert AppExtensionPoint/AppExtensionIdentity lookup answers no extension (bundle-less) instead of nothing"
+   "apple_sim_na_done": true,
+   "existing_checks": [
+    "func:ExtensionKit.app-defined-point-refused"
    ],
-   "note": "iOS: AppExtensionProcess XPC echo and EXHostViewController scene activation in the in-app appex.",
+   "gaps": [],
+   "note": "app-defined-point-refused asserts the app-defined point does not resolve (NSOSStatusErrorDomain -10814, Apple) and builds an AppExtensionSceneConfiguration (EXHostViewController is iOS-only API).",
+   "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
    "status": "apple-sim-na"
@@ -8543,11 +8557,11 @@
     "func:FoundationModels.private-cloud-compute-model"
    ],
    "gaps": [
-    "[c] system-model-availability FAILs on Apple (available, then ModelManagerError 1026): assert the 1026 refusal instead",
-    "[a] PrivateCloudComputeLanguageModel: assert availability/reason (check only reports it)",
-    "[b: SensitiveContentAnalysisML error 15] with X86SIM_FM_RELAY, system-model-availability FAILs with SensitiveContentAnalysisML 15 (local sanitizer, OnDeviceInferenceAssetRepository 2) where Apple FAILs with ModelManagerError 1026"
+    "[b: SensitiveContentAnalysisML error 15] with X86SIM_FM_RELAY, system-model-availability FAILs with SensitiveContentAnalysisML 15 (local sanitizer, OnDeviceInferenceAssetRepository 2) where Apple FAILs with ModelManagerError 1026",
+    "[c] system-model-availability asserts the ModelManagerError 1026 refusal once the model is available; in the 2026-11-16 Apple runs the model stayed modelNotReady > 30 s (host Mac state), so the check SKIPped there and the refusal is not re-verified"
    ],
-   "note": "schemas/GeneratedContent/Transcript/ToolDefinition asserted without a model; iOS respond+guided+tool+stream PASS on Apple; iOS system-model-availability SKIPs on Apple (no 30 s wait) while the respond check passes.",
+   "note": "PCC availability asserted (available or systemNotReady, quota below limit); 1026 refusal asserted when the model is available.",
+   "p9": true,
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
    "rejudged": true,
    "status": "apple-sim-na"
@@ -8596,14 +8610,13 @@
   },
   "GameSave": {
    "apple_sim_na": "GameSaveSyncedDirectory needs an iCloud account",
-   "apple_sim_na_done": false,
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:GameSave.synced-directory-without-icloud"
    ],
-   "gaps": [
-    "[c] assert openDirectory state == .error without iCloud (today only close is asserted; state is reported)"
-   ],
-   "note": "Both simulators answer state error, then closed.",
+   "gaps": [],
+   "note": "synced-directory-without-icloud asserts states [error], error after finishSyncing (Apple).",
+   "p9": true,
    "package": "P2 Graphics, 3D, AR & games",
    "rejudged": true,
    "status": "apple-sim-na"
@@ -8640,16 +8653,17 @@
   },
   "GroupActivities": {
    "apple_sim_na": "SharePlay sessions need FaceTime",
-   "apple_sim_na_done": false,
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:GroupActivities.activity-sessions",
     "func:GroupActivities.no-call-activation-coding",
     "func:GroupActivities.observer"
    ],
    "gaps": [
-    "[c] GroupSessionMessenger / GroupSessionJournal need a session (FaceTime call)"
+    "[c] GroupSessionMessenger / GroupSessionJournal need a session (FaceTime call): only the no-session answer is assertable"
    ],
-   "note": "Done: asserts metadata + Codable, not eligible, no session, prepareForActivation activationDisabled (iOS/tvOS/visionOS).",
+   "note": "no-call-activation-coding / activity-metadata-prepare / activity-sessions assert not eligible, no session, activationDisabled (Apple).",
+   "p9": true,
    "package": "P4 Data, cloud, contacts/calendars & commerce",
    "rejudged": true,
    "status": "apple-sim-na"
@@ -8845,14 +8859,13 @@
   },
   "LinkSecurity": {
    "apple_sim_na": "flagged-URL store lives in imagent, absent from simulator runtimes",
-   "apple_sim_na_done": false,
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:LinkSecurity.flag-urls-port"
    ],
-   "gaps": [
-    "[c] assert the no-answer (PASS after timeout) instead of SKIP"
-   ],
-   "note": "ports on iOS/watchOS/visionOS; all SKIP on ref and x86.",
+   "gaps": [],
+   "note": "flag-urls(-port) assert imagent's store never answers in 10 s (tvOS: after isFlaggedURL returned), as Apple.",
+   "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
    "status": "apple-sim-na"
@@ -8987,14 +9000,15 @@
   },
   "MediaIntelligence": {
    "apple_sim_na": "face ingest needs Vision espresso inference contexts (absent in Apple sim, aborts)",
-   "apple_sim_na_done": false,
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:MediaIntelligence.face-group-analyzer"
    ],
    "gaps": [
     "[c] FaceGroupAnalyzer ingest: Vision face networks fail in Apple sim and the framework double-resumes a continuation (abort) - unassertable; only the empty store lifecycle is checkable"
    ],
-   "note": "now on iOS/tvOS/visionOS: empty analyzer, deleteAllAssets, state, purge.",
+   "note": "face-group-analyzer asserts the empty store (0 faces / assets) is ready (Apple); ingest aborts in Apple's sim.",
+   "p9": true,
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
    "rejudged": true,
    "status": "apple-sim-na"
@@ -9134,18 +9148,20 @@
    "status": "apple-sim-na"
   },
   "MetricKit": {
+   "apple_sim_na": "no MetricKit payloads in the simulator (pastPayloads / diagnostics empty)",
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:MetricKit.log-handles-signposts-launch-task",
     "func:MetricKit.manager"
    ],
    "gaps": [
-    "[c] payload delivery: assert pastPayloads / didReceive empty in the sim (today only reported)",
     "[a] assert signposts reach the log (mxSignpost / MetricManager.logHandle emitted, not checked)"
    ],
-   "note": "asserts extendLaunchMeasurement MXErrorDomain 2, finish 4 and iOS trackLaunchTask result.",
+   "note": "manager asserts no payloads / diagnostics; log-handles asserts extend 2 / finish 4, iOS trackLaunchTask pastDeadline + 0 state domains (Apple).",
+   "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
-   "status": "thin"
+   "status": "apple-sim-na"
   },
   "MobileCoreServices": {
    "existing_checks": [
@@ -9173,16 +9189,15 @@
    "status": "covered"
   },
   "MultipeerConnectivity": {
-   "apple_sim_na": "visionOS: Apple's visionOS simulator browser finds no peer",
-   "apple_sim_na_done": false,
+   "apple_sim_na": "Apple's visionOS simulator: the browser finds no peer in 30 s on some runs, connects on others",
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:MultipeerConnectivity.two-peer-data-stream-resource",
     "func:MultipeerConnectivity.session"
    ],
-   "gaps": [
-    "[c] assert the simulator answer (Apple's browser finds no peer in 30 s, no error) instead of SKIP"
-   ],
-   "note": "Two peers in one process: connect both ways, data, stream, 50 KB resource (iOS/tvOS, Apple and x86).",
+   "gaps": [],
+   "note": "two-peer-data-stream-resource on visionOS: either the full connect / data / stream / resource chain or no peer and no error (Apple varies).",
+   "p9": true,
    "package": "P8 Foundation, networking, security, identity & device management",
    "rejudged": true,
    "status": "apple-sim-na"
@@ -9288,13 +9303,15 @@
    "status": "covered"
   },
   "OpenGLES": {
+   "api_unavailable": "OPENGLES_DEPRECATED = API_UNAVAILABLE(visionos) on every EAGL / GL declaration",
    "existing_checks": [],
    "gaps": [
-    "[a] port existing check(s) OpenGLES.context-fbo-clear-readpixels (run on I/T)"
+    "none: load-only (SDK: OPENGLES_DEPRECATED = API_UNAVAILABLE(visionos) on every EAGL / GL declaration)"
    ],
+   "p9": true,
    "package": "P2 Graphics, 3D, AR & games",
-   "rejudged": false,
-   "status": "none"
+   "rejudged": true,
+   "status": "api-unavailable"
   },
   "PDFKit": {
    "existing_checks": [
@@ -9401,16 +9418,16 @@
   },
   "PushKit": {
    "apple_sim_na": "no VoIP token on a fresh simulator device (apsd not connected to APNs sandbox)",
-   "apple_sim_na_done": false,
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:PushKit.voip-credentials",
     "func:PushKit.registry"
    ],
    "gaps": [
-    "[c] VoIP token needs apsd's APNs sandbox connection: assert no token on a fresh device (today SKIP; iOS ref FAIL to investigate)",
     "[a] pushType .fileProvider"
    ],
-   "note": "voip-credentials SKIPs on x86 and ref watch/vision; registry is construction only.",
+   "note": "voip-credentials asserts no token and none cached in 10 s on a fresh device (Apple), a token must be cached when one comes.",
+   "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
    "status": "apple-sim-na"
@@ -9498,16 +9515,17 @@
   "RelevanceKit": {
    "existing_checks": [
     "func:RelevanceKit.contexts",
-    "func:RelevanceKit.contexts-port"
+    "func:RelevanceKit.contexts-port",
+    "func:RelevanceKit.context-descriptions"
    ],
    "gaps": [
-    "[a] assert RelevantContext Codable/Equatable round trip (no check asserts anything)",
     "[a] WidgetRelevance answered by the widget extension (relevance(), WidgetCenter.invalidateRelevance)"
    ],
-   "note": "contexts / contexts-port / contexts-widget-relevance only build contexts and report counts.",
+   "note": "context-descriptions asserts each RelevantContext's description (date, range, interval, inferred location, headphones, watch sleep/fitness) as Apple prints it (not Equatable / Codable); watchOS asserts 0 configured widgets.",
+   "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
-   "status": "trivial"
+   "status": "covered"
   },
   "ReplayKit": {
    "apple_sim_na": "no screen-capture sample buffers in the simulator (startCapture starts, 0 buffers in 5 s)",
@@ -9579,15 +9597,15 @@
   },
   "SensitiveContentAnalysis": {
    "apple_sim_na": "needs the client entitlement and user setting (policy disabled)",
-   "apple_sim_na_done": false,
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:SensitiveContentAnalysis.analyze-image-policy",
-    "func:SensitiveContentAnalysis.policy"
+    "func:SensitiveContentAnalysis.policy",
+    "func:SensitiveContentAnalysis.video-analysis-disabled-policy"
    ],
-   "gaps": [
-    "[c] SCVideoStreamAnalyzer / analyzeVideo(at:): assert the same disabled-policy error"
-   ],
-   "note": "done: analyze-image-policy asserts policy disabled -> analyzeImage error SensitiveContentAnalysis 100, PASS on Apple.",
+   "gaps": [],
+   "note": "analyze-image-policy / video-analysis-disabled-policy assert policy disabled and error 100 for images and video files; iOS SCVideoStreamAnalyzer init error 21 (Apple).",
+   "p9": true,
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
    "rejudged": true,
    "status": "apple-sim-na"
@@ -9694,15 +9712,17 @@
   },
   "SuggestedActions": {
    "existing_checks": [
-    "func:SuggestedActions.message"
+    "func:SuggestedActions.message",
+    "func:SuggestedActions.message-view-generate-port"
    ],
    "gaps": [
-    "[a] port message-view-generate (current check only builds a message)"
+    "[a] assert the rendered SuggestedActionsView content (subviews not asserted)"
    ],
-   "note": "iOS generates and hosts SuggestedActionsView; only previousMessagesLimit > 0 is asserted.",
+   "note": "message-view-generate-port asserts limit 25, generate returns, the view is on screen (Apple).",
+   "p9": true,
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
    "rejudged": true,
-   "status": "trivial"
+   "status": "thin"
   },
   "SwiftData": {
    "existing_checks": [
@@ -9937,18 +9957,17 @@
   },
   "VideoSubscriberAccount": {
    "apple_sim_na": "no TV-provider service in the simulator (checkAccessStatus -5, user account update 4099)",
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:VideoSubscriberAccount.access-status-user-accounts",
     "func:VideoSubscriberAccount.manager"
    ],
-   "gaps": [
-    "[c] assert the exact simulator answers (VSPrivateErrorDomain -5, VSUserAccountManager update NSCocoaErrorDomain 4099) instead of only no-hang",
-    "[a] add NSVideoSubscriberAccountUsageDescription to the visionOS app so access-status-user-accounts runs (SKIPs on both)"
-   ],
-   "note": "iOS/tvOS: checkAccessStatus and VSUserAccountManager answer with errors; on tvOS the ref run SKIPs (usage key missing in that build) while x86 PASSes.",
+   "gaps": [],
+   "note": "access-status-user-accounts asserts status 0 VSPrivateErrorDomain -5, update NSCocoaErrorDomain 4097 (Apple).",
+   "p9": true,
    "package": "P1 Media & AV",
    "rejudged": true,
-   "status": "trivial"
+   "status": "apple-sim-na"
   },
   "VideoToolbox": {
    "existing_checks": [
@@ -10413,12 +10432,12 @@
   },
   "_PhotosUI_WidgetKit": {
    "existing_checks": [],
-   "gaps": [
-    "[a] widget photo picker types (needs a widget extension) - build objects"
-   ],
+   "gaps": [],
+   "note": "swiftinterface has no public declarations (imports PhotosUI / _PhotosUI_SwiftUI only)",
+   "p9": true,
    "package": "P1 Media & AV",
-   "rejudged": false,
-   "status": "none"
+   "rejudged": true,
+   "status": "excluded"
   },
   "_Photos_AppIntents": {
    "existing_checks": [
@@ -10523,13 +10542,15 @@
    "status": "covered"
   },
   "_SwiftData_SwiftUI": {
-   "existing_checks": [],
-   "gaps": [
-    "[a] port existing check(s) _SwiftData_SwiftUI.query-in-hosted-view (run on T)"
+   "existing_checks": [
+    "func:_SwiftData_SwiftUI.query-hosted-port"
    ],
+   "gaps": [],
+   "note": "query-hosted-port: @Query in a view on screen sees the 7 inserted notes (Apple).",
+   "p9": true,
    "package": "P4 Data, cloud, contacts/calendars & commerce",
-   "rejudged": false,
-   "status": "none"
+   "rejudged": true,
+   "status": "covered"
   },
   "_TabletopKit_GroupActivities": {
    "apple_sim_na": "SharePlay needs a FaceTime call",
@@ -10564,14 +10585,16 @@
    "status": "covered"
   },
   "_Translation_SwiftUI": {
+   "api_unavailable": "translationPresentation / translationTask @available(visionOS, unavailable)",
    "existing_checks": [],
    "gaps": [
-    "[a] port existing check(s) _Translation_SwiftUI.translation-task-presentation (run on I)"
+    "none: load-only (SDK: translationPresentation / translationTask @available(visionOS, unavailable))"
    ],
    "note": "translationTask action runs (session not ready, can download), translationPresentation hosted.",
+   "p9": true,
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
    "rejudged": true,
-   "status": "none"
+   "status": "api-unavailable"
   },
   "_USDKit_RealityKit": {
    "existing_checks": [
