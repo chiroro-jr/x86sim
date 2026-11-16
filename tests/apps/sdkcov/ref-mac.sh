@@ -55,6 +55,15 @@ case $plat in tvos|watchos|xros) xcrun simctl privacy "$dev" grant homekit com.x
 	sqlite3 "$HOME/Library/Developer/CoreSimulator/Devices/$dev/data/Library/TCC/TCC.db" "insert or replace into access
 		(service, client, client_type, auth_value, auth_reason, auth_version, flags) values
 		('kTCCServiceWillow', 'com.x86sim.test.sdkcov', 0, 2, 4, 1, 0)" || echo "ref-mac: HomeKit not pre-granted" ;; esac
+# Photos read-write access for the library checks (P1_Library.swift), as run.sh grants it on x86Sim
+case $plat in ios|tvos|xros) xcrun simctl privacy "$dev" grant photos com.x86sim.test.sdkcov >/dev/null 2>&1 ||
+	sqlite3 "$HOME/Library/Developer/CoreSimulator/Devices/$dev/data/Library/TCC/TCC.db" "insert or replace into access
+		(service, client, client_type, auth_value, auth_reason, auth_version, flags) values
+		('kTCCServicePhotos', 'com.x86sim.test.sdkcov', 0, 2, 4, 2, 0)" || echo "ref-mac: Photos not pre-granted" ;; esac
+# Contacts, Calendars (full access) and Reminders for P4_People.swift's store checks, as run.sh grants them on x86Sim
+for svc in AddressBook Calendar Reminders; do sqlite3 "$HOME/Library/Developer/CoreSimulator/Devices/$dev/data/Library/TCC/TCC.db" "insert or replace into access
+	(service, client, client_type, auth_value, auth_reason, auth_version, flags) values
+	('kTCCService$svc', 'com.x86sim.test.sdkcov', 0, 2, 4, 1, 0)" || echo "ref-mac: $svc not pre-granted"; done
 data=$(xcrun simctl get_app_container "$dev" com.x86sim.test.sdkcov data)
 res=$data/Documents/x86test-results.txt
 t0=$(date +%s); n=0 miss=0

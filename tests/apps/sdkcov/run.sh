@@ -40,6 +40,15 @@ rm -f "$X86SIM_DEVICE"/data/tmp/sdkcov-*.out "$X86SIM_DEVICE"/data/tmp/sdkcov-*.
 case $plat in tvos|watchos|xros) sqlite3 "$X86SIM_DEVICE/data/Library/TCC/TCC.db" "insert or replace into access
 	(service, client, client_type, auth_value, auth_reason, auth_version, flags) values
 	('kTCCServiceWillow', '$BID', 0, 2, 4, 1, 0)" 2>/dev/null || echo "  note: HomeKit not pre-granted (no TCC.db yet?)" ;; esac
+# Photos read-write access (P1_Library.swift's library checks write and fetch assets; no prompt), the row simctl
+# privacy grant photos writes (auth_version 2: with 1 Photos reports notDetermined): as ref-mac.sh does
+case $plat in ios|tvos|xros) sqlite3 "$X86SIM_DEVICE/data/Library/TCC/TCC.db" "insert or replace into access
+	(service, client, client_type, auth_value, auth_reason, auth_version, flags) values
+	('kTCCServicePhotos', '$BID', 0, 2, 4, 2, 0)" 2>/dev/null || echo "  note: Photos not pre-granted (no TCC.db yet?)" ;; esac
+# Contacts, Calendars (full access) and Reminders (P4_People.swift's store checks; no prompt): as ref-mac.sh does
+for svc in AddressBook Calendar Reminders; do sqlite3 "$X86SIM_DEVICE/data/Library/TCC/TCC.db" "insert or replace into access
+	(service, client, client_type, auth_value, auth_reason, auth_version, flags) values
+	('kTCCService$svc', '$BID', 0, 2, 4, 1, 0)" 2>/dev/null || echo "  note: $svc not pre-granted (no TCC.db yet?)"; done
 [ "$fresh" = 1 ] && rm -f "$RES" "$DATA/Documents/sdkcov-progress" "$DATA/Documents/sdkcov-coverage.json"
 # a finished previous run starts over by itself (Harness.prepare); an unfinished one resumes
 echo "sdkcov $plat on $(basename "$X86SIM_DEVICE"): results $RES"
