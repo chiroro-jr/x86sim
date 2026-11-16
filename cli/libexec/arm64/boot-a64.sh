@@ -254,9 +254,19 @@ MIN="com.apple.cfprefsd.xpc.daemon com.apple.cfprefsd.xpc.daemon.system com.appl
 # DeviceActivityCenter.startMonitoring and STWebHistory.fetchAllHistory 4099, where Apple's iOS 27.2 simulator takes the
 # calls, answers unauthorized and 0 URLs (P3_Services.swift, P3_Family.swift); on watchOS / visionOS callservicesd
 # refuses both calls as Apple's does (incoming error 0, transaction unentitled 1).
-# managedconfiguration.profiled (iOS, on demand): ManagedConfiguration's restrictions. Without it ATTrackingManager's
+# managedconfiguration.profiled (iOS, tvOS; on demand): ManagedConfiguration's restrictions. Without it ATTrackingManager's
 # trackingAuthorizationStatus was restricted (1: MC's check-in with com.apple.managedconfiguration.profiled.public failed,
-# "No XPC connection in Simulator"), where Apple's simulator answers notDetermined (0).
+# "No XPC connection in Simulator"), where Apple's simulator answers notDetermined (0); on tvOS too (sdkcov P4 data:
+# func:AppTrackingTransparency.not-determined-on-fresh-install, Apple's tvOS 27.2 simulator 0).
+# videosubscriptionsd (iOS, tvOS, visionOS; on demand, sdkcov P9): VideoSubscriberAccount's daemon
+# (com.apple.VideoSubscriberAccount.videosubscriptionsd), in Apple's simulators. Without it VSUserAccountManager's
+# updateUserAccount failed at lookup (NSCocoaErrorDomain 4099), where Apple's simulator connects (4097).
+# managedappdistributiond (iOS, on demand, sdkcov P9): MarketplaceKit's daemon (com.apple.managedappdistributiond.xpc).
+# Without it AppDistributor.current failed at once (error Unknown) and eligibilityRegion was nil, where Apple's
+# simulator never answers either for a simctl-installed app (P4_Commerce.swift func:MarketplaceKit). Once an app install
+# (applicationRegistered) or a client wakes it, it exits 0 at once and launchd starts it again every ~10 s (~0.15 s CPU
+# each), as in Apple's iOS 27.2 simulator (runs 3 after an install, 15 three minutes later). videosubscriptionsd starts
+# at an install too and stays (Apple's as well).
 UI="com.apple.installcoordinationd com.apple.mobiletimerd com.apple.backboardd com.apple.SpringBoard com.apple.sleepd com.apple.TextInput.kbd com.apple.FileCoordination
 	com.apple.usernotificationsd com.apple.InputUI com.apple.assistantd com.apple.assetsd com.apple.geod com.apple.navd com.apple.Maps.mapssyncd
 	com.apple.campo com.apple.FileProvider com.apple.DesktopServicesHelper com.apple.PosterBoard com.apple.financed
@@ -274,7 +284,8 @@ UI="com.apple.installcoordinationd com.apple.mobiletimerd com.apple.backboardd c
 	com.apple.gamed com.apple.gamesaved
 	com.apple.homed
 	com.apple.linkd com.apple.mediaanalysisd com.apple.mediaanalysisd.service com.apple.translationd
-	com.apple.telephonyutilities.callservicesd com.apple.UsageTrackingAgent com.apple.ScreenTimeAgent"
+	com.apple.telephonyutilities.callservicesd com.apple.UsageTrackingAgent com.apple.ScreenTimeAgent
+	com.apple.videosubscriptionsd com.apple.managedappdistributiond"
 UI_SLIM="com.apple.backboardd com.apple.SpringBoard com.apple.TextInput.kbd com.apple.FileCoordination com.apple.InputUI
 	com.apple.assistantd"
 FULLUI="com.apple.chronod"
@@ -339,8 +350,12 @@ TV_UI="com.apple.installcoordinationd com.apple.backboardd com.apple.Pineboard c
 	com.apple.voiced com.apple.accessibility.axassetsd com.apple.geod com.apple.mediaremoted
 	com.apple.GameController.gamecontrollerd com.apple.assetsd
 	com.apple.ctkd com.apple.syncdefaultsd com.apple.accountsd com.apple.amsaccountsd com.apple.devicecheckd com.apple.gamed
-	com.apple.linkd com.apple.backgroundassets.user"
+	com.apple.linkd com.apple.backgroundassets.user com.apple.videosubscriptionsd com.apple.managedconfiguration.profiled"
 TV_UI_SLIM="com.apple.backboardd com.apple.Pineboard com.apple.TextInput.kbd com.apple.FileCoordination"
+# corespotlightd (watchOS, on demand, sdkcov P7): the watch's Spotlight index (com.apple.spotlight.IndexAgent; no
+# searchd on watchOS). Intents keeps donated interactions there: without it INInteraction.delete(with:) /
+# deleteAll failed (IntentsErrorDomain 1904 / 1902) and INRelevantShortcutStore.setRelevantShortcuts with
+# CSIndexErrorDomain -1003, where Apple's watchOS 27.2 simulator deletes and stores them (P7 Intents checks).
 # Inputs 2: watchgesturesd (on demand): the hand gestures (double tap, wrist flick) simhid's "gesture" hands to its
 # WatchGesturesSimulatorServer, as Apple's watchOS SimulatorHID does; without it they did nothing.
 # Platforms 1: watchOS. Carousel is watchOS's SpringBoard (the watch face, the app grid, notifications); the watch face
@@ -367,7 +382,7 @@ WATCH_UI="com.apple.installcoordinationd com.apple.backboardd com.apple.Carousel
 	com.apple.accessibility.axassetsd com.apple.wcd com.apple.locationd com.apple.healthd
 	com.apple.ctkd com.apple.syncdefaultsd com.apple.accountsd com.apple.amsaccountsd com.apple.watchgesturesd com.apple.devicecheckd
 	com.apple.contactsd com.apple.calaccessd com.apple.remindd com.apple.mediaremoted com.apple.gamed
-	com.apple.linkd com.apple.telephonyutilities.callservicesd"
+	com.apple.linkd com.apple.telephonyutilities.callservicesd com.apple.corespotlightd"
 WATCH_UI_SLIM="com.apple.backboardd com.apple.Carousel com.apple.TextInput.kbd com.apple.FileCoordination
 	com.apple.nanoregistryd com.apple.nanotimekitd"
 # Platforms 2: visionOS. SurfBoard is its SpringBoard; vhmdd (the simulator's virtual head-mounted display,
@@ -401,7 +416,7 @@ XR_UI="com.apple.installcoordinationd com.apple.backboardd com.apple.SurfBoard c
 	com.apple.contactsd com.apple.calaccessd com.apple.remindd com.apple.assetsd com.apple.mediaremoted
 	com.apple.gamed com.apple.gamesaved
 	com.apple.linkd com.apple.mediaanalysisd com.apple.mediaanalysisd.service com.apple.siriactionsd
-	com.apple.managedassetsd com.apple.eligibilityd com.apple.telephonyutilities.callservicesd"
+	com.apple.managedassetsd com.apple.eligibilityd com.apple.telephonyutilities.callservicesd com.apple.videosubscriptionsd"
 XR_UI_SLIM="com.apple.backboardd com.apple.SurfBoard com.apple.vhmdd com.apple.wakeboardd com.apple.RealityEnvironment com.apple.TextInput.kbd
 	com.apple.FileCoordination"
 # No fpsim2host on tvOS / watchOS: their FileProvider has no FPSimulatorSupportInterface (no Files app), so it exited 1
