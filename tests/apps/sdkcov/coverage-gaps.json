@@ -152,16 +152,18 @@
    "status": "apple-sim-na"
   },
   "AccessoryTransportExtension": {
+   "apple_sim_na": "only Apple's host (private entitlement) runs a com.apple.accessory-transport-extension extension: the app's monitor is refused (extensionKit 16)",
+   "apple_sim_na_done": true,
    "existing_checks": [
-    "func:AccessoryTransportExtension.message-builder"
+    "func:AccessoryTransportExtension.message-builder",
+    "func:AccessoryTransportExtension.extension-registered"
    ],
-   "gaps": [
-    "[a] AccessoryTransportSession inside an accessory transport extension (needs appex)"
-   ],
-   "note": "AccessoryMessage builder asserted (Apple keeps only the first payload) + Error.unsupported.",
+   "gaps": [],
+   "note": "extension-registered: sdkcovTransport.appex registered on com.apple.accessory-transport-extension, monitor refused 16 (Apple) (x86Sim: iOS PASS 2026-11-16; tvOS / watchOS / visionOS x86 runs pending)",
+   "p10": true,
    "package": "P5 Health, home, location, sensors & accessories",
    "rejudged": true,
-   "status": "thin"
+   "status": "apple-sim-na"
   },
   "Accounts": {
    "existing_checks": [
@@ -263,12 +265,14 @@
   },
   "AppClip": {
    "existing_checks": [
-    "func:AppClip.activation-payload"
+    "func:AppClip.activation-payload",
+    "func:AppClip.clip-installed-with-parent"
    ],
    "gaps": [
-    "[a] launch an App Clip target (_XCAppClipURL) and call APActivationPayload.confirmAcquired(in:)"
+    "[a] launch the clip with _XCAppClipURL (host-driven, as Xcode) and call APActivationPayload.confirmAcquired(in:)"
    ],
-   "note": "asserts a full app user activity carries no appClipActivationPayload.",
+   "note": "clip-installed-with-parent: AppClips/sdkcovClip.app installed after the app (run.sh / ref-mac.sh), LS App Clip record with parent com.x86sim.test.sdkcov (Apple; x86 run pending)",
+   "p10": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
    "status": "thin"
@@ -301,17 +305,19 @@
    "status": "covered"
   },
   "AppMigrationKit": {
+   "apple_sim_na": "AppMigrationTester cannot start the app's migration extension from the app: exportController throws extensionKit 2 / RBSServiceErrorDomain 1",
+   "apple_sim_na_done": true,
    "existing_checks": [
-    "func:AppMigrationKit.status-identifiers"
+    "func:AppMigrationKit.status-identifiers",
+    "func:AppMigrationKit.extension-tester"
    ],
-   "gaps": [
-    "[a] AppMigrationExtension (needs an extension)"
-   ],
-   "note": "status-identifiers asserts importStatus nil (Apple) and the identifier / platform Codable round trip.",
+   "gaps": [],
+   "note": "extension-tester: sdkcovMigration.appex on com.apple.app-migration; the tester is made, export refused (Apple) (x86Sim: iOS PASS 2026-11-16; tvOS / watchOS / visionOS x86 runs pending)",
+   "p10": true,
    "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
-   "status": "thin"
+   "status": "apple-sim-na"
   },
   "AppTrackingTransparency": {
    "existing_checks": [
@@ -574,15 +580,17 @@
   },
   "ClassKitUI": {
    "existing_checks": [
-    "func:ClassKitUI.assigned-document-views"
+    "func:ClassKitUI.assigned-document-views",
+    "func:ClassKitUI.unassigned-document-views"
    ],
    "gaps": [
-    "[a] assert AssignedDocumentLabel status/date text and AssignedDocumentSubmissionButton state for an assigned document (check only hosts the views; nothing about their content asserted)"
+    "[c] an assigned document needs a Schoolwork class (none in the simulator): only the unassigned views"
    ],
-   "note": "Views host and lay out (1 view on iOS, 7 on visionOS); no rendered-content assertion.",
+   "note": "unassigned-document-views: status 31 / date 97 / submit 62 pt wide (visionOS 95) for an unassigned document (Apple) (x86Sim: iOS PASS 2026-11-16; tvOS / watchOS / visionOS x86 runs pending)",
+   "p10": true,
    "package": "P8 Foundation, networking, security, identity & device management",
    "rejudged": true,
-   "status": "trivial"
+   "status": "thin"
   },
   "ClockKit": {
    "existing_checks": [
@@ -1069,16 +1077,18 @@
    "status": "apple-sim-na"
   },
   "DeviceDiscoveryExtension": {
+   "apple_sim_na": "only Apple's host (private entitlement) runs a com.apple.discovery-extension extension: the app's monitor is refused (extensionKit 16)",
+   "apple_sim_na_done": true,
    "existing_checks": [
-    "func:DeviceDiscoveryExtension.device-event-types"
+    "func:DeviceDiscoveryExtension.device-event-types",
+    "func:DeviceDiscoveryExtension.extension-registered"
    ],
-   "gaps": [
-    "[a] DDDiscoverySession inside a DeviceDiscoveryExtension appex (appex installs only on iOS)"
-   ],
-   "note": "DDDevice / DDDeviceEvent model asserted (iOS, visionOS).",
+   "gaps": [],
+   "note": "extension-registered: sdkcovDiscovery.appex registered on com.apple.discovery-extension, monitor refused 16 (Apple) (x86Sim: iOS PASS 2026-11-16; tvOS / watchOS / visionOS x86 runs pending)",
+   "p10": true,
    "package": "P5 Health, home, location, sensors & accessories",
    "rejudged": true,
-   "status": "thin"
+   "status": "apple-sim-na"
   },
   "DeviceDiscoveryUI": {
    "existing_checks": [
@@ -1213,15 +1223,17 @@
   },
   "FileProviderUI": {
    "existing_checks": [
-    "func:FileProviderUI.action-extension-controller"
+    "func:FileProviderUI.action-extension-controller",
+    "func:FileProviderUI.action-extension-registered"
    ],
    "gaps": [
-    "[a] FPUIActionExtensionViewController in a real action appex with an extensionContext (completeRequest / cancelRequest)"
+    "[c] the action extension runs only from the Files app's action menu (system UI)"
    ],
-   "note": "action-extension-controller has no assertion; only subclass overrides called.",
+   "note": "action-extension-registered: sdkcovFPAction.appex on com.apple.fileprovider-actionsui with action com.x86sim.test.sdkcov.action (Apple) (x86Sim: iOS PASS 2026-11-16; tvOS / watchOS / visionOS x86 runs pending)",
+   "p10": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
-   "status": "trivial"
+   "status": "thin"
   },
   "FinanceKit": {
    "apple_sim_na": "FinanceStore authorization/queries trap without the Apple-granted FinanceKit entitlement",
@@ -1437,16 +1449,18 @@
    "status": "covered"
   },
   "HomeExtensions": {
+   "apple_sim_na": "only Apple's host (private entitlement) runs a com.apple.Home.HomeExtension extension: the app's monitor is refused (extensionKit 16)",
+   "apple_sim_na_done": true,
    "existing_checks": [
-    "func:HomeExtensions.settings-model"
+    "func:HomeExtensions.settings-model",
+    "func:HomeExtensions.extension-registered"
    ],
-   "gaps": [
-    "[a] host the accessory settings in a HomeExtensions appex"
-   ],
-   "note": "HomeContentID / setting label / toggle + information settings Codable asserted.",
+   "gaps": [],
+   "note": "extension-registered: sdkcovHome.appex registered on com.apple.Home.HomeExtension, monitor refused 16 (Apple) (x86Sim: iOS PASS 2026-11-16; tvOS / watchOS / visionOS x86 runs pending)",
+   "p10": true,
    "package": "P5 Health, home, location, sensors & accessories",
    "rejudged": true,
-   "status": "thin"
+   "status": "apple-sim-na"
   },
   "HomeKit": {
    "existing_checks": [
@@ -1513,24 +1527,29 @@
   },
   "IdentityLookup": {
    "existing_checks": [
-    "func:IdentityLookup.responses-archive"
+    "func:IdentityLookup.responses-archive",
+    "func:IdentityLookup.message-filter-extension-registered"
    ],
    "gaps": [],
+   "note": "message-filter-extension-registered: sdkcovMessageFilter.appex on com.apple.identitylookup.message-filter (Apple) (x86Sim: iOS PASS 2026-11-16; tvOS / watchOS / visionOS x86 runs pending)",
+   "p10": true,
    "package": "P8 Foundation, networking, security, identity & device management",
-   "rejudged": false,
+   "rejudged": true,
    "status": "covered"
   },
   "IdentityLookupUI": {
    "existing_checks": [
-    "func:IdentityLookupUI.classification-view-controller"
+    "func:IdentityLookupUI.classification-view-controller",
+    "func:IdentityLookupUI.classification-extension-registered"
    ],
    "gaps": [
-    "[a] ILClassificationUIExtensionViewController inside a real classification extension (prepare(for:), classificationResponse(for:))"
+    "[c] the reporting UI runs only from Messages / Phone's report-junk flow (system UI)"
    ],
-   "note": "The view controller builds and lays out outside an extension; no behaviour.",
+   "note": "classification-extension-registered: sdkcovClassification.appex on com.apple.identitylookup.classification-ui, SMS destination 12345; PlugInKit hides it from the app (nil, no error; Apple) (x86Sim: iOS PASS 2026-11-16; tvOS / watchOS / visionOS x86 runs pending)",
+   "p10": true,
    "package": "P8 Foundation, networking, security, identity & device management",
    "rejudged": true,
-   "status": "trivial"
+   "status": "thin"
   },
   "ImageCaptureCore": {
    "apple_sim_na": "no cameras/scanners attached",
@@ -1785,15 +1804,15 @@
   "Matter": {
    "existing_checks": [
     "func:Matter.certificates-fabric-tlv",
-    "func:Matter.setup-payload-codes"
+    "func:Matter.setup-payload-codes",
+    "func:Matter.device-controller-start-shutdown"
    ],
-   "gaps": [
-    "[a] MTRDeviceController (storage-based, offline) start/shutdown via MTRDeviceControllerParameters"
-   ],
-   "note": "Root/operational certs, DER<->TLV, MTRCertificateInfo, CSR public key, attribute paths and setup payload codes asserted.",
+   "gaps": [],
+   "note": "device-controller-start-shutdown: storage-based MTRDeviceController runs offline, node 0x1234 from its NOC, shut down, NOC stored (Apple, all four) (x86Sim: iOS PASS 2026-11-16; tvOS / watchOS / visionOS x86 runs pending)",
+   "p10": true,
    "package": "P5 Health, home, location, sensors & accessories",
    "rejudged": true,
-   "status": "thin"
+   "status": "covered"
   },
   "MatterSupport": {
    "apple_sim_na": "system Matter setup flow not available in the simulator",
@@ -2454,14 +2473,14 @@
   },
   "SafetyKit": {
    "apple_sim_na": "Apple-only entitlement",
-   "apple_sim_na_done": false,
+   "apple_sim_na_done": true,
    "existing_checks": [
-    "func:SafetyKit.entitlement-gated"
+    "func:SafetyKit.entitlement-gated",
+    "func:SafetyKit.exception-without-entitlement"
    ],
-   "gaps": [
-    "[c] assert isAvailable raises NSException without com.apple.developer.safety-kit (needs an ObjC @try shim); watchOS crash-detection SKIPs today"
-   ],
-   "note": "iOS only asserts the classes load.",
+   "gaps": [],
+   "note": "exception-without-entitlement (objc/SDKCovCatch.m): isAvailable / authorizationStatus raise NSInternalInconsistencyException \"SafetyKit Crash Detection entitlement is required for this API\" (Apple iOS + watchOS) (x86Sim: iOS PASS 2026-11-16; tvOS / watchOS / visionOS x86 runs pending)",
+   "p10": true,
    "package": "P5 Health, home, location, sensors & accessories",
    "rejudged": true,
    "status": "apple-sim-na"
@@ -2793,14 +2812,14 @@
   },
   "TelephonyMessagingKit": {
    "apple_sim_na": "needs a carrier SIM / telephony",
-   "apple_sim_na_done": false,
+   "apple_sim_na_done": true,
    "existing_checks": [
-    "func:TelephonyMessagingKit.handles-content-codable"
+    "func:TelephonyMessagingKit.handles-content-codable",
+    "func:TelephonyMessagingKit.session-without-carrier"
    ],
-   "gaps": [
-    "[c] carrier messaging service: assert the simulator answer (unavailable)"
-   ],
-   "note": "handles-content-codable asserts RCSHandle / MMSPartContent Codable only.",
+   "gaps": [],
+   "note": "session-without-carrier: not configured, cellularServices lookup error 3, no state updates (Apple) (x86Sim: iOS PASS 2026-11-16; tvOS / watchOS / visionOS x86 runs pending)",
+   "p10": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
    "status": "apple-sim-na"
@@ -2848,13 +2867,17 @@
    "status": "covered"
   },
   "TranslationUIProvider": {
-   "existing_checks": [],
-   "gaps": [
-    "[a] TranslationUIProviderExtension types (needs extension)"
+   "apple_sim_na": "the translation UI host entitlement is Apple-private: the app's AppExtensionPoint.Monitor is refused (extensionKit 16); only the system Translate menu runs the extension",
+   "apple_sim_na_done": true,
+   "existing_checks": [
+    "func:TranslationUIProvider.extension-registered"
    ],
+   "gaps": [],
+   "note": "extension-registered: sdkcovTranslator.appex registered on com.apple.public.translation-ui-provider, monitor refused 16 (Apple) (x86Sim: iOS PASS 2026-11-16; tvOS / watchOS / visionOS x86 runs pending)",
+   "p10": true,
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
-   "rejudged": false,
-   "status": "none"
+   "rejudged": true,
+   "status": "apple-sim-na"
   },
   "TrustInsights": {
    "apple_sim_na": "InsightEvaluator answers notAvailable in Apple's simulator",
@@ -2959,13 +2982,14 @@
    "existing_checks": [
     "func:UserNotifications.settings-schedule-pending",
     "func:UserNotifications.categories-actions-attachment-delivered",
-    "func:UserNotifications.provisional-deliver-local"
+    "func:UserNotifications.provisional-deliver-local",
+    "func:UserNotifications.service-extension-push"
    ],
    "gaps": [
-    "[a] UNNotificationServiceExtension mutating a delivered push (simctl push equivalent)",
     "[a] communication notifications (INSendMessageIntent update)"
    ],
-   "note": "x86 PASSes where ref SKIPs (categories/attachment delivery iOS/visionOS, provisional iOS) and visionOS settings ref FAIL.",
+   "note": "service-extension-push (inputs.sh push): Apple's simulator delivers a simulated mutable-content push as sent, the service extension never runs (asserted) (x86Sim: iOS PASS 2026-11-16; tvOS / watchOS / visionOS x86 runs pending)",
+   "p10": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
    "status": "covered",
@@ -2975,15 +2999,17 @@
   },
   "UserNotificationsUI": {
    "existing_checks": [
-    "func:UserNotificationsUI.content-extension-controller"
+    "func:UserNotificationsUI.content-extension-controller",
+    "func:UserNotificationsUI.content-extension-registered"
    ],
    "gaps": [
-    "[a] UNNotificationContentExtension appex receiving didReceive(_:) for a delivered notification"
+    "[c] the content extension runs only when the user expands a notification of its category (system UI, not unattended)"
    ],
-   "note": "content-extension-controller has no assertion.",
+   "note": "content-extension-registered: sdkcovNotifyContent.appex on com.apple.usernotifications.content-extension with category sdkcov.content, ratio 0.5 (LaunchServices + PlugInKit, Apple) (x86Sim: iOS PASS 2026-11-16; tvOS / watchOS / visionOS x86 runs pending)",
+   "p10": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
-   "status": "trivial"
+   "status": "thin"
   },
   "VideoSubscriberAccount": {
    "apple_sim_na": "no TV-provider service in the simulator (checkAccessStatus -5, user account update 4099)",
@@ -3319,15 +3345,15 @@
   },
   "_GameController_SwiftUI": {
    "existing_checks": [
-    "func:_GameController_SwiftUI.handles-game-controller-events-modifier"
+    "func:_GameController_SwiftUI.handles-game-controller-events-modifier",
+    "func:_GameController_SwiftUI.virtual-controller-button"
    ],
-   "gaps": [
-    "[a] deliver a GCVirtualController / injected gamepad press to the view with .handlesGameControllerEvents and assert it reaches GameController, not UIKit presses"
-   ],
-   "note": "Only asserts the view with the modifier appears.",
+   "gaps": [],
+   "note": "virtual-controller-button: a GCVirtualController button A press reaches GameController with the .handlesGameControllerEvents view on screen (Apple) (x86Sim: iOS PASS 2026-11-16; tvOS / watchOS / visionOS x86 runs pending)",
+   "p10": true,
    "package": "P2 Graphics, 3D, AR & games",
    "rejudged": true,
-   "status": "trivial"
+   "status": "covered"
   },
   "_GeoToolbox_AppIntents": {
    "existing_checks": [
@@ -4669,15 +4695,15 @@
   "Matter": {
    "existing_checks": [
     "func:Matter.certificates-fabric-tlv",
-    "func:Matter.setup-payload-codes"
+    "func:Matter.setup-payload-codes",
+    "func:Matter.device-controller-start-shutdown"
    ],
-   "gaps": [
-    "[a] MTRDeviceController (storage-based, offline) start/shutdown via MTRDeviceControllerParameters"
-   ],
-   "note": "Root/operational certs, DER<->TLV, MTRCertificateInfo, CSR public key, attribute paths and setup payload codes asserted.",
+   "gaps": [],
+   "note": "device-controller-start-shutdown: storage-based MTRDeviceController runs offline, node 0x1234 from its NOC, shut down, NOC stored (Apple, all four) (x86Sim: iOS PASS 2026-11-16; tvOS / watchOS / visionOS x86 runs pending)",
+   "p10": true,
    "package": "P5 Health, home, location, sensors & accessories",
    "rejudged": true,
-   "status": "thin"
+   "status": "covered"
   },
   "MatterSupport": {
    "api_unavailable": "104/104 Swift decls @available(tvOS, unavailable)",
@@ -5467,11 +5493,11 @@
     "func:UserNotifications.tv-badge-request-model"
    ],
    "gaps": [
-    "[a] UNNotificationServiceExtension mutating a delivered push (simctl push equivalent)",
     "[a] communication notifications (INSendMessageIntent update)",
     "[c] badge delivery needs authorization whose alert never dismisses unattended (add refusal asserted)"
    ],
-   "note": "x86 PASSes where ref SKIPs (categories/attachment delivery iOS/visionOS, provisional iOS) and visionOS settings ref FAIL.",
+   "note": "UNNotificationServiceExtension is API_UNAVAILABLE(tvos)",
+   "p10": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
    "status": "thin",
@@ -6729,15 +6755,15 @@
   "Matter": {
    "existing_checks": [
     "func:Matter.certificates-fabric-tlv",
-    "func:Matter.setup-payload-codes"
+    "func:Matter.setup-payload-codes",
+    "func:Matter.device-controller-start-shutdown"
    ],
-   "gaps": [
-    "[a] MTRDeviceController (storage-based, offline) start/shutdown via MTRDeviceControllerParameters"
-   ],
-   "note": "Root/operational certs, DER<->TLV, MTRCertificateInfo, CSR public key, attribute paths and setup payload codes asserted.",
+   "gaps": [],
+   "note": "device-controller-start-shutdown: storage-based MTRDeviceController runs offline, node 0x1234 from its NOC, shut down, NOC stored (Apple, all four) (x86Sim: iOS PASS 2026-11-16; tvOS / watchOS / visionOS x86 runs pending)",
+   "p10": true,
    "package": "P5 Health, home, location, sensors & accessories",
    "rejudged": true,
-   "status": "thin"
+   "status": "covered"
   },
   "MatterSupport": {
    "api_unavailable": "104/104 Swift decls @available(watchOS, unavailable)",
@@ -6964,14 +6990,14 @@
   },
   "SafetyKit": {
    "apple_sim_na": "Apple-only entitlement",
-   "apple_sim_na_done": false,
+   "apple_sim_na_done": true,
    "existing_checks": [
-    "func:SafetyKit.crash-detection"
+    "func:SafetyKit.crash-detection",
+    "func:SafetyKit.exception-without-entitlement"
    ],
-   "gaps": [
-    "[c] assert isAvailable raises NSException without com.apple.developer.safety-kit (needs an ObjC @try shim); watchOS crash-detection SKIPs today"
-   ],
-   "note": "iOS only asserts the classes load.",
+   "gaps": [],
+   "note": "exception-without-entitlement (objc/SDKCovCatch.m): isAvailable / authorizationStatus raise NSInternalInconsistencyException \"SafetyKit Crash Detection entitlement is required for this API\" (Apple iOS + watchOS) (x86Sim: iOS PASS 2026-11-16; tvOS / watchOS / visionOS x86 runs pending)",
+   "p10": true,
    "package": "P5 Health, home, location, sensors & accessories",
    "rejudged": true,
    "status": "apple-sim-na"
@@ -7991,15 +8017,17 @@
   },
   "ClassKitUI": {
    "existing_checks": [
-    "func:ClassKitUI.assigned-document-views"
+    "func:ClassKitUI.assigned-document-views",
+    "func:ClassKitUI.unassigned-document-views"
    ],
    "gaps": [
-    "[a] assert AssignedDocumentLabel status/date text and AssignedDocumentSubmissionButton state for an assigned document (check only hosts the views; nothing about their content asserted)"
+    "[c] an assigned document needs a Schoolwork class (none in the simulator): only the unassigned views"
    ],
-   "note": "Views host and lay out (1 view on iOS, 7 on visionOS); no rendered-content assertion.",
+   "note": "unassigned-document-views: status 31 / date 97 / submit 62 pt wide (visionOS 95) for an unassigned document (Apple) (x86Sim: iOS PASS 2026-11-16; tvOS / watchOS / visionOS x86 runs pending)",
+   "p10": true,
    "package": "P8 Foundation, networking, security, identity & device management",
    "rejudged": true,
-   "status": "trivial"
+   "status": "thin"
   },
   "CloudKit": {
    "existing_checks": [
@@ -8506,15 +8534,17 @@
   },
   "FileProviderUI": {
    "existing_checks": [
-    "func:FileProviderUI.action-extension-controller"
+    "func:FileProviderUI.action-extension-controller",
+    "func:FileProviderUI.action-extension-registered"
    ],
    "gaps": [
-    "[a] FPUIActionExtensionViewController in a real action appex with an extensionContext (completeRequest / cancelRequest)"
+    "[c] the action extension runs only from the Files app's action menu (system UI)"
    ],
-   "note": "action-extension-controller has no assertion; only subclass overrides called.",
+   "note": "action-extension-registered: sdkcovFPAction.appex on com.apple.fileprovider-actionsui with action com.x86sim.test.sdkcov.action (Apple) (x86Sim: iOS PASS 2026-11-16; tvOS / watchOS / visionOS x86 runs pending)",
+   "p10": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
-   "status": "trivial"
+   "status": "thin"
   },
   "Foundation": {
    "existing_checks": [
@@ -8745,13 +8775,17 @@
   },
   "IdentityLookupUI": {
    "existing_checks": [
-    "func:IdentityLookupUI.classification-view-controller"
+    "func:IdentityLookupUI.classification-view-controller",
+    "func:IdentityLookupUI.classification-extension-registered"
    ],
-   "gaps": [],
-   "note": "The view controller builds and lays out outside an extension; no behaviour.",
+   "gaps": [
+    "[c] the reporting UI runs only from Messages / Phone's report-junk flow (system UI)"
+   ],
+   "note": "classification-extension-registered: sdkcovClassification.appex on com.apple.identitylookup.classification-ui, SMS destination 12345; PlugInKit hides it from the app (nil, no error; Apple) (x86Sim: iOS PASS 2026-11-16; tvOS / watchOS / visionOS x86 runs pending)",
+   "p10": true,
    "package": "P8 Foundation, networking, security, identity & device management",
    "rejudged": true,
-   "status": "trivial"
+   "status": "thin"
   },
   "ImageCaptureCore": {
    "apple_sim_na": "no cameras/scanners attached",
@@ -8963,15 +8997,15 @@
   "Matter": {
    "existing_checks": [
     "func:Matter.certificates-fabric-tlv",
-    "func:Matter.setup-payload-codes"
+    "func:Matter.setup-payload-codes",
+    "func:Matter.device-controller-start-shutdown"
    ],
-   "gaps": [
-    "[a] MTRDeviceController (storage-based, offline) start/shutdown via MTRDeviceControllerParameters"
-   ],
-   "note": "Root/operational certs, DER<->TLV, MTRCertificateInfo, CSR public key, attribute paths and setup payload codes asserted.",
+   "gaps": [],
+   "note": "device-controller-start-shutdown: storage-based MTRDeviceController runs offline, node 0x1234 from its NOC, shut down, NOC stored (Apple, all four) (x86Sim: iOS PASS 2026-11-16; tvOS / watchOS / visionOS x86 runs pending)",
+   "p10": true,
    "package": "P5 Health, home, location, sensors & accessories",
    "rejudged": true,
-   "status": "thin"
+   "status": "covered"
   },
   "MatterSupport": {
    "apple_sim_na": "system Matter setup flow not available in the simulator",
@@ -9945,15 +9979,17 @@
   },
   "UserNotificationsUI": {
    "existing_checks": [
-    "func:UserNotificationsUI.content-extension-controller"
+    "func:UserNotificationsUI.content-extension-controller",
+    "func:UserNotificationsUI.content-extension-registered"
    ],
    "gaps": [
-    "[a] UNNotificationContentExtension appex receiving didReceive(_:) for a delivered notification"
+    "[c] the content extension runs only when the user expands a notification of its category (system UI, not unattended)"
    ],
-   "note": "content-extension-controller has no assertion.",
+   "note": "content-extension-registered: sdkcovNotifyContent.appex on com.apple.usernotifications.content-extension with category sdkcov.content, ratio 0.5 (LaunchServices + PlugInKit, Apple) (x86Sim: iOS PASS 2026-11-16; tvOS / watchOS / visionOS x86 runs pending)",
+   "p10": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
-   "status": "trivial"
+   "status": "thin"
   },
   "VideoSubscriberAccount": {
    "apple_sim_na": "no TV-provider service in the simulator (checkAccessStatus -5, user account update 4099)",
@@ -10087,15 +10123,15 @@
   "WidgetKit": {
    "existing_checks": [
     "func:WidgetKit.widget-extension-descriptors",
-    "func:WidgetKit.center"
+    "func:WidgetKit.center",
+    "func:WidgetKit.widget-views-render-xros"
    ],
    "gaps": [
     "[a] timelines reach currentConfigurations (0 configured today): assert a kind",
-    "[a] ControlCenter with a placed control",
-    "[a] render AccessoryWidgetBackground / widget views (port watchOS accessory-background-render)",
-    "[c] fresh Apple device's chronod does not run the extension in 60 s (ref FAIL predates the skipIf); x86 result missing"
+    "[c] ControlCenter is unavailable on visionOS"
    ],
-   "note": "widget extension registered and run by chronod (launch/placeholder/recommendations) on iOS/watchOS; x86sim needs feature \"widgets\" (chronod).",
+   "note": "widget-views-render-xros: outside a widget AccessoryWidgetBackground draws nothing on visionOS (Apple), 0 configured; widget-extension-descriptors PASSes on Apple now (chronod ran the extension in 52 s) (x86Sim: iOS PASS 2026-11-16; tvOS / watchOS / visionOS x86 runs pending)",
+   "p10": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "rejudged": true,
    "status": "thin"
@@ -10251,9 +10287,10 @@
     "func:_GameController_SwiftUI.handles-game-controller-events-modifier"
    ],
    "gaps": [
-    "[a] deliver a GCVirtualController / injected gamepad press to the view with .handlesGameControllerEvents and assert it reaches GameController, not UIKit presses"
+    "[c] GCVirtualController is API_UNAVAILABLE(visionos): no injectable gamepad"
    ],
    "note": "Only asserts the view with the modifier appears.",
+   "p10": true,
    "package": "P2 Graphics, 3D, AR & games",
    "rejudged": true,
    "status": "trivial"
