@@ -1023,7 +1023,7 @@ __attribute__((constructor)) static void shim_rb_init(void)
 // Mac-side SimMetalHost). Our service, metalhostd, runs inside the simulator on the simulator's libxpc, which drops
 // such messages (the handshake failed with an XPC error), so those connections stay plain simulator connections.
 // The same holds for com.apple.IOSurface.Remote (host/iosurfaced) and com.apple.FileProvider.sim2host
-// (host/fpsim2host). iOS 27 may call enable_sim2host before the connection's name is set (MTLSimDriver, possibly
+// (host/fpsim2host), and com.apple.CoreSimulator.NearbyInteraction (host/nisimhost). iOS 27 may call enable_sim2host before the connection's name is set (MTLSimDriver, possibly
 // IOSurface.Remote); sim2host framing on such an unnamed connection hung its first sync message
 // (MTLCreateSystemDefaultDevice against metalhostd), so unnamed connections stay simulator connections too. Host
 // services that really are forwarded set their name first.
@@ -1037,7 +1037,7 @@ static void shim_xpc_connection_enable_sim2host_4sim(xpc_connection_t c)
 		fprintf(stderr, "simshim: enable_sim2host name=%s\n", name ? name : "(null)");
 	}
 	if (!name || strncmp(name, "com.apple.metal.simulator", 25) == 0 || strcmp(name, "com.apple.IOSurface.Remote") == 0 ||
-	    strcmp(name, "com.apple.FileProvider.sim2host") == 0)
+	    strcmp(name, "com.apple.FileProvider.sim2host") == 0 || strcmp(name, "com.apple.CoreSimulator.NearbyInteraction") == 0)
 		return;
 	xpc_connection_enable_sim2host_4sim(c);
 }

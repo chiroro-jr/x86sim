@@ -1,9 +1,9 @@
 #!/bin/bash
 # arm64 iOS-simulator builds of the shims loaded into simulator processes (they call
 # the guest's frameworks, so they must be guest code): simshim, SimFramebuffer (simfb), SimulatorHID (simhid),
-# metalhostd (+vkmtl), iosurfaced, mtlprobe, openurl, netconfig, fpsim2host. Output under host/<name>/arm64/ (mksimdevice.py picks
+# metalhostd (+vkmtl), iosurfaced, mtlprobe, openurl, netconfig, fpsim2host, nisimhost. Output under host/<name>/arm64/ (mksimdevice.py picks
 # them up).
-# Usage: build/mac-build-arm64-shims.sh [simshim simaudio simfb simhid metalhostd iosurfaced mtlprobe openurl netconfig fpsim2host]
+# Usage: build/mac-build-arm64-shims.sh [simshim simaudio simfb simhid metalhostd iosurfaced mtlprobe openurl netconfig fpsim2host nisimhost]
 # Platforms 1: X86SIM_PLATFORM=tvos|watchos builds the same for the tvOS / watchOS simulator (dyld_sim takes only
 # Mach-Os of its own platform) into host/<name>/arm64-tvos|arm64-watchos (default ios: host/<name>/arm64).
 set -e
@@ -83,6 +83,10 @@ fpsim2host)
 	# Speed 16: the FileProvider sim2host stand-in (job com.x86sim.fpsim2host, started when Files opens)
 	tar cf - -C "$X/host/fpsim2host" fpsim2host.m | build_exe a64fpsh "$X/host/fpsim2host/arm64$SUF/fpsim2host" "$CC \
 		-O1 -g -Wall -Wno-deprecated-declarations -fobjc-arc -framework Foundation -o fpsim2host fpsim2host.m" ;;
+nisimhost)
+	# the Nearby Interaction host-service stand-in (job com.x86sim.nisimhost, started at an NISession's first lookup)
+	tar cf - -C "$X/host/nisimhost" nisimhost.c | build_exe a64nish "$X/host/nisimhost/arm64$SUF/nisimhost" "$CC \
+		-O1 -g -Wall -o nisimhost nisimhost.c" ;;
 *) echo "unknown target: $w" >&2; exit 1 ;;
 esac; done
 file "$X"/host/sim*/arm64$SUF/*/* "$X"/host/sim*/arm64$SUF/*/*/* \
