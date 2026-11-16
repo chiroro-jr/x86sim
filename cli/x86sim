@@ -67,6 +67,9 @@ Apps (as xcrun simctl install/uninstall/launch)
   location start|run [--speed=M/S] [--distance=M|--interval=S] LAT,LON LAT,LON...
                        simulated device location (CLSimulationManager -> locationd, as simctl location): one point,
                        a scenario (City Run, Freeway Drive, ...) or a route between waypoints (default 20 m/s, 1 s)
+  privacy grant|revoke|reset SERVICE [BUNDLEID]
+                       app permissions without a prompt (as simctl privacy): location, location-always, calendar,
+                       contacts, photos, microphone, motion, reminders, siri, camera, homekit, all
   addmedia FILE...     add photos/videos to the Photos library (as simctl addmedia)
   log stream [--app BUNDLEID] [--process NAME] [--match TEXT]
                        os_log of an app (relaunched; libsimshim formats os_log into a file) or of a process
@@ -128,7 +131,7 @@ case $c in
 	type|text) exec python3 "$L/simtouch.py" text "$*" ;;
 	fps) exec python3 "$L/fpsmeter.py" "${1:-10}" ;;
 	install|uninstall) exec "$L/appinstall.sh" "$c" "$@" ;;
-	launch|terminate|get_app_container|listapps|push|location|addmedia|log|io|pidof|spawn)
+	launch|terminate|get_app_container|listapps|push|location|privacy|addmedia|log|io|pidof|spawn)
 		# simctl-style leading <device> (x86sim launch apps com.foo): a phone's name/folder/dir
 		. "$X/cli/lib/pickdevice.sh"
 		if [ $# -ge 1 ] && { [ $# -ge 2 ] || [ "$c" = listapps ]; } && pick_device "$1"; then shift; export X86SIM_DEVICE; fi

@@ -121,6 +121,8 @@ static void openViaLS(NSURL* url, NSString* u) {
 //   push       {bundle, payload}: +[UNNotificationRequest requestWithIdentifier:pushPayload:bundleIdentifier:] added
 //              through a UNUserNotificationCenter for that bundle (entitlement ...usernotifications.notification-simulator)
 //   location   {lat, lon} or {clear}: CLSimulationManager (locationd's simulation interface)
+//   privacy    {action: grant|revoke|reset, service, bundle}: simctl privacy (location: CLLocationManager's
+//              authorization SPI to locationd; other services: TCC)
 //   addmedia   {paths}: PHPhotoLibrary performChangesAndWait: creationRequestForAssetFrom{Image,Video}AtFileURL:
 //   spawn      {path, args, env, stdout, stderr}: run a program in the device (simctl spawn), see spawnProgram
 static NSString* home_;
@@ -369,6 +371,48 @@ static NSDictionary* location(NSDictionary* q) {
 	return @{ @"ok": @YES, @"points": @(pts.count) };
 }
 
+// x86Sim: simctl privacy, as CoreSimulatorBridge's privacy.m does it. q: {action: grant|revoke|reset, service, bundle}.
+// location / location-always: +[CLLocationManager setAuthorizationStatusByType:forBundleIdentifier:] (locationd keeps
+// it in clients.plist; entitlement com.apple.locationd.authorizeapplications); the TCC services (calendar, contacts,
+// photos, microphone, motion, reminders, siri, ...): TCCAccessSetForBundleId / TCCAccessResetForBundleId (tccd;
+// com.apple.private.tcc.manager). "all" applies the action to every service.
+static NSDictionary* privacy(NSDictionary* q) {
+	NSString *act = q[@"action"], *svc = q[@"service"], *bid = q[@"bundle"];
+	BOOL grant = [act isEqual:@"grant"], reset = [act isEqual:@"reset"];
+	if (!grant && !reset && ![act isEqual:@"revoke"]) return @{ @"ok": @NO, @"error": @"action: grant, revoke or reset" };
+	if (!reset && ![bid isKindOfClass:NSString.class]) return @{ @"ok": @NO, @"error": @"grant / revoke need a bundle identifier" };
+	NSDictionary* tcc = @{ @"calendar": @"kTCCServiceCalendar", @"contacts": @"kTCCServiceAddressBook", @"contacts-limited": @"kTCCServiceAddressBook",
+		@"photos": @"kTCCServicePhotos", @"photos-add": @"kTCCServicePhotosAdd", @"media-library": @"kTCCServiceMediaLibrary",
+		@"microphone": @"kTCCServiceMicrophone", @"motion": @"kTCCServiceMotion", @"reminders": @"kTCCServiceReminders",
+		@"siri": @"kTCCServiceSiri", @"camera": @"kTCCServiceCamera", @"homekit": @"kTCCServiceWillow" };
+	NSArray* svcs = [svc isEqual:@"all"] ? [@[ @"location" ] arrayByAddingObjectsFromArray:tcc.allKeys] : @[ svc ?: @"" ];
+	NSMutableArray* done = [NSMutableArray new];
+	for (NSString* s in svcs) {
+		if ([s isEqual:@"location"] || [s isEqual:@"location-always"]) {
+			dlopen("/System/Library/Frameworks/CoreLocation.framework/CoreLocation", RTLD_NOW);
+			Class cl = NSClassFromString(@"CLLocationManager");
+			SEL set = sel_getUid("setAuthorizationStatusByType:forBundleIdentifier:");
+			if (![cl respondsToSelector:set]) return @{ @"ok": @NO, @"error": @"no +[CLLocationManager setAuthorizationStatusByType:forBundleIdentifier:]" };
+			// CLAuthorizationStatus: 0 not determined, 2 denied, 3 always, 4 when in use
+			int st = reset ? 0 : !grant ? 2 : [s isEqual:@"location-always"] ? 3 : 4;
+			if (bid) MSG(void, id, SEL, int, id)(cl, set, st, bid);
+		} else if (tcc[s]) {
+			void* h = dlopen("/System/Library/PrivateFrameworks/TCC.framework/TCC", RTLD_NOW);
+			int (*setf)(CFStringRef, CFStringRef, Boolean) = h ? dlsym(h, "TCCAccessSetForBundleId") : NULL;
+			int (*resetf)(CFStringRef, CFStringRef) = h ? dlsym(h, "TCCAccessResetForBundleId") : NULL;
+			int (*resetAll)(CFStringRef) = h ? dlsym(h, "TCCAccessReset") : NULL;
+			if (!setf || !resetf || !resetAll) return @{ @"ok": @NO, @"error": @"no TCC SPI (TCCAccessSetForBundleId)" };
+			CFStringRef k = (__bridge CFStringRef)tcc[s];
+			int ok = reset ? (bid ? resetf(k, (__bridge CFStringRef)bid) : resetAll(k)) : setf(k, (__bridge CFStringRef)bid, grant);
+			if (!ok && !reset) return @{ @"ok": @NO, @"error": [NSString stringWithFormat:@"TCC refused %@ for %@", tcc[s], bid] };
+		} else {
+			return @{ @"ok": @NO, @"error": [NSString stringWithFormat:@"unknown service %@", s] };
+		}
+		[done addObject:s];
+	}
+	return @{ @"ok": @YES, @"services": done };
+}
+
 static NSDictionary* xpcPing(NSString* name) {
 	// (marked unavailable in the iOS SDK; present in libxpc)
 	xpc_connection_t (*create)(const char*, dispatch_queue_t, uint64_t) = dlsym(RTLD_DEFAULT, "xpc_connection_create_mach_service");
@@ -423,6 +467,7 @@ static void request(NSString* rest) {
 	else if ([c isEqual:@"listapps"]) r = listApps();
 	else if ([c isEqual:@"push"]) r = push(q[@"bundle"], q[@"payload"]);
 	else if ([c isEqual:@"location"]) r = location(q);
+	else if ([c isEqual:@"privacy"]) r = privacy(q);
 	else if ([c isEqual:@"xpcping"]) r = xpcPing(q[@"service"]);
 	else if ([c isEqual:@"addmedia"]) r = addMedia(q[@"paths"]);
 	else if ([c isEqual:@"spawn"]) r = spawnProgram(q);

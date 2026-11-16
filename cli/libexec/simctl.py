@@ -16,6 +16,7 @@ answer is the log line "result <id> <json>" in <data>/var/log/x86sim-openurl.log
   push <bundle id> <payload.json|->     (or a payload with "Simulator Target Bundle" and no bundle id)
   location set <lat>,<lon> | clear | list | run <scenario> | start|run [--speed=] [--distance=|--interval=] <lat>,<lon>...
   addmedia <file>...                    (images and videos into the Photos library)
+  privacy grant|revoke|reset <service> [<bundle id>]   (location, location-always, TCC services: photos, motion, ...)
   log stream [--app <bundle id>] [--process NAME] [--match TEXT]
   io screenshot [out.png] | io recordVideo [--codec h264|hevc] [--secs N] [--fps N] <out.mp4>
   spawn [--env K=V]... [--timeout S] <program> [args...]   a simulator binary run in the device, output and status
@@ -401,6 +402,20 @@ def cmd_location(a):
         die(LOCATION_USAGE, 2)
 
 
+PRIVACY_SERVICES = ("all", "location", "location-always", "calendar", "contacts", "contacts-limited", "photos", "photos-add",
+                    "media-library", "microphone", "motion", "reminders", "siri", "camera", "homekit")
+
+
+def cmd_privacy(a):
+    """As simctl privacy: grant / revoke / reset a service for an app (reset: bundle id optional)."""
+    if len(a) not in (2, 3) or a[0] not in ("grant", "revoke", "reset") or a[1] not in PRIVACY_SERVICES or (a[0] != "reset" and len(a) != 3):
+        die("usage: x86sim privacy grant|revoke|reset <service> [<bundle id>]\n  services: " + " ".join(PRIVACY_SERVICES), 2)
+    q = {"action": a[0], "service": a[1]}
+    if len(a) == 3:
+        q["bundle"] = a[2]
+    check(request("privacy", **q), "privacy")
+
+
 def cmd_addmedia(a):
     if not a:
         die("usage: x86sim addmedia <image or video>...", 2)
@@ -584,7 +599,7 @@ def cmd_spawn(a):
 
 
 CMDS = {"spawn": cmd_spawn, "launch": cmd_launch, "terminate": cmd_terminate, "get_app_container": cmd_container, "listapps": cmd_listapps,
-        "push": cmd_push, "pidof": cmd_pidof, "location": cmd_location, "addmedia": cmd_addmedia, "log": cmd_log, "io": cmd_io}
+        "push": cmd_push, "pidof": cmd_pidof, "location": cmd_location, "privacy": cmd_privacy, "addmedia": cmd_addmedia, "log": cmd_log, "io": cmd_io}
 
 if __name__ == "__main__":
     if len(sys.argv) < 2 or sys.argv[1] not in CMDS:
