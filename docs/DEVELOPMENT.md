@@ -27,8 +27,9 @@ cli/        x86sim front end; cli/libexec: the scripts it wraps (cli/libexec/arm
             prefetch, shipped training); cli/lib: configuration and device types
 host/       simulator-side code (Mach-O, run inside Darling): simhost (x86_64), arm64host, and arm64 builds under
             host/<name>/arm64 of simfb, simhid, simaudio, iosurfaced, metalhostd (+ vkmtl), fpsim2host, netconfig,
-            openurl, simshim/{compat,diag}
-linux/      native Linux pieces: arm64jit (the JIT host library), mtlvk (Rust, Metal on Vulkan), mdnsd, hostnet
+            openurl, mmhost, simshim/{compat,diag}
+linux/      native Linux pieces: arm64jit (the JIT host library), mtlvk (Rust, Metal on Vulkan), mdnsd, hostnet,
+            fmrelay (FoundationModels relay to a Mac)
 tests/      sample apps (tests/apps), arm64 JIT tests (tests/arm64), Metal (mtlprobe + shaders)
             and IOSurface (iosprobe) tests, perf.py
 tools/      launcher/: the launcher GUI, x86sim-aot, x86sim-mcp; debug/: core dumps, stacks, stuck processes,
@@ -112,6 +113,23 @@ rendering), `A64_JOBS=min|slim|std|full`, `A64_DROP="label ..."`, `X86SIM_NODT=a
 `X86SIM_INSERT=host/simshim/diag/...` (diagnostic shims, built with `make mac-diag`), `X86SIM_MDNS=0`,
 `X86SIM_JETSAM=0`, `X86SIM_MEM_MAX`. Debugging: `tools/debug/` (`lastcrash.sh`, `stuck.sh <process>`, `allstacks.sh`,
 `sigctx.py`).
+
+### FoundationModels through a Mac
+
+Apple's simulators run the system language model (FoundationModels, `SystemLanguageModel`) on the Mac they run on. To get
+it on iOS / iPadOS and visionOS devices here, point `X86SIM_FM_RELAY` at a Mac with Apple Intelligence turned on
+(`1`: `$X86SIM_MAC`, or `user@host`) in `x86sim.env` or the environment of the launcher; the next boot uses it. The Mac
+needs ssh key login (BatchMode) and the Command Line Tools (`clang`); nothing is installed or left running there:
+the relay builds its Mac end into `~/Library/Caches/x86sim-fmrelay/` and runs it over ssh only while a device uses the
+model. The Mac's `modelmanagerd` must offer `com.apple.modelmanager.simulator` (where Xcode's simulators get the model:
+`launchctl print system/com.apple.modelmanagerd` lists it under endpoints); no SIP or security change is involved.
+
+The device then runs `modelmanagerd`, `modelcatalogd`, `generativeexperiencesd` and `dasd` as Apple's simulator does,
+and `host/mmhost` in place of the Mac's service, which hands each connection to `linux/fmrelay/fmrelay.py`; that one
+replays it to the Mac's `modelmanagerd` message for message (`host/mmhost/xpcwire.h`). The model reads available about
+a minute after boot (on Apple's simulator too: `generativeexperiencesd`'s boot task decides it). If the Mac can't be
+reached the model stays `modelNotReady`, as on a Mac without the service. Off (the default), none of this runs.
+visionOS: as on Apple's simulator the model reads available and generation is refused (ModelManagerError 1026).
 
 ## Simulator-side binaries
 

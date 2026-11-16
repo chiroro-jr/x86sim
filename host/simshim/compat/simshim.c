@@ -249,6 +249,31 @@ static void shim_os_state_remove_handler(os_state_handle_t handle)
 }
 DYLD_INTERPOSE(shim_os_state_remove_handler, os_state_remove_handler)
 
+// x86Sim: with os_log disabled here (OS_ACTIVITY_MODE=disable, shim_quiet_os_log below) os_signpost_id_generate returns
+// OS_SIGNPOST_ID_NULL, where Apple's simulator (signposts on) gives an id. Code keys work on that id, not only signposts:
+// SpringBoard's _createProcessExecutionContextFromContext:entity: takes an app launch's signpost id from
+// libapp_launch_measurement's alm_app_will_launch_with_details_and_metrics_payload (os_signpost_id_generate on
+// com.apple.FrontBoard/AppLaunch) and hands it to the app in its UIApplicationSceneTransitionContext (signpostID);
+// the app's UIKit passes it to alm_app_did_present_with_metrics_payload, which records the launch only for a non-zero
+// id. With 0 the launch was never recorded, and MetricKit's finishExtendedLaunchMeasurement failed MXErrorDomain 5
+// (alm 6, no launch measured) where Apple's answers 4 (unknown task; sdkcov func:MetricKit). Give an id the way
+// libtrace does when signposts are on (a process-wide counter); emitting with it stays a no-op while os_log is off.
+// (With OS_ACTIVITY_MODE=disable os_log_create itself hands out OS_LOG_DISABLED, so that log gets ids too.)
+typedef uint64_t shim_signpost_id_t;
+extern shim_signpost_id_t os_signpost_id_generate(void* log);
+static shim_signpost_id_t shim_os_signpost_id_generate(void* log)
+{
+	static shim_signpost_id_t next;
+	shim_signpost_id_t id = os_signpost_id_generate(log);
+	if (id)
+		return id;
+	const char* m = getenv("OS_ACTIVITY_MODE");
+	if (!m || strcmp(m, "disable"))
+		return id;
+	return __atomic_add_fetch(&next, 1, __ATOMIC_RELAXED);
+}
+DYLD_INTERPOSE(shim_os_signpost_id_generate, os_signpost_id_generate)
+
 // Diagnostics: log failing sqlite3_open_v2 calls (path, result, message, errno)
 static int shim_sqlite3_open_v2(const char* filename, sqlite3** db, int flags, const char* vfs)
 {
@@ -1023,7 +1048,8 @@ __attribute__((constructor)) static void shim_rb_init(void)
 // Mac-side SimMetalHost). Our service, metalhostd, runs inside the simulator on the simulator's libxpc, which drops
 // such messages (the handshake failed with an XPC error), so those connections stay plain simulator connections.
 // The same holds for com.apple.IOSurface.Remote (host/iosurfaced) and com.apple.FileProvider.sim2host
-// (host/fpsim2host), and com.apple.CoreSimulator.NearbyInteraction (host/nisimhost). iOS 27 may call enable_sim2host before the connection's name is set (MTLSimDriver, possibly
+// (host/fpsim2host), com.apple.CoreSimulator.NearbyInteraction (host/nisimhost) and com.apple.modelmanager.simulator
+// (host/mmhost, which relays FoundationModels to a Mac itself). iOS 27 may call enable_sim2host before the connection's name is set (MTLSimDriver, possibly
 // IOSurface.Remote); sim2host framing on such an unnamed connection hung its first sync message
 // (MTLCreateSystemDefaultDevice against metalhostd), so unnamed connections stay simulator connections too. Host
 // services that really are forwarded set their name first.
@@ -1037,7 +1063,8 @@ static void shim_xpc_connection_enable_sim2host_4sim(xpc_connection_t c)
 		fprintf(stderr, "simshim: enable_sim2host name=%s\n", name ? name : "(null)");
 	}
 	if (!name || strncmp(name, "com.apple.metal.simulator", 25) == 0 || strcmp(name, "com.apple.IOSurface.Remote") == 0 ||
-	    strcmp(name, "com.apple.FileProvider.sim2host") == 0 || strcmp(name, "com.apple.CoreSimulator.NearbyInteraction") == 0)
+	    strcmp(name, "com.apple.FileProvider.sim2host") == 0 || strcmp(name, "com.apple.CoreSimulator.NearbyInteraction") == 0 ||
+	    strcmp(name, "com.apple.modelmanager.simulator") == 0)
 		return;
 	xpc_connection_enable_sim2host_4sim(c);
 }

@@ -1,9 +1,9 @@
 #!/bin/bash
 # arm64 iOS-simulator builds of the shims loaded into simulator processes (they call
 # the guest's frameworks, so they must be guest code): simshim, SimFramebuffer (simfb), SimulatorHID (simhid),
-# metalhostd (+vkmtl), iosurfaced, mtlprobe, openurl, netconfig, fpsim2host, nisimhost. Output under host/<name>/arm64/ (mksimdevice.py picks
+# metalhostd (+vkmtl), iosurfaced, mtlprobe, openurl, netconfig, fpsim2host, nisimhost, fseventsd, mmhost. Output under host/<name>/arm64/ (mksimdevice.py picks
 # them up).
-# Usage: build/mac-build-arm64-shims.sh [simshim simaudio simfb simhid metalhostd iosurfaced mtlprobe openurl netconfig fpsim2host nisimhost]
+# Usage: build/mac-build-arm64-shims.sh [simshim simaudio simfb simhid metalhostd iosurfaced mtlprobe openurl netconfig fpsim2host nisimhost fseventsd mmhost]
 # Platforms 1: X86SIM_PLATFORM=tvos|watchos builds the same for the tvOS / watchOS simulator (dyld_sim takes only
 # Mach-Os of its own platform) into host/<name>/arm64-tvos|arm64-watchos (default ios: host/<name>/arm64).
 set -e
@@ -87,6 +87,15 @@ nisimhost)
 	# the Nearby Interaction host-service stand-in (job com.x86sim.nisimhost, started at an NISession's first lookup)
 	tar cf - -C "$X/host/nisimhost" nisimhost.c | build_exe a64nish "$X/host/nisimhost/arm64$SUF/nisimhost" "$CC \
 		-O1 -g -Wall -o nisimhost nisimhost.c" ;;
+fseventsd)
+	# the Mac fseventsd stand-in (job com.x86sim.fseventsd, com.apple.FSEvents, started at the first lookup)
+	tar cf - -C "$X/host/fseventsd" fseventsd.c | build_exe a64fsed "$X/host/fseventsd/arm64$SUF/fseventsd" "$CC \
+		-O1 -g -Wall -o fseventsd fseventsd.c" ;;
+mmhost)
+	# the FoundationModels host-service stand-in (job com.x86sim.mmhost, com.apple.modelmanager.simulator, only with
+	# X86SIM_FM_RELAY; relays to a Mac through linux/fmrelay/fmrelay.py)
+	tar cf - -C "$X/host/mmhost" mmhost.c xpcwire.h | build_exe a64mmh "$X/host/mmhost/arm64$SUF/mmhost" "$CC \
+		-O1 -g -Wall -o mmhost mmhost.c" ;;
 *) echo "unknown target: $w" >&2; exit 1 ;;
 esac; done
 file "$X"/host/sim*/arm64$SUF/*/* "$X"/host/sim*/arm64$SUF/*/*/* \

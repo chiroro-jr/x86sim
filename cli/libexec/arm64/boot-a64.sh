@@ -287,9 +287,25 @@ FULLUI="com.apple.chronod"
 # com.apple.CoreSimulator.NearbyInteraction on the host. Without it NISession.discoveryToken stayed nil where Apple's
 # iOS / watchOS 27.2 simulators give one (P5_Sensors.swift func:NearbyInteraction). No NearbyInteraction on tvOS.
 NI_JOB="com.x86sim.nisimhost=host/nisimhost/$A64_HOSTDIR/nisimhost|mach:com.apple.CoreSimulator.NearbyInteraction"
-OUR_JOBS="com.x86sim.openurl=host/openurl/$A64_HOSTDIR/openurl
+# fseventsd (on demand: the first FSEvents client's lookup) stands in for the Mac's fseventsd, com.apple.FSEvents
+# (host/fseventsd), which Apple's simulators use: without it every FSEventStream failed and fileproviderd disabled a
+# replicated FileProvider domain ("Unable to retrieve FSEvent stream UUID", POSIX 19). All four platforms.
+FSE_JOB="com.x86sim.fseventsd=host/fseventsd/$A64_HOSTDIR/fseventsd|mach:com.apple.FSEvents"
+# FoundationModels (iOS, visionOS), only with X86SIM_FM_RELAY (1: $X86SIM_MAC, or user@host): the system model runs on
+# a Mac with Apple Intelligence, as Apple's simulators run it on theirs. modelmanagerd, modelcatalogd and
+# generativeexperiencesd as in Apple's simulators; HostInferenceProviderService.appex (modelmanagerd's extension) asks
+# com.apple.modelmanager.simulator, the Mac's service: mmhost (host/mmhost) serves it and linux/fmrelay/fmrelay.py relays
+# it to the Mac. dasd: generativeexperiencesd learns that the host model is there only in its background system task
+# AvailabilityUpdateTask.Boot, which dasd runs (Apple's simulator: ~1 min after boot); without it the model stayed
+# modelNotReady. Without the relay none of these run (they start at boot, ~250 MB together, for a model that would only
+# report modelNotReady, as Apple's simulator without its host service).
+case ${X86SIM_FM_RELAY:-} in ""|0) FM_MAC= ;; 1|on|mac) FM_MAC=$X86SIM_MAC ;; *) FM_MAC=$X86SIM_FM_RELAY ;; esac
+MM_JOB=
+[ -n "$FM_MAC" ] && MM_JOB="com.apple.modelmanagerd com.apple.modelcatalogd com.apple.generativeexperiencesd com.apple.dasd
+	com.x86sim.mmhost=host/mmhost/$A64_HOSTDIR/mmhost|mach:com.apple.modelmanager.simulator|env:X86SIM_FMRELAY_SOCK=/var/run/x86sim-fmrelay.sock"
+OUR_JOBS="$MM_JOB com.x86sim.openurl=host/openurl/$A64_HOSTDIR/openurl
 	com.x86sim.fpsim2host=host/fpsim2host/$A64_HOSTDIR/fpsim2host|mach:com.apple.FileProvider.sim2host
-	$NI_JOB"
+	$NI_JOB $FSE_JOB"
 # Platforms 1: tvOS. PineBoard is tvOS's SpringBoard (the home screen, "Top Shelf" and the app switcher); TVSystemUIService
 # (angel) draws the system overlays (volume, Control Center). No sleepd, InputUI or nanoregistryd on tvOS.
 # geod + mediaremoted (tvOS sdkcov round, on demand, both in Apple's tvOS simulator): without geod an app's MapKit
@@ -391,9 +407,9 @@ XR_UI_SLIM="com.apple.backboardd com.apple.SurfBoard com.apple.vhmdd com.apple.w
 # No fpsim2host on tvOS / watchOS: their FileProvider has no FPSimulatorSupportInterface (no Files app), so it exited 1
 # at every boot.
 case $A64_PLATFORM in
-	tvos) UI=$TV_UI; UI_SLIM=$TV_UI_SLIM; FULLUI=; OUR_JOBS="com.x86sim.openurl=host/openurl/$A64_HOSTDIR/openurl" ;;
-	watchos) UI=$WATCH_UI; UI_SLIM=$WATCH_UI_SLIM; FULLUI=; OUR_JOBS="com.x86sim.openurl=host/openurl/$A64_HOSTDIR/openurl $NI_JOB" ;;
-	xros) UI=$XR_UI; UI_SLIM=$XR_UI_SLIM; FULLUI=; OUR_JOBS="com.x86sim.openurl=host/openurl/$A64_HOSTDIR/openurl $NI_JOB" ;;
+	tvos) UI=$TV_UI; UI_SLIM=$TV_UI_SLIM; FULLUI=; OUR_JOBS="com.x86sim.openurl=host/openurl/$A64_HOSTDIR/openurl $FSE_JOB" ;;
+	watchos) UI=$WATCH_UI; UI_SLIM=$WATCH_UI_SLIM; FULLUI=; OUR_JOBS="com.x86sim.openurl=host/openurl/$A64_HOSTDIR/openurl $NI_JOB $FSE_JOB" ;;
+	xros) UI=$XR_UI; UI_SLIM=$XR_UI_SLIM; FULLUI=; OUR_JOBS="$MM_JOB com.x86sim.openurl=host/openurl/$A64_HOSTDIR/openurl $NI_JOB $FSE_JOB" ;;
 esac
 case "${A64_JOBS:-std}" in
 	min) JOBS="$MIN $OUR_JOBS" ;;
@@ -686,6 +702,8 @@ stop_helpers() {
 	rm -f "$ST/mdns.pid" "$ST/mDNSResponder"
 	[ -f "$ST/simaudio.pid" ] && kill "$(cat "$ST/simaudio.pid")" 2>/dev/null
 	rm -f "$ST/simaudio.pid"
+	[ -f "$ST/fmrelay.pid" ] && kill "$(cat "$ST/fmrelay.pid")" 2>/dev/null
+	rm -f "$ST/fmrelay.pid"
 }
 stop_helpers
 # Speed 10: A64_STOP_ONLY=1 stops this device: the container, and its mtlvk unless another phone renders through it
@@ -849,6 +867,33 @@ if [ "${X86SIM_MDNS:-1}" != 0 ]; then
 	setsid python3 -I "$X/linux/mdnsd/mdnsresponder.py" "$ST/mDNSResponder" > "$ST/mdnsresponder.log" 2>&1 < /dev/null &
 	echo $! > "$ST/mdns.pid"
 	MDNS_LINK="ln -sf '/Volumes/SystemRoot$ST/mDNSResponder' /var/run/mDNSResponder;"
+fi
+# FoundationModels relay (X86SIM_FM_RELAY, above): linux/fmrelay/fmrelay.py on $ST/fmrelay.sock, the container's
+# /var/run/x86sim-fmrelay.sock, where mmhost hands it the simulator's connections. generativeexperiencesd keeps the host
+# model's availability (vmHostAvailability) in /var/mobile/Library/AppleIntelligencePlatform by absolute path: on a Mac
+# the host's, which it may not write ("Failed to create directory /var/mobile"), so Apple's simulator starts each boot
+# without it; here it landed in the prefix and outlived the boot (with the relay off, or the Mac away, apps still saw
+# the model available and failed with ModelManagerError 1008 instead of modelNotReady).
+rm -rf "$DPREFIX/var/mobile/Library/AppleIntelligencePlatform"
+if [ -n "$MM_JOB" ]; then
+	setsid python3 -I "$X/linux/fmrelay/fmrelay.py" "$ST/fmrelay.sock" "$FM_MAC" > "$ST/fmrelay.log" 2>&1 < /dev/null &
+	echo $! > "$ST/fmrelay.pid"
+	MDNS_LINK="$MDNS_LINK ln -sf '/Volumes/SystemRoot$ST/fmrelay.sock' /var/run/x86sim-fmrelay.sock;"
+else
+	# without the relay, as before it was used: no availability cache from a boot with it (generativeexperiencesd's
+	# com.apple.gms.availability domain and its com.apple.gms.* keys in the global domain; with them apps saw the model
+	# available and failed with ModelManagerError 1008, no modelmanagerd, instead of modelNotReady)
+	rm -f "$D/data/Library/Preferences/com.apple.gms.availability.plist"
+	python3 -I - "$D/data/Library/Preferences/.GlobalPreferences.plist" <<-'PYEOF' 2>/dev/null
+	import plistlib, sys
+	try:
+	    with open(sys.argv[1], "rb") as f: d = plistlib.load(f)
+	except OSError: sys.exit()
+	gms = [k for k in d if k.startswith("com.apple.gms.")]
+	if gms:
+	    for k in gms: del d[k]
+	    with open(sys.argv[1], "wb") as f: plistlib.dump(d, f, fmt=plistlib.FMT_BINARY)
+	PYEOF
 fi
 # Platforms 1: tvOS / watchOS launchd_sim has only the system domain, which stays in bootstrap mode (every request of its
 # jobs deferred) until the host's MIG 700: simhost sends it (host/simhost/simhost.c). A64_BOOTSTRAP_DONE=1: on iOS too
