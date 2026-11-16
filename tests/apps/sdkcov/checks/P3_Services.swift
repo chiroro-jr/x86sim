@@ -264,6 +264,12 @@ extension Registry {
         })
         #endif
 
+        // MARK: FSEvents (CoreServices): a stream on a temporary directory. A simulator's FSEvents is the Mac's fseventsd
+        // (com.apple.FSEvents); x86Sim's host/fseventsd stands in for it. No FSEvents header in the device SDKs: dlsym.
+        c.append(check("CoreServices", "fsevents-stream-file-events", timeout: 90) {
+            try await p3FSEvents()
+        })
+
         // MARK: MetricKit
         #if canImport(MetricKit) && (os(iOS) || os(visionOS))
         c.append(check("MetricKit", "log-handles-signposts-launch-task", timeout: 30) {
@@ -497,4 +503,119 @@ extension Registry {
         #endif
         return c
     }
+}
+
+// MARK: - FSEvents (looked up in CoreServices: the device SDKs have no FSEvents header)
+private typealias P3FSECallback = @convention(c) (OpaquePointer?, UnsafeMutableRawPointer?, Int, UnsafeMutableRawPointer?,
+    UnsafePointer<UInt32>?, UnsafePointer<UInt64>?) -> Void
+/// what a stream delivered: (path, flags, id)
+private final class P3FSEEvents: @unchecked Sendable {
+    private let lock = NSLock(); private var evs: [(String, UInt32, UInt64)] = []
+    func add(_ e: (String, UInt32, UInt64)) { lock.withLock { evs.append(e) } }
+    var all: [(String, UInt32, UInt64)] { lock.withLock { evs } }
+    /// the flags a path got, all events together
+    func flags(_ path: String) -> UInt32 { all.filter { $0.0 == path }.reduce(0) { $0 | $1.1 } }
+}
+private func p3FSEFlagNames(_ f: UInt32) -> String {
+    let n: [(UInt32, String)] = [(0x1, "mustScan"), (0x2, "userDropped"), (0x4, "kernelDropped"), (0x10, "historyDone"),
+        (0x20, "rootChanged"), (0x100, "created"), (0x200, "removed"), (0x400, "inodeMeta"), (0x800, "renamed"),
+        (0x1000, "modified"), (0x2000, "finderInfo"), (0x4000, "changeOwner"), (0x8000, "xattr"), (0x10000, "file"),
+        (0x20000, "dir"), (0x40000, "symlink"), (0x80000, "ownEvent")]
+    let s = n.filter { f & $0.0 != 0 }.map(\.1)
+    return s.isEmpty ? "none" : s.joined(separator: "|")
+}
+private func p3FSEvents() async throws -> String {
+    guard let cs = dlopen("/System/Library/Frameworks/CoreServices.framework/CoreServices", RTLD_NOW) else { throw Fail("no CoreServices") }
+    func fn<T>(_ name: String, _: T.Type) throws -> T {
+        guard let p = dlsym(cs, name) else { throw Fail("CoreServices has no \(name)") }
+        return unsafeBitCast(p, to: T.self)
+    }
+    let currentId = try fn("FSEventsGetCurrentEventId", (@convention(c) () -> UInt64).self)
+    let copyUUID = try fn("FSEventsCopyUUIDForDevice", (@convention(c) (Int32) -> Unmanaged<CFUUID>?).self)
+    let create = try fn("FSEventStreamCreate", (@convention(c) (CFAllocator?, P3FSECallback, UnsafeMutableRawPointer?,
+        CFArray, UInt64, Double, UInt32) -> OpaquePointer?).self)
+    let setQueue = try fn("FSEventStreamSetDispatchQueue", (@convention(c) (OpaquePointer, DispatchQueue?) -> Void).self)
+    let start = try fn("FSEventStreamStart", (@convention(c) (OpaquePointer) -> Bool).self)
+    let flush = try fn("FSEventStreamFlushSync", (@convention(c) (OpaquePointer) -> Void).self)
+    let stop = try fn("FSEventStreamStop", (@convention(c) (OpaquePointer) -> Void).self)
+    let invalidate = try fn("FSEventStreamInvalidate", (@convention(c) (OpaquePointer) -> Void).self)
+    let release = try fn("FSEventStreamRelease", (@convention(c) (OpaquePointer) -> Void).self)
+    let latest = try fn("FSEventStreamGetLatestEventId", (@convention(c) (OpaquePointer) -> UInt64).self)
+    let callback: P3FSECallback = { _, info, n, paths, flags, ids in
+        guard let info, let paths, let flags, let ids else { return }
+        let box = Unmanaged<P3FSEEvents>.fromOpaque(info).takeUnretainedValue()
+        let arr = Unmanaged<CFArray>.fromOpaque(paths).takeUnretainedValue() as! [String]   // kFSEventStreamCreateFlagUseCFTypes
+        for i in 0..<n { box.add((arr[i], flags[i], ids[i])) }
+    }
+    let fm = FileManager.default
+    let dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("sdkcov-fse-\(UUID().uuidString.prefix(8))")
+        .resolvingSymlinksInPath()
+    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? fm.removeItem(at: dir) }
+    let real = dir.path
+    var st = stat()
+    try expect(stat(real, &st) == 0, "stat \(real)")
+    let uuid = copyUUID(st.st_dev)?.takeRetainedValue()
+    try expect(uuid != nil, "FSEventsCopyUUIDForDevice(\(st.st_dev)) is NULL")
+    let id0 = currentId()
+    try expect(id0 > 0, "FSEventsGetCurrentEventId 0")
+    let queue = DispatchQueue(label: "sdkcov.fsevents")
+    // a stream: kFSEventStreamCreateFlagUseCFTypes | FileEvents (| NoDefer for the directory-level one)
+    func openStream(_ box: P3FSEEvents, since: UInt64, flags: UInt32) throws -> OpaquePointer {
+        // FSEventStreamContext {version, info, retain, release, copyDescription}
+        var ctx: [Int] = [0, Int(bitPattern: Unmanaged.passUnretained(box).toOpaque()), 0, 0, 0]
+        guard let s = ctx.withUnsafeMutableBytes({ create(nil, callback, $0.baseAddress, [real] as CFArray, since, 0.05, flags) })
+        else { throw Fail("FSEventStreamCreate nil") }
+        setQueue(s, queue)
+        guard start(s) else { release(s); throw Fail("FSEventStreamStart failed") }
+        return s
+    }
+    func closeStream(_ s: OpaquePointer) { stop(s); invalidate(s); release(s) }
+    let rel = { (p: String) -> String in p.hasPrefix(real + "/") ? String(p.dropFirst(real.count + 1)) : p }
+
+    // 1. live file events
+    let live = P3FSEEvents()
+    let s1 = try openStream(live, since: 0xFFFF_FFFF_FFFF_FFFF, flags: 0x11)
+    let f1 = dir.appendingPathComponent("f1"), f2 = dir.appendingPathComponent("f2"), sub = dir.appendingPathComponent("sub")
+    try Data("one".utf8).write(to: f1)
+    try await Task.sleep(for: .milliseconds(300))
+    let h = try FileHandle(forWritingTo: f1); try h.seekToEnd(); try h.write(contentsOf: Data(" two".utf8)); try h.close()
+    try await Task.sleep(for: .milliseconds(300))
+    try fm.moveItem(at: f1, to: f2)
+    try fm.createDirectory(at: sub, withIntermediateDirectories: false)
+    try Data("in".utf8).write(to: sub.appendingPathComponent("inner"))
+    try await Task.sleep(for: .milliseconds(300))
+    try fm.removeItem(at: f2)
+    flush(s1)
+    // expected (each path's flags, all its events together)
+    let want: [(String, UInt32)] = [("f1", 0x100 | 0x1000 | 0x800 | 0x10000), ("f2", 0x800 | 0x200 | 0x10000),
+        ("sub", 0x100 | 0x20000), ("sub/inner", 0x100 | 0x10000)]
+    let ok = await p3Wait(15) { want.allSatisfy { live.flags(real + "/" + $0.0) & $0.1 == $0.1 } }
+    let got = want.map { "\($0.0) \(p3FSEFlagNames(live.flags(real + "/" + $0.0)))" }.joined(separator: ", ")
+    let ids = live.all.map(\.2)
+    let last = latest(s1)
+    closeStream(s1)
+    try expect(ok, "live events: \(got); all \(live.all.map { "\(rel($0.0)) \(String($0.1, radix: 16)) \($0.2)" })")
+    try expect(ids.allSatisfy { $0 > id0 } && ids == ids.sorted(), "event ids \(ids) (current before: \(id0))")
+    try expect(last >= (ids.max() ?? 0), "latest event id \(last) < \(ids.max() ?? 0)")
+
+    // 2. the same changes again from the history (sinceWhen), then history-done
+    let hist = P3FSEEvents()
+    let s2 = try openStream(hist, since: id0, flags: 0x11)
+    let done = await p3Wait(15) { hist.all.contains { $0.1 & 0x10 != 0 } }
+    closeStream(s2)
+    try expect(done, "no history-done event replaying since \(id0): \(hist.all.map { "\(rel($0.0)) \(String($0.1, radix: 16))" })")
+    let replayed = want.filter { hist.flags(real + "/" + $0.0) & $0.1 == $0.1 }.map(\.0)
+    try expect(replayed.count == want.count, "history replayed \(replayed) of \(want.map(\.0)): \(hist.all.map { "\(rel($0.0)) \(String($0.1, radix: 16))" })")
+
+    // 3. a directory-level stream (no file events): the changed item's directory, no item flags
+    let dirs = P3FSEEvents()
+    let s3 = try openStream(dirs, since: 0xFFFF_FFFF_FFFF_FFFF, flags: 0x3)
+    try Data("again".utf8).write(to: sub.appendingPathComponent("inner2"))
+    flush(s3)
+    let dirOk = await p3Wait(15) { dirs.all.contains { $0.0.hasSuffix("/sub/") || $0.0.hasSuffix("/sub") } }
+    closeStream(s3)
+    try expect(dirOk, "directory stream: \(dirs.all.map { "\($0.0) \(String($0.1, radix: 16))" })")
+    let d = dirs.all.first { $0.0.hasSuffix("/sub/") || $0.0.hasSuffix("/sub") }!
+    return "uuid set, \(got); history \(hist.all.count) events + done; directory stream \(rel(d.0)) \(p3FSEFlagNames(d.1))"
 }
