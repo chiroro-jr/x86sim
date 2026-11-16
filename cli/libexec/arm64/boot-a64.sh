@@ -222,6 +222,22 @@ MIN="com.apple.cfprefsd.xpc.daemon com.apple.cfprefsd.xpc.daemon.system com.appl
 # on demand; remindd's RunAtLoad becomes on demand in mksimdevice): the Contacts, Calendar and Reminders stores, which a
 # Mac's simulator serves. Without them CNContactStore.execute failed (CNErrorDomain 1 "Communication Error") and EventKit
 # answered notDetermined despite a TCC grant, where Apple's simulator saves and fetches (tests/apps/sdkcov P4_People.swift).
+# gamed (all four platforms) and gamesaved (iOS, visionOS; on demand, sdkcov P2): Game Center and GameSave, which a Mac's
+# simulator serves. Without gamed GKLocalPlayer's authenticateHandler failed at once (GKError 6) and the leaderboard /
+# achievement loads with GKError 3 (communicationsFailure), where Apple's simulator never calls the handler back without
+# an account and answers the loads with notAuthenticated (6) (tests/apps/sdkcov P2_Games.swift).
+# homed (iOS, tvOS, visionOS, on demand, sdkcov P5; the watch runtime has it only for Nano alt accounts): HomeKit's
+# daemon. Without it HMHomeManager never reported its homes (no homeManagerDidUpdateHomes in 20 s); with it the answers
+# are Apple's simulator's: 0 homes, addHome refused with HMError 2040 (tests/apps/sdkcov P5_Home.swift).
+# linkd (all four platforms, on demand, sdkcov P7): App Intents' daemon. Without it IntentDonationManager.donate
+# failed (NSCocoaErrorDomain 4099, no com.apple.linkd.transcript), where Apple's simulator takes the donation and
+# deletes it by identifier.
+# mediaanalysisd + mediaanalysisd.service (iOS, visionOS; on demand, sdkcov P7): VisionKit's ImageAnalyzer (Live Text)
+# runs in it; without it analyze() failed 4099 (com.apple.mediaanalysisd.service.public), Apple's reads the text.
+# siriactionsd on visionOS too (on demand, sdkcov P7): com.apple.siri.VoiceShortcuts.xpc; without it
+# INVoiceShortcutCenter.getAllVoiceShortcuts answered IntentsErrorDomain 7001, Apple's visionOS simulator 0 shortcuts.
+# translationd (iOS, on demand, sdkcov P7): LanguageAvailability / TranslationSession; without it supportedLanguages
+# stayed empty for 15 s, Apple's lists 47.
 # managedconfiguration.profiled (iOS, on demand): ManagedConfiguration's restrictions. Without it ATTrackingManager's
 # trackingAuthorizationStatus was restricted (1: MC's check-in with com.apple.managedconfiguration.profiled.public failed,
 # "No XPC connection in Simulator"), where Apple's simulator answers notDetermined (0).
@@ -238,7 +254,10 @@ UI="com.apple.installcoordinationd com.apple.mobiletimerd com.apple.backboardd c
 	com.apple.PointerUI.pointeruid com.apple.DragUI.druid
 	com.apple.ctkd com.apple.syncdefaultsd com.apple.accountsd com.apple.amsaccountsd com.apple.devicemanagementclient.managedappsd
 	com.apple.devicecheckd com.apple.AuthenticationServicesCore.AuthenticationServicesAgent
-	com.apple.contactsd com.apple.calaccessd com.apple.remindd com.apple.managedconfiguration.profiled com.apple.mediaremoted"
+	com.apple.contactsd com.apple.calaccessd com.apple.remindd com.apple.managedconfiguration.profiled com.apple.mediaremoted
+	com.apple.gamed com.apple.gamesaved
+	com.apple.homed
+	com.apple.linkd com.apple.mediaanalysisd com.apple.mediaanalysisd.service com.apple.translationd"
 UI_SLIM="com.apple.backboardd com.apple.SpringBoard com.apple.TextInput.kbd com.apple.FileCoordination com.apple.InputUI
 	com.apple.assistantd"
 FULLUI="com.apple.chronod"
@@ -260,16 +279,25 @@ OUR_JOBS="com.x86sim.openurl=host/openurl/$A64_HOSTDIR/openurl
 # sdkcov P1: mediaremoted (on demand) on iOS, watchOS and visionOS too, as on tvOS above: NowPlaying's
 # MediaSession.requestToBecomeApplicationPrimary() threw internalFailure without it, where Apple's iOS / watchOS / visionOS
 # 27.2 simulators return (sdkcov func:NowPlaying.media-session-primary).
+# sdkcov P5: healthd, geod and navd (on demand) on visionOS too, as on iOS / watchOS: HKHealthStore calls failed with
+# NSCocoaErrorDomain 4099 (no com.apple.healthd.server) where Apple's visionOS 27.2 simulator answers HKError 5 / 4, and
+# MapKit search / directions / geocoding / Look Around and CLGeocoder failed with GEOError -15 / kCLErrorDomain 2 (no geod)
+# where Apple's answer (P5_Health.swift, P5_Location.swift).
+# sdkcov P5: locationd (feature "location") on tvOS too, as on iOS / visionOS: CLLocationManager.locationServicesEnabled()
+# was false and the app's authorization stayed notDetermined (x86sim privacy had no locationd to tell), where Apple's
+# tvOS 27.2 simulator answers true / authorizedWhenInUse and delivers the simulated location (P5_Location.swift).
 # sdkcov P1: assetsd (on demand, feature "photos") on tvOS and visionOS too, as in Apple's simulators: without it
 # PHPhotoLibrary.performChanges failed with PHPhotosErrorDomain 3301 (operation interrupted) on tvOS, where Apple's
 # tvOS 27.2 simulator creates and fetches the assets (sdkcov func:Photos.library-create-fetch-request).
 TV_UI="com.apple.installcoordinationd com.apple.backboardd com.apple.Pineboard com.apple.TextInput.kbd
+	com.apple.homed com.apple.locationd
 	com.apple.FileCoordination com.apple.usernotificationsd com.apple.assistantd com.apple.TVSystemUIService
 	com.apple.PosterBoard com.apple.campo com.apple.splashboardd com.apple.MediaRemoteUI com.apple.assetsubscriptiond
 	com.apple.mobileassetd com.apple.tvremoted com.apple.CoreAuthentication.daemon com.apple.storekitd
 	com.apple.voiced com.apple.accessibility.axassetsd com.apple.geod com.apple.mediaremoted
 	com.apple.GameController.gamecontrollerd com.apple.assetsd
-	com.apple.ctkd com.apple.syncdefaultsd com.apple.accountsd com.apple.amsaccountsd com.apple.devicecheckd"
+	com.apple.ctkd com.apple.syncdefaultsd com.apple.accountsd com.apple.amsaccountsd com.apple.devicecheckd com.apple.gamed
+	com.apple.linkd"
 TV_UI_SLIM="com.apple.backboardd com.apple.Pineboard com.apple.TextInput.kbd com.apple.FileCoordination"
 # Inputs 2: watchgesturesd (on demand): the hand gestures (double tap, wrist flick) simhid's "gesture" hands to its
 # WatchGesturesSimulatorServer, as Apple's watchOS SimulatorHID does; without it they did nothing.
@@ -296,7 +324,8 @@ WATCH_UI="com.apple.installcoordinationd com.apple.backboardd com.apple.Carousel
 	com.apple.CoreAuthentication.daemon com.apple.storekitd com.apple.quicklook.ThumbnailsAgent com.apple.voiced
 	com.apple.accessibility.axassetsd com.apple.wcd com.apple.locationd com.apple.healthd
 	com.apple.ctkd com.apple.syncdefaultsd com.apple.accountsd com.apple.amsaccountsd com.apple.watchgesturesd com.apple.devicecheckd
-	com.apple.contactsd com.apple.calaccessd com.apple.remindd com.apple.mediaremoted"
+	com.apple.contactsd com.apple.calaccessd com.apple.remindd com.apple.mediaremoted com.apple.gamed
+	com.apple.linkd"
 WATCH_UI_SLIM="com.apple.backboardd com.apple.Carousel com.apple.TextInput.kbd com.apple.FileCoordination
 	com.apple.nanoregistryd com.apple.nanotimekitd"
 # Platforms 2: visionOS. SurfBoard is its SpringBoard; vhmdd (the simulator's virtual head-mounted display,
@@ -308,6 +337,7 @@ WATCH_UI_SLIM="com.apple.backboardd com.apple.Carousel com.apple.TextInput.kbd c
 # (WidgetCenter) stays the "widgets" feature as on iOS: on visionOS SurfBoard's RealityWidgets starts it at boot and it
 # runs the room's widget extensions (Calendar, News, ...): ~350 MB.
 XR_UI="com.apple.installcoordinationd com.apple.backboardd com.apple.SurfBoard com.apple.vhmdd com.apple.wakeboardd
+	com.apple.homed com.apple.healthd com.apple.geod com.apple.navd
 	com.apple.RealityEnvironment
 	com.apple.PointerUI.pointeruid com.apple.sleepd com.apple.TextInput.kbd com.apple.FileCoordination
 	com.apple.usernotificationsd com.apple.assistantd com.apple.splashboardd com.apple.assetsubscriptiond
@@ -318,7 +348,9 @@ XR_UI="com.apple.installcoordinationd com.apple.backboardd com.apple.SurfBoard c
 	com.apple.locationd com.apple.FileProvider com.apple.devicemanagementclient.managedappsd
 	com.apple.GameController.gamecontrollerd com.apple.LocalAuthenticationUIService
 	com.apple.devicecheckd com.apple.AuthenticationServicesCore.AuthenticationServicesAgent
-	com.apple.contactsd com.apple.calaccessd com.apple.remindd com.apple.assetsd com.apple.mediaremoted"
+	com.apple.contactsd com.apple.calaccessd com.apple.remindd com.apple.assetsd com.apple.mediaremoted
+	com.apple.gamed com.apple.gamesaved
+	com.apple.linkd com.apple.mediaanalysisd com.apple.mediaanalysisd.service com.apple.siriactionsd"
 XR_UI_SLIM="com.apple.backboardd com.apple.SurfBoard com.apple.vhmdd com.apple.wakeboardd com.apple.RealityEnvironment com.apple.TextInput.kbd
 	com.apple.FileCoordination"
 # No fpsim2host on tvOS / watchOS: their FileProvider has no FPSimulatorSupportInterface (no Files app), so it exited 1
