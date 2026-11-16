@@ -10,10 +10,14 @@
 //
 // State: global table of surfaces (id -> Surf), per-connection reference counts (released when the
 // connection goes away), mach ports minted by CreateMachPort (we keep the receive right; a lookup by port
-// finds the surface by the port's name in our space).
+// finds the surface by the port's name in our space). A minted port keeps its surface alive, as a Mach port to a
+// kernel IOSurface does on a Mac: the surface is freed only once no connection references it and the port has no
+// senders left (MACH_NOTIFY_NO_SENDERS). Otherwise a surface handed to another process by port (VisionKit's
+// ImageAnalyzer -> mediaanalysisd) was gone, released by its creator, before the receiver looked it up.
 #import <Foundation/Foundation.h>
 #import <xpc/xpc.h>
 #import <mach/mach.h>
+#import <mach/notify.h>
 #import <sys/mman.h>
 #import <stdatomic.h>
 #import <fcntl.h>
@@ -24,6 +28,10 @@
 
 extern xpc_connection_t x86_xpc_connection_create_mach_service(const char* name, dispatch_queue_t q, uint64_t flags)
 	__asm__("_xpc_connection_create_mach_service");
+// mach_msg is marked unavailable on tvOS / watchOS (the symbol is there): receive the no-senders notification with it
+extern mach_msg_return_t x86_mach_msg(mach_msg_header_t* msg, mach_msg_option_t option, mach_msg_size_t send_size,
+	mach_msg_size_t rcv_size, mach_port_name_t rcv_name, mach_msg_timeout_t timeout, mach_port_name_t notify)
+	__asm__("_mach_msg");
 extern pid_t x86_xpc_connection_get_pid(xpc_connection_t c) __asm__("_xpc_connection_get_pid");
 extern xpc_object_t xpc_shmem_create(void* region, size_t length);
 extern size_t xpc_shmem_map(xpc_object_t xshmem, void** region);
@@ -74,6 +82,8 @@ typedef struct Surf {
 	CFMutableDictionaryRef values;
 	xpc_object_t bulk;  // SetBulkAttachments keys
 	mach_port_t port;   // receive right minted by CreateMachPort
+	bool senders;       // port's no-senders notification armed (send rights may be out there)
+	dispatch_source_t nsSrc;  // receives that notification on the port itself
 	int refs;           // sum of all connections' references
 	int useCount, catUse[16];
 	uint32_t yuvMatrix;
@@ -113,6 +123,7 @@ static uint32_t align64(uint64_t x) { return (uint32_t)((x + 63) & ~63ull); }
 static void surfFree(Surf* s) {
 	LOG("free surface %u\n", s->id);
 	[gByID removeObjectForKey:@(s->id)];
+	if (s->nsSrc) { dispatch_source_cancel(s->nsSrc); dispatch_release(s->nsSrc); }
 	if (s->port) {
 		[gByPort removeObjectForKey:@(s->port)];
 		mach_port_mod_refs(mach_task_self(), s->port, MACH_PORT_RIGHT_RECEIVE, -1);
@@ -248,8 +259,49 @@ static bool dropRef(Refs* refs, uint32_t sid) {
 	Surf* s = surfFor(sid);
 	if (n <= 0 || !s) return false;
 	if (n == 1) [refs removeObjectForKey:@(sid)]; else refs[@(sid)] = @(n - 1);
-	if (--s->refs <= 0) surfFree(s);
+	if (--s->refs <= 0) {
+		if (s->senders) LOG("surface %u: no references, kept for its port's senders\n", s->id);
+		else surfFree(s);
+	}
 	return true;
+}
+
+// the port's last send right is gone (main queue): free the surface if no connection references it either
+static void portNoSenders(uint32_t sid) {
+	Surf* s = surfFor(sid);
+	if (!s) return;
+	struct { mach_msg_header_t h; mach_msg_trailer_t t; char pad[64]; } m;
+	while (x86_mach_msg(&m.h, MACH_RCV_MSG | MACH_RCV_TIMEOUT, 0, sizeof m, s->port, 0, MACH_PORT_NULL) == MACH_MSG_SUCCESS) {
+		if (m.h.msgh_id != MACH_NOTIFY_NO_SENDERS) continue;
+		// a send right minted since the notification was sent: the port has senders again, re-arm
+		mach_port_status_t st; mach_msg_type_number_t n = MACH_PORT_RECEIVE_STATUS_COUNT;
+		if (mach_port_get_attributes(mach_task_self(), s->port, MACH_PORT_RECEIVE_STATUS, (mach_port_info_t)&st, &n) == KERN_SUCCESS &&
+		    st.mps_srights) {
+			mach_port_t prev = MACH_PORT_NULL;
+			mach_port_request_notification(mach_task_self(), s->port, MACH_NOTIFY_NO_SENDERS, st.mps_mscount, s->port,
+				MACH_MSG_TYPE_MAKE_SEND_ONCE, &prev);
+			if (MACH_PORT_VALID(prev)) mach_port_deallocate(mach_task_self(), prev);
+			continue;
+		}
+		s->senders = false;
+		LOG("surface %u: port has no senders (%d references)\n", s->id, s->refs);
+		if (s->refs <= 0) { surfFree(s); return; }
+	}
+}
+static void armNoSenders(Surf* s) {
+	if (s->senders) return;
+	mach_port_t prev = MACH_PORT_NULL;
+	// sync 0: fires once the port has no send rights (it has the one just made)
+	if (mach_port_request_notification(mach_task_self(), s->port, MACH_NOTIFY_NO_SENDERS, 0, s->port,
+	                                   MACH_MSG_TYPE_MAKE_SEND_ONCE, &prev) != KERN_SUCCESS) return;
+	if (MACH_PORT_VALID(prev)) mach_port_deallocate(mach_task_self(), prev);
+	s->senders = true;
+	if (!s->nsSrc) {
+		uint32_t sid = s->id;
+		s->nsSrc = dispatch_source_create(DISPATCH_SOURCE_TYPE_MACH_RECV, s->port, 0, dispatch_get_main_queue());
+		dispatch_source_set_event_handler(s->nsSrc, ^{ portNoSenders(sid); });
+		dispatch_resume(s->nsSrc);
+	}
 }
 
 // x86Sim: implicit IOSurface GPU sync. On a Mac, IOSurfaceLock without kIOSurfaceLockAvoidSync waits until the GPU
@@ -423,6 +475,7 @@ static void handle(xpc_connection_t peer, Refs* refs, xpc_object_t msg) {
 		}
 		// xpc_dictionary_set_mach_send copies a send right from our receive right
 		mach_port_insert_right(mach_task_self(), s->port, s->port, MACH_MSG_TYPE_MAKE_SEND);
+		armNoSenders(s);
 		xpc_dictionary_set_mach_send(reply, "MachPort", s->port);
 		mach_port_deallocate(mach_task_self(), s->port);
 		LOG("surface %u -> port %#x\n", s->id, s->port);
