@@ -64,10 +64,10 @@ for p in ${*:-ios tvos watchos xros}; do
 	# iPhone and iPad; on iPad all four orientations (iPad multitasking: Split View, Slide Over, Stage Manager windows need
 	# them) and more than one scene (More_iPadOS.swift's multiple-window checks; one scene on iPhone either way)
 	# NSSupportsLiveActivities: ActivityKit's Activity.request (refused without it); NSAlarmKitUsageDescription: AlarmKit's
-	# authorization request (an app without it is refused); UIBackgroundModes voip: PushKit VoIP pushes. Not
-	# NSAccessorySetupKitSupports: with it Apple's iOS 27.2 simulator never activates an ASAccessorySession (no activated
-	# event; deviceaccessd "GetDevices failed ... ENOENT") and the app dies (SIGSEGV in AccessorySetupKit) when it
-	# invalidates the session, so func:AccessorySetupKit.session-activate keeps its SKIP
+	# authorization request (an app without it is refused); UIBackgroundModes voip: PushKit VoIP pushes.
+	# NSAccessorySetupKitSupports (Bluetooth): AccessorySetupKit's session traps without it. Apple's iOS 27.2 simulator never
+	# activates an ASAccessorySession (no activated event; deviceaccessd "GetDevices failed ... ENOENT") and the app dies
+	# (SIGSEGV in AccessorySetupKit) when it invalidates the session, so func:AccessorySetupKit.session-activate keeps it
 	ios) sdk=iphonesimulator; tgt=arm64-apple-ios27.0-simulator; plat=iPhoneSimulator; fam='<integer>1</integer><integer>2</integer>'; multi='<true/>'
 		exts='widget fileprovider extkit downloader'
 		extra='<key>UISupportedInterfaceOrientations~ipad</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationPortraitUpsideDown</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
@@ -75,6 +75,7 @@ for p in ${*:-ios tvos watchos xros}; do
 <key>NSHealthUpdateUsageDescription</key><string>sdkcov checks HealthKit writes</string>
 <key>NSAlarmKitUsageDescription</key><string>sdkcov checks AlarmKit</string>
 <key>UIBackgroundModes</key><array><string>voip</string></array>
+<key>NSAccessorySetupKitSupports</key><array><string>Bluetooth</string></array>
 <key>BAAppGroupID</key><string>group.com.x86sim.test.sdkcov</string>'"$ba$appsvc" ;;
 	tvos) sdk=appletvsimulator; tgt=arm64-apple-tvos27.0-simulator; plat=AppleTVSimulator; fam='<integer>3</integer>'; exts=downloader  # no extkit: as watchOS below
 		extra='<key>BAAppGroupID</key><string>group.com.x86sim.test.sdkcov</string>'"$ba$appsvc" ;;
