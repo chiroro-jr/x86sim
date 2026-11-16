@@ -2,12 +2,13 @@
 # x86Sim sdkcov: the host-driven input checks (checks/Inputs.swift) on a running device: each check runs alone (run.sh
 # --only) with SDKCOV_INPUT_WAIT set, while this script sends its input every few seconds through the x86sim CLI
 # (host/simhid), as Apple's simulator would (DeviceHub's Shake / Rotate / Face ID menus, a game controller).
-# Usage: tests/apps/sdkcov/inputs.sh <device> [--no-build] [shake|orientation|biometric|gamepad|memwarn|pointer|keyboard|drag
-# ...]   (default: all the device's platform has; pointer / keyboard / drag: iPad, checks/More_iPadOS.swift)
+# Usage: tests/apps/sdkcov/inputs.sh <device> [--no-build] [shake|orientation|biometric|gamepad|memwarn|push|pointer|keyboard|
+# drag ...]   (default: all the device's platform has; pointer / keyboard / drag: iPad, checks/More_iPadOS.swift)
 # On Apple's simulator the same inputs are: notifyutil -p com.apple.UIKit.SimulatorShake (simctl spawn), devicectl
 # device orientation set, notifyutil -s com.apple.BiometricKit.enrollmentChanged 1 + devicectl device simulate
 # biometrics --success, an Indigo game controller message (SimulatorKit IndigoHIDMessageForGameControllerEvent) and
-# SimDevice simulateMemoryWarning; on an iPad, Indigo keyboard (IndigoHIDMessageForKeyboardArbitrary) and touch
+# SimDevice simulateMemoryWarning, `simctl push` (push: a remote notification with mutable-content for the notification
+# service extension, checks/P10_Extensions.swift); on an iPad, Indigo keyboard (IndigoHIDMessageForKeyboardArbitrary) and touch
 # (IndigoHIDMessageForMouseNSEvent, target 0x32) messages; the pointer needs Simulator's pointer capture.
 set -u
 X86SIM_ROOT=${X86SIM_ROOT:-$(cd "$(dirname "$0")/../../.." && pwd)}
@@ -22,7 +23,7 @@ build=; want=
 for a in "$@"; do case $a in --no-build) build=--no-build ;; *) want="$want $a" ;; esac; done
 rt=$(cat "$X86SIM_DEVICE/runtime" 2>/dev/null); plat=${rt%%-*}
 case $plat in
-	ios) all="shake orientation biometric gamepad memwarn"
+	ios) all="shake orientation biometric gamepad memwarn push"
 		case $(cat "$X86SIM_DEVICE/model" 2>/dev/null) in iPad*) all="$all pointer keyboard drag" ;; esac ;; xros) all="shake biometric gamepad memwarn" ;; tvos) all="gamepad memwarn" ;;
 	*) echo "inputs: no input checks for $plat" >&2; exit 0 ;;
 esac
@@ -37,6 +38,7 @@ for k in ${want:-$all}; do
 		biometric) id=func:LocalAuthentication.input-biometric; send() { xs biometric enroll; xs biometric match; } ; undo() { xs biometric unenroll; } ;;
 		gamepad) id=func:GameController.input-gamepad; send() { xs gamepad press a; } ; undo() { :; } ;;
 		memwarn) id=func:UIKit.input-memory-warning; send() { xs memwarn; } ; undo() { :; } ;;
+		push) id=func:UserNotifications.service-extension-push; send() { echo '{"aps":{"alert":{"title":"sdkcov push","body":"p10"},"mutable-content":1}}' | xs push com.x86sim.test.sdkcov -; } ; undo() { :; } ;;
 		# iPad: the pointer-capture mouse over the check's full-window view; ⌘K on the hardware keyboard (attached at
 		# the first key); a long press on the drag source (0.25, 0.5 of the screen) moved onto the drop target (0.75, 0.5)
 		pointer) id=func:UIKit.ipad-pointer-hover; send() { xs pointer at 0.5 0.5; xs pointer move 30 20; xs pointer move -30 -20; } ; undo() { xs pointer remove; } ;;

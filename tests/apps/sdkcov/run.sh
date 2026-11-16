@@ -31,6 +31,9 @@ BID=com.x86sim.test.sdkcov; APP=${SDKCOV_APPS:-$X86SIM_SCRATCH/apps}/sdkcov-$pla
 xs() { "$X/cli/x86sim" "$@"; }
 [ "$build" = 1 ] && { nice "$S/build.sh" "$plat" || exit 1; }
 xs install "$X86SIM_DEVICE" "$APP" >"$OUT/install.log" 2>&1 || { echo "install FAILED: $(tail -1 "$OUT/install.log")"; exit 1; }
+# the App Clip (iOS: AppClips/sdkcovClip.app) goes in after the app, as Xcode installs one (installing the full app
+# removes an installed clip of it): func:AppClip.clip-installed-with-parent
+for c in "$APP"/AppClips/*.app; do [ -d "$c" ] && { xs install "$X86SIM_DEVICE" "$c" >>"$OUT/install.log" 2>&1 || echo "  note: App Clip $(basename "$c") not installed: $(tail -1 "$OUT/install.log")"; }; done
 DATA=$(xs get_app_container "$BID" data 2>/dev/null)
 [ -d "$DATA" ] || { echo "sdkcov: no data container for $BID" >&2; exit 1; }
 RES=$DATA/Documents/x86test-results.txt

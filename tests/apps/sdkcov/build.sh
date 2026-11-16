@@ -9,6 +9,14 @@
 # Extensions/sdkcov.appexpt (the file Xcode's exutil extract-extension-points makes from an AppExtensionPoint
 # definition), sdkcovDownloader.appex (Extensions/, Background Assets: iOS, tvOS, visionOS; AssetPackManager traps in an
 # app with BAAppGroupID and no downloader extension). checks/P3_Extensions.swift drives them.
+# P10 (checks/P10_Extensions.swift), iOS: notification content + service extensions, a File Provider UI action, an SMS
+# message filter and a call / message reporting (classification) UI in PlugIns/; a translation provider, an app
+# migration, a Home, an accessory transport and a device discovery extension in Extensions/ (Apple's ExtensionKit points).
+# visionOS: the notification content, File Provider UI action and reporting UI extensions (installd takes them there).
+# iOS also carries an App Clip, AppClips/sdkcovClip.app (ext/Clip.swift, bundle id com.x86sim.test.sdkcov.Clip): simctl /
+# x86sim install of the app does not install it; run.sh and ref-mac.sh install it after the app.
+# objc/SDKCovCatch.m: the app's one Objective-C file (an @try around a block), compiled with clang and imported into
+# the Swift module through objc/SDKCovCatch.h.
 set -e
 X86SIM_ROOT=${X86SIM_ROOT:-$(cd "$(dirname "$0")/../../.." && pwd)}
 . "$X86SIM_ROOT/build/mac-env.sh"
@@ -41,10 +49,16 @@ ents_ext() {
 <plist version="1.0"><dict>
 	<key>application-identifier</key><string>$2</string>
 	<key>com.apple.security.get-task-allow</key><true/>
-	<key>com.apple.security.application-groups</key><array><string>group.com.x86sim.test.sdkcov</string></array>
+	<key>com.apple.security.application-groups</key><array><string>group.com.x86sim.test.sdkcov</string></array>$3
 </dict></plist>
 PL
 }
+# an NSExtension (PlugIns/) extension's NSExtension dictionary: nsext POINT PRINCIPAL-CLASS [ATTRIBUTES-DICT-BODY]
+nsext() {
+	echo "<key>NSExtension</key><dict><key>NSExtensionPointIdentifier</key><string>$1</string><key>NSExtensionPrincipalClass</key><string>$2</string>${3:+<key>NSExtensionAttributes</key><dict>$3</dict>}</dict>"
+}
+# an ExtensionKit (Extensions/) extension's attributes: exext POINT
+exext() { echo "<key>EXAppExtensionAttributes</key><dict><key>EXExtensionPointIdentifier</key><string>$1</string></dict>"; }
 BID=com.x86sim.test.sdkcov
 # Background Assets (iOS, tvOS, visionOS): the App Group shared with the downloader extension (ext/Downloader.swift),
 # Apple-hosted (managed) asset packs, and the initial download restrictions (the framework exits the app, "BUG IN
@@ -69,7 +83,7 @@ for p in ${*:-ios tvos watchos xros}; do
 	# activates an ASAccessorySession (no activated event; deviceaccessd "GetDevices failed ... ENOENT") and the app dies
 	# (SIGSEGV in AccessorySetupKit) when it invalidates the session, so func:AccessorySetupKit.session-activate keeps it
 	ios) sdk=iphonesimulator; tgt=arm64-apple-ios27.0-simulator; plat=iPhoneSimulator; fam='<integer>1</integer><integer>2</integer>'; multi='<true/>'
-		exts='widget fileprovider extkit downloader'
+		exts='widget fileprovider extkit downloader ncontent nservice fpaction msgfilter classify translator migration home transport discovery clip'
 		extra='<key>UISupportedInterfaceOrientations~ipad</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationPortraitUpsideDown</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
 <key>NSSupportsLiveActivities</key><true/>
 <key>NSHealthUpdateUsageDescription</key><string>sdkcov checks HealthKit writes</string>
@@ -93,7 +107,7 @@ for p in ${*:-ios tvos watchos xros}; do
 	# NSWorldSensingUsageDescription / NSHandsTrackingUsageDescription: ARKit's plane detection / hand tracking
 	# authorization (an app asking without them is killed)
 	xros) sdk=xrsimulator; tgt=arm64-apple-xros27.0-simulator; plat=XRSimulator; fam='<integer>7</integer>'; multi='<true/>'  # volume + immersive spaces
-		exts='widget fileprovider downloader'  # no extkit: as watchOS below
+		exts='widget fileprovider downloader ncontent fpaction classify'  # no extkit: as watchOS below
 		extra='<key>NSWorldSensingUsageDescription</key><string>sdkcov checks ARKit plane detection</string>
 <key>NSHandsTrackingUsageDescription</key><string>sdkcov checks ARKit hand tracking</string>
 <key>NSHealthUpdateUsageDescription</key><string>sdkcov checks HealthKit writes</string>
@@ -142,6 +156,31 @@ PY
 <key>NSExtensionFileProviderSupportsEnumeration</key><true/>
 <key>NSExtensionFileProviderDocumentGroup</key><string>group.com.x86sim.test.sdkcov</string></dict>'
 			ents_ext "$G/gen/fileprovider.entitlements" $BID.fileprovider ;;
+		# P10 (iOS)
+		ncontent) plist_bundle "$G/gen/ncontent.plist" $BID.ncontent sdkcovNotifyContent 'XPC!' "$(nsext com.apple.usernotifications.content-extension SDKCovNotificationContent '<key>UNNotificationExtensionCategory</key><string>sdkcov.content</string><key>UNNotificationExtensionInitialContentSizeRatio</key><real>0.5</real>')"
+			ents_ext "$G/gen/ncontent.entitlements" $BID.ncontent ;;
+		nservice) plist_bundle "$G/gen/nservice.plist" $BID.nservice sdkcovNotifyService 'XPC!' "$(nsext com.apple.usernotifications.service SDKCovNotificationService)"
+			ents_ext "$G/gen/nservice.entitlements" $BID.nservice ;;
+		fpaction) plist_bundle "$G/gen/fpaction.plist" $BID.fpaction sdkcovFPAction 'XPC!' "$(nsext com.apple.fileprovider-actionsui SDKCovFPAction '<key>NSExtensionFileProviderActions</key><array><dict><key>NSExtensionFileProviderActionIdentifier</key><string>com.x86sim.test.sdkcov.action</string><key>NSExtensionFileProviderActionName</key><string>sdkcov action</string><key>NSExtensionFileProviderActionActivationRule</key><string>TRUEPREDICATE</string></dict></array>')"
+			ents_ext "$G/gen/fpaction.entitlements" $BID.fpaction ;;
+		msgfilter) plist_bundle "$G/gen/msgfilter.plist" $BID.msgfilter sdkcovMessageFilter 'XPC!' "$(nsext com.apple.identitylookup.message-filter SDKCovMessageFilter)"
+			ents_ext "$G/gen/msgfilter.entitlements" $BID.msgfilter ;;
+		classify) plist_bundle "$G/gen/classify.plist" $BID.classify sdkcovClassification 'XPC!' "$(nsext com.apple.identitylookup.classification-ui SDKCovClassification '<key>ILClassificationExtensionSMSReportDestination</key><string>12345</string>')"
+			ents_ext "$G/gen/classify.entitlements" $BID.classify ;;
+		translator) plist_bundle "$G/gen/translator.plist" $BID.translator sdkcovTranslator 'XPC!' "$(exext com.apple.public.translation-ui-provider)"
+			ents_ext "$G/gen/translator.entitlements" $BID.translator ;;
+		migration) plist_bundle "$G/gen/migration.plist" $BID.migration sdkcovMigration 'XPC!' "$(exext com.apple.app-migration)"
+			ents_ext "$G/gen/migration.entitlements" $BID.migration ;;
+		home) plist_bundle "$G/gen/home.plist" $BID.home sdkcovHome 'XPC!' "$(exext com.apple.Home.HomeExtension)"
+			ents_ext "$G/gen/home.entitlements" $BID.home '<key>com.apple.developer.home</key><true/>' ;;
+		# the developer entitlements the extension points require (installd refuses the app without them)
+		transport) plist_bundle "$G/gen/transport.plist" $BID.transport sdkcovTransport 'XPC!' "$(exext com.apple.accessory-transport-extension)"
+			ents_ext "$G/gen/transport.entitlements" $BID.transport '<key>com.apple.developer.accessory-transport-extension</key><true/>' ;;
+		discovery) plist_bundle "$G/gen/discovery.plist" $BID.discovery sdkcovDiscovery 'XPC!' "$(exext com.apple.discovery-extension)"
+			ents_ext "$G/gen/discovery.entitlements" $BID.discovery '<key>com.apple.developer.media-device-discovery-extension</key><true/>' ;;
+		# the App Clip: an app (AppClips/) whose parent is the sdkcov app
+		clip) plist_bundle "$G/gen/clip.plist" $BID.Clip sdkcovClip APPL '<key>UILaunchScreen</key><dict/><key>NSAppClip</key><dict><key>NSAppClipRequestEphemeralUserNotification</key><false/><key>NSAppClipRequestLocationConfirmation</key><false/></dict>'
+			ents_ext "$G/gen/clip.entitlements" $BID.Clip "<key>com.apple.developer.parent-application-identifiers</key><array><string>$BID</string></array><key>com.apple.developer.on-demand-install-capable</key><true/>" ;;
 		downloader) plist_bundle "$G/gen/downloader.plist" $BID.downloader sdkcovDownloader 'XPC!' '<key>EXAppExtensionAttributes</key><dict><key>EXExtensionPointIdentifier</key><string>com.apple.background-asset-downloader-extension</string></dict>'
 			ents_ext "$G/gen/downloader.entitlements" $BID.downloader ;;
 		extkit) plist_bundle "$G/gen/extkit.plist" $BID.ext sdkcovExt 'XPC!' '<key>EXAppExtensionAttributes</key><dict><key>EXExtensionPointIdentifier</key><string>com.x86sim.test.sdkcov.sdkcov-ext</string></dict>'
@@ -165,17 +204,17 @@ PL
 	esac; done
 	tar cf - -C "$A" common.swift sdkcov -C "$G" gen | mac "set -e; W=\$(mktemp -d /tmp/sdkcov.XXXXXX); cd \$W; tar xf -
 		APP=sdkcov-$p.app; mkdir -p \$APP
-		nice xcrun -sdk $sdk swiftc -target $tgt -Onone -parse-as-library -module-name sdkcov \
+		nice xcrun -sdk $sdk clang -target $tgt -fobjc-arc -O0 -c sdkcov/objc/SDKCovCatch.m -o catch.o
+		nice xcrun -sdk $sdk swiftc -target $tgt -Onone -parse-as-library -module-name sdkcov -import-objc-header sdkcov/objc/SDKCovCatch.h catch.o \
 			-Xlinker -sectcreate -Xlinker __TEXT -Xlinker __entitlements -Xlinker sdkcov/sdkcov.entitlements \
 			-o \$APP/sdkcov common.swift sdkcov/*.swift sdkcov/checks/*.swift 2>&1 >&2 | grep -v 'directory not found for option -L' >&2 || true
 		test -x \$APP/sdkcov
 		cp sdkcov/manifest-$p.json \$APP/manifest.json
 		cp gen/app.plist \$APP/Info.plist
-		# extensions: ext NAME DIR SOURCE. The entry point is Foundation's _NSExtensionMain, as Xcode links every
+		# extensions: ext NAME DIR SOURCE GEN (GEN: its gen/ plist + entitlements). The entry point is Foundation's _NSExtensionMain, as Xcode links every
 		# extension (ExtensionKit's and WidgetKit's @main types are found and run from there: entered through their own
 		# main, ExtensionFoundation traps on its unset _EXRunningExtension)
-		ext() { n=\$1 d=\$2 src=\$3; shift 3; X=\$APP/\$d/sdkcov\$n.appex
-			case \$n in Widget) g=widget ;; FileProvider) g=fileprovider ;; Ext) g=extkit ;; Downloader) g=downloader ;; esac
+		ext() { n=\$1 d=\$2 src=\$3 g=\$4; X=\$APP/\$d/sdkcov\$n.appex
 			mkdir -p \$X
 			nice xcrun -sdk $sdk swiftc -target $tgt -Onone -parse-as-library -application-extension -module-name sdkcov \
 				-Xlinker -sectcreate -Xlinker __TEXT -Xlinker __entitlements -Xlinker gen/\$g.entitlements -Xlinker -e -Xlinker _NSExtensionMain \
@@ -185,10 +224,27 @@ PL
 			codesign -f -s - --entitlements sdkcov/sign.entitlements \$X >&2
 		}
 		for e in $exts; do case \$e in
-			widget) ext Widget PlugIns Widget.swift ;;
-			fileprovider) ext FileProvider PlugIns FileProvider.swift ;;
-			extkit) ext Ext Extensions ExtKit.swift; cp gen/sdkcov.appexpt \$APP/Extensions/ ;;
-			downloader) ext Downloader Extensions Downloader.swift ;;
+			widget) ext Widget PlugIns Widget.swift widget ;;
+			fileprovider) ext FileProvider PlugIns FileProvider.swift fileprovider ;;
+			extkit) ext Ext Extensions ExtKit.swift extkit; cp gen/sdkcov.appexpt \$APP/Extensions/ ;;
+			downloader) ext Downloader Extensions Downloader.swift downloader ;;
+			ncontent) ext NotifyContent PlugIns NotifyContent.swift ncontent ;;
+			nservice) ext NotifyService PlugIns NotifyService.swift nservice ;;
+			fpaction) ext FPAction PlugIns FPAction.swift fpaction ;;
+			msgfilter) ext MessageFilter PlugIns MessageFilter.swift msgfilter ;;
+			classify) ext Classification PlugIns Classification.swift classify ;;
+			translator) ext Translator Extensions Translator.swift translator ;;
+			migration) ext Migration Extensions Migration.swift migration ;;
+			home) ext Home Extensions HomeExt.swift home ;;
+			transport) ext Transport Extensions Transport.swift transport ;;
+			discovery) ext Discovery Extensions Discovery.swift discovery ;;
+			clip) X=\$APP/AppClips/sdkcovClip.app; mkdir -p \$X
+				nice xcrun -sdk $sdk swiftc -target $tgt -Onone -parse-as-library -module-name sdkcov \
+					-Xlinker -sectcreate -Xlinker __TEXT -Xlinker __entitlements -Xlinker gen/clip.entitlements \
+					-o \$X/sdkcovClip sdkcov/ext/Marks.swift sdkcov/ext/Clip.swift 2>&1 >&2 | grep -v 'directory not found for option -L' >&2 || true
+				test -x \$X/sdkcovClip
+				cp gen/clip.plist \$X/Info.plist
+				codesign -f -s - --entitlements sdkcov/sign.entitlements \$X >&2 ;;
 		esac; done
 		codesign -f -s - --entitlements sdkcov/sign.entitlements \$APP >&2
 		tar cf - \$APP; cd /; rm -rf \$W" | (cd "$OUT" && rm -rf "sdkcov-$p.app" && tar xf -)

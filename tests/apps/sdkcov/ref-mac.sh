@@ -46,6 +46,8 @@ trap cleanup EXIT
 echo "ref-mac: $rt on $dev"
 xcrun simctl boot "$dev" && xcrun simctl bootstatus "$dev" -b >/dev/null
 xcrun simctl install "$dev" "$W/sdkcov-$plat.app" || exit 1
+# the App Clip after the app, as run.sh (installing the full app removes an installed clip of it)
+for c in "$W/sdkcov-$plat.app"/AppClips/*.app; do [ -d "$c" ] && { xcrun simctl install "$dev" "$c" || echo "ref-mac: App Clip $c not installed"; }; done
 # tvOS / watchOS / visionOS: func:HomeKit.manager's HMHomeManager asks for Home access; the prompt would take focus from the app
 # for the rest of the run (More_tvOS.swift's focus, window and snapshot checks need the app active; on the watch the
 # app stayed inactive behind it, applicationState 1): grant it up front
