@@ -134,6 +134,15 @@ extension Registry {
             // Private Cloud Compute needs an Apple Account and the network service: what the simulator reports
             let p = PrivateCloudComputeLanguageModel()
             let q = p.quotaUsage
+            let av = "\(p.availability)"
+            // Apple's simulators: watchOS deviceNotEligible; iOS / visionOS follow the host Mac's account and network
+            // state (available, or systemNotReady while it is not ready); quota below its limit either way
+            #if os(watchOS)
+            try expect(av.hasSuffix(".deviceNotEligible)") && !p.isAvailable, "availability \(av) (Apple's watchOS simulator: deviceNotEligible)")
+            #else
+            try expect((av == "available" && p.isAvailable) || (av.hasSuffix(".systemNotReady)") && !p.isAvailable), "availability \(av), isAvailable \(p.isAvailable) (Apple's simulator: available or systemNotReady)")
+            #endif
+            try expect("\(q.status)".contains("belowLimit"), "quota \(q.status) (Apple's simulator: below limit)")
             return "availability \(p.availability), available \(p.isAvailable), quota \(q)"
         })
         #endif

@@ -113,6 +113,8 @@ extension Registry {
             st.application.denyAppRemoval = true
             st.media.denyExplicitContent = true
             let after = (st.application.denyAppRemoval, st.media.denyExplicitContent)
+            // Apple's simulator: no Family Controls authorization, so the store ignores the writes (read back nil)
+            try expect(after.0 == nil && after.1 == nil, "written values read back \(String(describing: after)) (Apple's simulator: nil / nil)")
             st.clearAllSettings()
             let cleared = (st.application.denyAppRemoval, st.media.denyExplicitContent)
             try expect(cleared.0 == nil && cleared.1 == nil, "after clearAllSettings: \(cleared)")
@@ -229,6 +231,8 @@ extension Registry {
             // be_memory_inline_jit_restrict_with_witness_supported is C-only (unavailable in Swift): through dlsym
             typealias F = @convention(c) () -> Int32
             let supported = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "be_memory_inline_jit_restrict_with_witness_supported").map { unsafeBitCast($0, to: F.self)() }.map(String.init) ?? "no symbol"
+            // Apple's simulator: one event, the 10 ms one-shot timer (ident 1)
+            try expect(n == 1 && out.ident == 1 && out.filter == Int16(EVFILT_TIMER), "be_kevent -> \(n) (errno \(errno)), ident \(out.ident), filter \(out.filter) (Apple's simulator: 1 timer event, ident 1)")
             return "be_kevent -> \(n) (errno \(n < 0 ? errno : 0)), timer event \(n == 1 ? "fired, ident \(out.ident)" : "-"), JIT witness supported \(supported)"
         })
         #endif

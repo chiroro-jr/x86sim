@@ -254,6 +254,8 @@ extension Registry {
                 try expect(err != "none" || m.isEnabled, "enable() neither failed nor enabled")
                 return "manager made, enabled \(m.isEnabled), enable(): \(err)"
             } catch {
+                // Apple's simulator: the app has no contact provider extension, so no domain is registered
+                try expect("\(error)" == "domainNotRegistered", "init: \(error) (Apple's simulator: domainNotRegistered)")
                 return "init: \(error)"
             }
         })

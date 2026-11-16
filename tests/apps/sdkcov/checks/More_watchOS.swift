@@ -364,6 +364,8 @@ extension Registry {
             _ = rel
             WidgetCenter.shared.invalidateRelevance(ofKind: "sdkcov")
             let cur = try await WidgetCenter.shared.currentConfigurations()
+            // Apple's simulator: no widget of the app is placed on a fresh watch
+            try expect(cur.isEmpty, "\(cur.count) configured widgets (Apple's simulator: 0)")
             return "\(ctxs.count) contexts, \(cur.count) configured widgets"
         })
         c.append(check("WidgetKit", "accessory-background-render") {

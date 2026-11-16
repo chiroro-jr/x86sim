@@ -234,7 +234,12 @@ extension Registry {
             await onMain { reg.desiredPushTypes = [] }
             // Apple's simulator gets its 80-byte VoIP token from the real APNs sandbox (its apsd keeps a connection to
             // *-courier.sandbox.push.apple.com): none on a fresh device whose apsd is not connected yet
-            try skipIf(tok == nil, "no VoIP token in 10 s (apsd without an APNs sandbox connection; Apple's fresh simulator device the same)")
+            // a fresh device (Apple's ref-mac.sh devices, x86Sim): no token in 10 s and none cached, no invalidation.
+            // (A long-lived Apple device whose apsd reached the sandbox gets an 80-byte token: then it must be cached too)
+            if tok == nil {
+                try expect(cached == nil && d.invalid.value == nil, "no token delivered but cached \(String(describing: cached)), invalidated \(d.invalid.value ?? "-")")
+                return "no VoIP token in 10 s, none cached (apsd without an APNs sandbox connection, as on Apple's fresh simulator device)"
+            }
             try expect(cached != nil, "credentials delivered but pushToken(for:) nil")
             return "VoIP token \(tok ?? "none in 10 s"), cached \(cached.map { "\($0) B" } ?? "nil"), invalidated \(d.invalid.value ?? "-")"
         })
@@ -295,6 +300,11 @@ extension Registry {
             let past = MXMetricManager.shared.pastPayloads.count
             // Apple's simulator: extending after launch is past the deadline (2), finishing a task never extended is unknown (4)
             try expect(ext == "MXErrorDomain 2" && fin == "MXErrorDomain 4", "extend \(ext), finish \(fin) (Apple's simulator: MXErrorDomain 2, 4)")
+            // Apple's simulator: no payloads ever; iOS: a launch task tracked long after launch is past its deadline
+            try expect(past == 0, "\(past) past payloads (Apple's simulator: 0)")
+            #if os(iOS)
+            try expect(track.hasPrefix("trackLaunchTask tracking error pastDeadline") && mm.enabledStateReportingDomains.isEmpty, "\(track) (Apple's simulator: tracking error pastDeadline, 0 state domains)")
+            #endif
             return "extend \(ext), finish \(fin), \(track), \(past) past payloads"
         })
         #endif
@@ -311,6 +321,9 @@ extension Registry {
             do { try BGTaskScheduler.shared.submit(r) } catch { e = p3Err(error) }
             BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: id)
             let pending = await BGTaskScheduler.shared.pendingTaskRequests().count
+            // Apple's simulator: submit refused as unavailable (BGTaskSchedulerErrorDomain 3), no GPU / resources, nothing pending
+            try expect(e == "BGTaskSchedulerErrorDomain 3" && BGTaskScheduler.supportedResources.rawValue == 0 && pending == 0,
+                       "submit \(e), resources \(BGTaskScheduler.supportedResources.rawValue), \(pending) pending (Apple's simulator: BGTaskSchedulerErrorDomain 3, 0, 0)")
             return "submit \(e); supported resources \(BGTaskScheduler.supportedResources.rawValue); \(pending) pending"
         })
         #endif
@@ -405,7 +418,8 @@ extension Registry {
             let u = URL(string: "https://example.com/sdkcov-\(UUID().uuidString)")!
             let r = P3Box<Bool>()
             Thread.detachNewThread { LSLinkSecurityManager.shared.checkIsFlaggedURL(u) { r.set($0) } }
-            guard let f = await r.wait(10) else { throw Skip("no answer from imagent's EnhancedLinkSecurityStore in 10 s (no imagent in the simulator runtime; Apple's simulator the same)") }
+            // the store is imagent's, absent from every simulator runtime: Apple's simulator never answers (10 s)
+            guard let f = await r.wait(10) else { return "no answer from imagent's EnhancedLinkSecurityStore in 10 s (no imagent in the simulator runtime, as on Apple's simulator)" }
             try expect(!f, "a fresh URL is flagged")
             return "flagged \(f)"
         })
@@ -420,8 +434,9 @@ extension Registry {
                 do { let resp = try await AgeRangeService.shared.requestAgeRange(ageGates: 13, 16, in: vc); r.set("\(resp)") }
                 catch { r.set("error \(p3Err(error))") }
             }
-            guard let got = await r.wait(10) else { throw Skip("requestAgeRange does not answer in 10 s (as isEligibleForAgeFeatures: Apple's simulator never answers)") }
-            return got
+            // Apple's simulator never answers (as isEligibleForAgeFeatures): that is the answer asserted
+            guard let got = await r.wait(10) else { return "requestAgeRange: no answer in 10 s (as on Apple's simulator)" }
+            throw Fail("requestAgeRange answered \(got) (Apple's simulator never answers)")
         })
         #endif
 
@@ -443,6 +458,9 @@ extension Registry {
             try expect(plat == .android, "platform codable")
             let req = ResourcesImportRequest(sourceAppIdentifier: id, sourceVersion: "1.0")
             _ = req
+            // Apple's simulator: no migration ever ran, so no import status
+            try expect(st == nil, "import status \(String(describing: st)) (Apple's simulator: nil)")
+            try expect(id.platform == .android && id.bundleIdentifier == "com.example.sdkcov", "identifier \(id)")
             return "import status \(String(describing: st)), platform \(MigrationPlatform.android.rawValue), store \(MigrationAppIdentifier.StoreIdentifier.googlePlay.rawValue)"
         })
         #endif
@@ -451,6 +469,8 @@ extension Registry {
             let w = OSSystemExtensionsWorkspace.shared
             var r = "-"
             do { r = "\(try w.systemExtensions(forApplicationWithBundleID: "com.x86sim.test.sdkcov").count) extensions" } catch { r = p3Err(error) }
+            // Apple's simulator: no system extension support, OSSystemExtensionErrorDomain 1 (unknown)
+            try expect(r == "OSSystemExtensionErrorDomain 1", "workspace: \(r) (Apple's simulator: OSSystemExtensionErrorDomain 1)")
             return "workspace: \(r)"
         })
         #endif
@@ -475,6 +495,9 @@ extension Registry {
                 b.frame = CGRect(origin: .zero, size: CGSize(width: max(s.width, 200), height: max(s.height, 44))); b.layoutIfNeeded()
                 try expect(b.bounds.width > 0 && d.isEnabled, "button \(b.frame)")
                 let params: [BCChatAction.Parameter: String] = [.intent: "sdkcov", .group: "g", .body: "hello"]
+                // Apple's simulator: the button's intrinsic size is 163.24 x 52 (light and dark alike)
+                let ds = d.intrinsicContentSize
+                try expect(abs(s.width - 163.24) < 0.5 && s.height == 52 && ds == s, "intrinsic \(s), dark \(ds) (Apple's simulator: 163.24 x 52)")
                 return "button intrinsic \(s), \(params.count) intent parameters"
             }
         })
@@ -498,6 +521,8 @@ extension Registry {
             let n = await first.wait(5); t.cancel()
             let cd = Alarm.CountdownDuration(preAlert: 10, postAlert: 5)
             try expect(cd.preAlert == 10 && cd.postAlert == 5, "countdown duration")
+            // Apple's simulator: not determined, no alarms, and alarmUpdates yields the empty list at once
+            try expect(st == .notDetermined && alarms.isEmpty && n == 0, "authorization \(st), \(alarms.count) alarms, first update \(String(describing: n)) (Apple's simulator: notDetermined, 0, 0)")
             return "authorization \(st), \(alarms.count) alarms, first update \(n.map { "\($0) alarms" } ?? "none in 5 s")"
         })
         #endif

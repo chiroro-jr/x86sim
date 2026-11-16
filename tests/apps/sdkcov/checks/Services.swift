@@ -508,6 +508,9 @@ extension Registry {
         c.append(check("MetricKit", "manager") {
             final class S: NSObject, MXMetricManagerSubscriber {}
             let s = S(); MXMetricManager.shared.add(s); MXMetricManager.shared.remove(s)
+            // Apple's simulator never delivers MetricKit payloads (no metrics / diagnostics reports)
+            try expect(MXMetricManager.shared.pastPayloads.isEmpty && MXMetricManager.shared.pastDiagnosticPayloads.isEmpty,
+                       "\(MXMetricManager.shared.pastPayloads.count) past payloads, \(MXMetricManager.shared.pastDiagnosticPayloads.count) diagnostics (Apple's simulator: none)")
             return "\(MXMetricManager.shared.pastPayloads.count) past payloads"
         })
         #endif

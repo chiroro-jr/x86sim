@@ -103,11 +103,26 @@ extension Registry {
         #endif
         #if canImport(FoundationModels) && (os(iOS) || os(visionOS))
         c.append(check("FoundationModels", "system-model-availability", timeout: 60) {
+            #if os(visionOS)
+            // (the model reports modelNotReady for a while after boot: wait for it as the respond check does)
+            let (_, av) = await p7SystemModel(30)
+            // the host Mac's Apple Intelligence state decides availability (Apple's runs: available, or modelNotReady for
+            // more than 30 s). Available: every generation is refused (ModelManagerError 1026, wrapped in a
+            // LanguageModelError) in Apple's visionOS simulator, the answer asserted
+            try skipIf(av != "available", "model \(av) after 30 s (Apple's visionOS simulator follows the host Mac; when available, generation is refused 1026)")
+            do {
+                let r = try await LanguageModelSession().respond(to: "Reply with the single word: pong")
+                throw Fail("answered '\(r.content.prefix(40))' (Apple's visionOS simulator refuses generation: ModelManagerError 1026)")
+            } catch let e where "\(e as NSError)".contains("ModelManagerError Code=1026") {
+                return "available; generation refused: ModelManagerError 1026 (as Apple's visionOS simulator)"
+            }
+            #else
             let m = SystemLanguageModel.default
             guard case .available = m.availability else { throw Skip("model \(m.availability) (Apple's simulator uses the host Mac's Apple Intelligence)") }
             let s = LanguageModelSession()
             let r = try await s.respond(to: "Reply with the single word: pong")
             return "answer '\(r.content.prefix(40))'"
+            #endif
         })
         #endif
         #if canImport(Translation) && os(iOS)   // visionOS: LanguageAvailability and TranslationSession unavailable

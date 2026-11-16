@@ -501,7 +501,9 @@ extension Registry {
             let b = P5Box<String>()
             m.activate { e in b.set(p5Err(e)) }
             let ans = await b.wait(15) ?? "no answer in 15 s"
-            try expect(ans != "no answer in 15 s", "activate never answered")
+            // Apple's simulator: no Exposure Notification entitlement / service, activate fails NSOSStatusErrorDomain -71148
+            try expect(ans == "NSOSStatusErrorDomain -71148" && m.exposureNotificationStatus == .unknown && ENManager.authorizationStatus == .unknown,
+                       "activate \(ans), status \(m.exposureNotificationStatus.rawValue), authorization \(ENManager.authorizationStatus.rawValue) (Apple's simulator: NSOSStatusErrorDomain -71148, 0, 0)")
             return "activate: \(ans), status \(m.exposureNotificationStatus.rawValue), authorization \(ENManager.authorizationStatus.rawValue)"
         })
         #endif

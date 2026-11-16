@@ -266,6 +266,7 @@ extension Registry {
             try expect(CoarseConversionValue(rawValue: "medium") == .medium, "CoarseConversionValue raw")
             var pb = "ok"
             do { try await Postback.updateConversionValue(upd) } catch { pb = "\(error)" }
+            try expect(pb.contains("NSCocoaErrorDomain Code=3328"), "Postback.updateConversionValue: \(pb) (Apple's: NSCocoaErrorDomain 3328)")
             return "junk JWS: \(jws); impressions supported \(AppImpression.isSupported), postbacks \(Postback.isSupported), update: \(pb)"
         })
         #endif
@@ -318,6 +319,8 @@ extension Registry {
             try expect(rb.minimumSystemVersion == "26.0" && rb.requiredDeviceCapabilities == ["arm64"] && rb.expectedInstallSize == 1 << 20, "InstallRequirements round trip")
             let v = AppVersion(appleItemID: 42, appleVersionID: 7)
             try expect(v.appleItemID == 42, "AppVersion")
+            // Apple's simulator never answers either for a simctl-installed app (no store / marketplace install record)
+            try expect(dist.hasPrefix("no answer") && region.hasPrefix("no answer"), "distributor \(dist), eligibility region \(region) (Apple's simulator: no answer in 15 s to either)")
             return "distributor \(dist), eligibility region \(region), requirements \(rj.count) B JSON"
         })
         #endif

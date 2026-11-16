@@ -243,6 +243,8 @@ extension Registry {
             d.close()
             let closed = "\(d.state)"
             try expect(closed == "closed" || closed.contains("closed"), "after close: \(closed)")
+            // Apple's simulator (no iCloud account): the directory opens straight into .error and stays there
+            try expect(states == ["error"] && after == "error" && wrote == "-", "states \(states), after finishSyncing \(after) (Apple's simulator: [error], error)")
             return "states \(states) -> after finishSyncing \(after); \(wrote); closed"
         })
         #endif

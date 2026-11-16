@@ -427,6 +427,10 @@ extension Registry {
                 return "\(l.count) accounts\(l.contains { $0.identifier == "sdkcov-user" } ? " incl. ours" : "")" } catch { return "error \(error)" } }()
             try expect(!upd.contains("no answer") && !q.contains("no answer"), "user account manager hung: update \(upd), query \(q)")
             if upd == "ok" { try expect(q.contains("incl. ours"), "registered account not returned: \(q)") }
+            // Apple's simulator: no TV-provider service. checkAccessStatus answers status 0 with VSPrivateErrorDomain -5;
+            // videosubscriptionsd's connection is interrupted (NSCocoaErrorDomain 4097) for the user account update
+            try expect(a == "status 0 error VSPrivateErrorDomain -5", "access \(a) (Apple's simulator: status 0 error VSPrivateErrorDomain -5)")
+            try expect(upd.contains("NSCocoaErrorDomain Code=4097") && upd.contains("videosubscriptionsd"), "update \(upd.prefix(200)) (Apple's simulator: NSCocoaErrorDomain 4097, videosubscriptionsd)")
             return "access \(a); update \(upd); query \(q)"
         })
         #endif

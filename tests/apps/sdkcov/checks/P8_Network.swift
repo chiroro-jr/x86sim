@@ -384,15 +384,19 @@ extension Registry {
         c.append(check("MultipeerConnectivity", "two-peer-data-stream-resource", timeout: 60) {
             // advertiser + browser in one process (service "sdkcov" = _sdkcov._tcp, in NSBonjourServices): find,
             // invite with a context, accept, then data, a stream and a resource from B to A
-            #if os(visionOS)
-            throw Skip("Apple's visionOS 27.2 simulator: the browser finds no peer in 30 s, no error (ref-mac.sh xros)")
-            #endif
             let mc = P8MC()
             await onMain { mc.start() }
             defer { Task { @MainActor in mc.stop() } }
             let t0 = Date()
+            // (visionOS too: Apple's visionOS 27.2 simulator once found no peer in 30 s, but connects both ways on a fresh
+            // device, ref-mac.sh xros 2026-11-16)
             while Date().timeIntervalSince(t0) < 30 && mc.lock.withLock({ mc.connected.count < 2 && mc.errors.isEmpty }) { try await Task.sleep(for: .milliseconds(100)) }
             let (found, invited, conn, errs, log) = mc.lock.withLock { (mc.found, mc.invited, mc.connected, mc.errors, mc.log) }
+            #if os(visionOS)
+            // Apple's visionOS 27.2 simulator: on some devices / runs the browser finds no peer in 30 s and nothing fails
+            // (ref-mac.sh xros), on others both connect: either answer, but nothing half-way and no error
+            if found.isEmpty && conn.isEmpty && errs.isEmpty && invited.isEmpty { return "no peer found in 30 s, no error (as Apple's visionOS simulator on some runs)" }
+            #endif
             try expect(conn.count == 2, "not connected in 30 s: found \(found), invited '\(invited)', connected \(conn.sorted()), errors \(errs), events \(log.suffix(6))")
             try expect(found["sdkcov-A"] == "8" && invited == "sdkcov-B ctx hello", "discovery info \(found), invitation '\(invited)'")
             try mc.sb.send(Data("mc-data".utf8), toPeers: [mc.a], with: .reliable)

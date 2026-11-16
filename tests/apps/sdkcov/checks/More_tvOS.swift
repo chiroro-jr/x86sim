@@ -684,7 +684,10 @@ extension Registry {
             case .cancelled: rs = "cancelled"
             @unknown default: rs = "unknown"
             }
-            return "prepareForActivation \(rs), eligible \(await onMain { st.isEligibleForGroupSession })"
+            let elig = await onMain { st.isEligibleForGroupSession }
+            // Apple's simulator (no FaceTime call): activation disabled, not eligible
+            try expect(rs == "activationDisabled" && !elig, "prepareForActivation \(rs), eligible \(elig) (Apple's simulator: activationDisabled, false)")
+            return "prepareForActivation \(rs), eligible \(elig)"
         })
         // MARK: new 27 frameworks
         c.append(check("NowPlaying", "media-session-primary", timeout: 30) {
@@ -730,6 +733,8 @@ extension Registry {
             try expect(faces == 0 && ids == 0, "\(faces) faces, \(ids) assets in a new analyzer")
             try await fa.deleteAllAssets()
             let st = await fa.state
+            // Apple's simulator: the empty store is ready
+            try expect("\(st)" == "ready", "state \(st) (Apple's simulator: ready)")
             try await FaceGroupAnalyzer.purge(workingDirectory: work)
             return "empty analyzer, state \(st)"
         })
@@ -777,7 +782,12 @@ extension Registry {
             }
             let t0 = Date()
             while lock.withLock({ r == nil }) && Date().timeIntervalSince(t0) < 10 { try await Task.sleep(nanoseconds: 50_000_000) }
-            guard let before = lock.withLock({ r }) else { throw Skip("no answer from imagent's EnhancedLinkSecurityStore in 10 s, at \(lock.withLock { stage }) (the simulator runtime has no imagent)") }
+            // Apple's simulator never answers (10 s): the call returns and the completion never runs
+            guard let before = lock.withLock({ r }) else {
+                let st = lock.withLock { stage }
+                try expect(st == "isFlaggedURL returned", "stage \(st) (Apple's simulator: isFlaggedURL returned, no answer)")
+                return "no answer from imagent's EnhancedLinkSecurityStore in 10 s, at \(st) (no imagent in the simulator runtime, as on Apple's simulator)"
+            }
             try expect(!before, "flagged before adding")
             return "flagged before add \(before)"
         })
@@ -1142,12 +1152,11 @@ extension Registry {
                 do {
                     let cur = try await WeatherService.shared.weather(for: CLLocation(latitude: 37.33, longitude: -122.01), including: .current)
                     return "current \(cur.temperature)"
-                } catch { return "error \(type(of: error)): \(String(describing: error).prefix(120))" }
+                } catch { return "error \(type(of: error)): \(String(describing: error).prefix(240))" }
             }
             guard let r else { throw Fail("no answer from WeatherService in 30 s") }
-            if r.contains("xpcConnectionFailed") && r.contains("weatherkit.auth") {
-                throw Skip("WeatherKit's auth service (com.apple.weatherkit.authservice) has no launchd job in the tvOS simulator runtime: \(r.prefix(60))")
-            }
+            // Apple's simulator: xpcConnectionFailed, NSCocoaErrorDomain 4097 on com.apple.weatherkit.authservice
+            try expect(r.contains("xpcConnectionFailed") && r.contains("Code=4097") && r.contains("weatherkit.auth"), "\(r) (Apple's simulator: xpcConnectionFailed, NSCocoaErrorDomain 4097 com.apple.weatherkit.authservice)")
             return r
         })
         c.append(check("ExtensionFoundation", "extension-point-monitor", timeout: 30) {

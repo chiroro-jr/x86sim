@@ -485,6 +485,8 @@ extension Registry {
             try expect(faces == 0 && ids == 0, "\(faces) faces, \(ids) assets in a new analyzer")
             try await fa.deleteAllAssets()
             let st = await fa.state
+            // Apple's simulator: the empty store is ready
+            try expect("\(st)" == "ready", "state \(st) (Apple's simulator: ready)")
             try await FaceGroupAnalyzer.purge(workingDirectory: work)
             return "empty analyzer, state \(st)"
         })
