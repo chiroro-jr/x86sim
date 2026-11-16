@@ -42,6 +42,8 @@ jobs:
         run: |
           git config --global url."https://github.com/".insteadOf "git@github.com:"
           git config --global url."https://github.com/".insteadOf "ssh://git@github.com/" --add
+          # Darling's ICU keeps its data archive (icudt78l.dat.xz) in Git LFS: the checkout must run the LFS filter
+          git lfs install
           git submodule sync --recursive
           git submodule update --init --depth 1 --jobs 8 external/metal2vulkan
           git submodule update --init --recursive --depth 1 --jobs 8 external/dynarmic
