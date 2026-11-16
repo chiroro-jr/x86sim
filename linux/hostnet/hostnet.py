@@ -14,6 +14,7 @@ import plistlib
 import re
 import subprocess
 import sys
+import time
 import uuid
 
 
@@ -71,6 +72,16 @@ def main():
         if a6:
             keys[st + "/IPv6"] = {"Addresses": a6, "PrefixLength": p6, "InterfaceName": ifname}
             keys["State:/Network/Interface/%s/IPv6" % ifname] = {"Addresses": a6, "PrefixLength": p6}
+    # configd's InterfaceNamer: when it named the interfaces and found them quiet (CFAbsoluteTime strings, as a Mac's
+    # store has them; SimulatorSupport mirrors the key). SystemConfiguration's SCNetworkInterfaceCopyAll() waits for
+    # *QUIET* / *COMPLETE* / *TIMEOUT* in it (__wait_for_IOKit_to_quiesce) with no timeout of its own: without the key it
+    # never returned, and MultipeerConnectivity's GCKSession hung in it before its first OSPF Hello (an MCSession
+    # invitation stayed "connecting").
+    now = "%f" % (time.time() - 978307200)
+    namer = {"*START*": now, "*STACK*": now, "*QUIET*": now, "*QUIET&NAMED*": now}
+    if routes:
+        namer[routes[0][1]] = now
+    keys["Plugin:InterfaceNamer"] = namer
     with open(sys.argv[1], "wb") as f:
         plistlib.dump(keys, f)
 
