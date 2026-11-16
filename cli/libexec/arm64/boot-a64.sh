@@ -213,6 +213,18 @@ MIN="com.apple.cfprefsd.xpc.daemon com.apple.cfprefsd.xpc.daemon.system com.appl
 # pointer (simhid's mouse, pointer capture); without it the mouse moved nothing visible. DragUI.druid (on demand): drag
 # and drop (com.apple.DragUI.druid.source / .destination); without it a long press on a UIDragInteraction view asked
 # for its items and nothing lifted: no drag preview, no drop session reached any target (sdkcov func:UIKit.ipad-drag-drop).
+# devicecheckd (all four platforms) and AuthenticationServicesAgent (iOS, visionOS; on demand, sdkcov P8): DCDevice /
+# DCAppAttestService ask devicecheckd whether the client is supported; without it generateToken / generateKey failed
+# with DCError 0 (unknownSystemFailure, "Failed to connect to daemon") where Apple's simulator answers featureUnsupported.
+# ASAuthorizationController's requests go to AuthenticationServicesAgent (a Cryptex daemon); without it they failed at
+# once with NSCocoaErrorDomain 4099, where Apple's shows its passkey UI / answers ASAuthorizationError 1004.
+# contactsd, calaccessd, remindd (sdkcov P4, on demand on iOS / watchOS / visionOS: Apple ships contactsd and calaccessd
+# on demand; remindd's RunAtLoad becomes on demand in mksimdevice): the Contacts, Calendar and Reminders stores, which a
+# Mac's simulator serves. Without them CNContactStore.execute failed (CNErrorDomain 1 "Communication Error") and EventKit
+# answered notDetermined despite a TCC grant, where Apple's simulator saves and fetches (tests/apps/sdkcov P4_People.swift).
+# managedconfiguration.profiled (iOS, on demand): ManagedConfiguration's restrictions. Without it ATTrackingManager's
+# trackingAuthorizationStatus was restricted (1: MC's check-in with com.apple.managedconfiguration.profiled.public failed,
+# "No XPC connection in Simulator"), where Apple's simulator answers notDetermined (0).
 UI="com.apple.installcoordinationd com.apple.mobiletimerd com.apple.backboardd com.apple.SpringBoard com.apple.sleepd com.apple.TextInput.kbd com.apple.FileCoordination
 	com.apple.usernotificationsd com.apple.InputUI com.apple.assistantd com.apple.assetsd com.apple.geod com.apple.navd com.apple.Maps.mapssyncd
 	com.apple.campo com.apple.FileProvider com.apple.DesktopServicesHelper com.apple.PosterBoard com.apple.financed
@@ -223,7 +235,10 @@ UI="com.apple.installcoordinationd com.apple.mobiletimerd com.apple.backboardd c
 	com.apple.CoreAuthentication.daemon com.apple.storekitd com.apple.quicklook.ThumbnailsAgent com.apple.midiserver-sim
 	com.apple.locationd com.apple.pasteboard.pasted com.apple.wcd com.apple.voiced com.apple.accessibility.axassetsd com.apple.liveactivitiesd
 	com.apple.sharingd com.apple.sharinguiservice com.apple.GameController.gamecontrollerd com.apple.LocalAuthenticationUIService
-	com.apple.PointerUI.pointeruid com.apple.DragUI.druid"
+	com.apple.PointerUI.pointeruid com.apple.DragUI.druid
+	com.apple.ctkd com.apple.syncdefaultsd com.apple.accountsd com.apple.amsaccountsd com.apple.devicemanagementclient.managedappsd
+	com.apple.devicecheckd com.apple.AuthenticationServicesCore.AuthenticationServicesAgent
+	com.apple.contactsd com.apple.calaccessd com.apple.remindd com.apple.managedconfiguration.profiled com.apple.mediaremoted"
 UI_SLIM="com.apple.backboardd com.apple.SpringBoard com.apple.TextInput.kbd com.apple.FileCoordination com.apple.InputUI
 	com.apple.assistantd"
 FULLUI="com.apple.chronod"
@@ -242,12 +257,19 @@ OUR_JOBS="com.x86sim.openurl=host/openurl/$A64_HOSTDIR/openurl
 # gamecontrollerd (on demand: an app's GameController looks it up): it turns host/simhid's virtual gamepad (the
 # simulator's "Gamepad", as Apple's tvOS SimulatorHID adds) into a GCController. Without it GCController.controllers()
 # stayed empty where Apple's tvOS simulator lists that one controller.
+# sdkcov P1: mediaremoted (on demand) on iOS, watchOS and visionOS too, as on tvOS above: NowPlaying's
+# MediaSession.requestToBecomeApplicationPrimary() threw internalFailure without it, where Apple's iOS / watchOS / visionOS
+# 27.2 simulators return (sdkcov func:NowPlaying.media-session-primary).
+# sdkcov P1: assetsd (on demand, feature "photos") on tvOS and visionOS too, as in Apple's simulators: without it
+# PHPhotoLibrary.performChanges failed with PHPhotosErrorDomain 3301 (operation interrupted) on tvOS, where Apple's
+# tvOS 27.2 simulator creates and fetches the assets (sdkcov func:Photos.library-create-fetch-request).
 TV_UI="com.apple.installcoordinationd com.apple.backboardd com.apple.Pineboard com.apple.TextInput.kbd
 	com.apple.FileCoordination com.apple.usernotificationsd com.apple.assistantd com.apple.TVSystemUIService
 	com.apple.PosterBoard com.apple.campo com.apple.splashboardd com.apple.MediaRemoteUI com.apple.assetsubscriptiond
 	com.apple.mobileassetd com.apple.tvremoted com.apple.CoreAuthentication.daemon com.apple.storekitd
 	com.apple.voiced com.apple.accessibility.axassetsd com.apple.geod com.apple.mediaremoted
-	com.apple.GameController.gamecontrollerd"
+	com.apple.GameController.gamecontrollerd com.apple.assetsd
+	com.apple.ctkd com.apple.syncdefaultsd com.apple.accountsd com.apple.amsaccountsd com.apple.devicecheckd"
 TV_UI_SLIM="com.apple.backboardd com.apple.Pineboard com.apple.TextInput.kbd com.apple.FileCoordination"
 # Inputs 2: watchgesturesd (on demand): the hand gestures (double tap, wrist flick) simhid's "gesture" hands to its
 # WatchGesturesSimulatorServer, as Apple's watchOS SimulatorHID does; without it they did nothing.
@@ -257,7 +279,8 @@ TV_UI_SLIM="com.apple.backboardd com.apple.Pineboard com.apple.TextInput.kbd com
 # Both: assetsubscriptiond (+ mobileassetd) as on iOS: it makes data/private/var/db/assetsubscriptiond, whose
 # UAFAssetSubscriptions.db assistantd opened 100-400 times a boot without it (sqlite "unable to open database file").
 # Watch: geod / navd / mapssyncd (on demand) as on iOS: without them the watch's Maps drew its empty grid, no tiles.
-# Watch + visionOS: ctkd, syncdefaultsd, accountsd, amsaccountsd (on demand, ~20-50 MB each once looked up), all in
+# All four platforms (iOS / tvOS since sdkcov P8, checked on Apple's iPad and tvOS 27.2 simulators; iOS also
+# devicemanagementclient.managedappsd, as visionOS below): ctkd, syncdefaultsd, accountsd, amsaccountsd (on demand, ~20-50 MB each once looked up), all in
 # Apple's simulator (ref-mac.sh watchos / xros, 27.2): without them TKTokenWatcher listed no tokens (Apple's: ctkd's
 # com.apple.setoken + setoken:aks), NSUbiquitousKeyValueStore.synchronize() was false (com.apple.kvsd) and StoreKit's
 # Storefront.current was nil (Apple's: USA 143441, from the simulator's local App Store sandbox account in accountsd).
@@ -272,7 +295,8 @@ WATCH_UI="com.apple.installcoordinationd com.apple.backboardd com.apple.Carousel
 	com.apple.assetsubscriptiond com.apple.mobileassetd com.apple.geod com.apple.navd com.apple.Maps.mapssyncd
 	com.apple.CoreAuthentication.daemon com.apple.storekitd com.apple.quicklook.ThumbnailsAgent com.apple.voiced
 	com.apple.accessibility.axassetsd com.apple.wcd com.apple.locationd com.apple.healthd
-	com.apple.ctkd com.apple.syncdefaultsd com.apple.accountsd com.apple.amsaccountsd com.apple.watchgesturesd"
+	com.apple.ctkd com.apple.syncdefaultsd com.apple.accountsd com.apple.amsaccountsd com.apple.watchgesturesd com.apple.devicecheckd
+	com.apple.contactsd com.apple.calaccessd com.apple.remindd com.apple.mediaremoted"
 WATCH_UI_SLIM="com.apple.backboardd com.apple.Carousel com.apple.TextInput.kbd com.apple.FileCoordination
 	com.apple.nanoregistryd com.apple.nanotimekitd"
 # Platforms 2: visionOS. SurfBoard is its SpringBoard; vhmdd (the simulator's virtual head-mounted display,
@@ -292,7 +316,9 @@ XR_UI="com.apple.installcoordinationd com.apple.backboardd com.apple.SurfBoard c
 	com.apple.pasteboard.pasted com.apple.wcd com.apple.voiced com.apple.accessibility.axassetsd
 	com.apple.ctkd com.apple.syncdefaultsd com.apple.accountsd com.apple.amsaccountsd
 	com.apple.locationd com.apple.FileProvider com.apple.devicemanagementclient.managedappsd
-	com.apple.GameController.gamecontrollerd com.apple.LocalAuthenticationUIService"
+	com.apple.GameController.gamecontrollerd com.apple.LocalAuthenticationUIService
+	com.apple.devicecheckd com.apple.AuthenticationServicesCore.AuthenticationServicesAgent
+	com.apple.contactsd com.apple.calaccessd com.apple.remindd com.apple.assetsd com.apple.mediaremoted"
 XR_UI_SLIM="com.apple.backboardd com.apple.SurfBoard com.apple.vhmdd com.apple.wakeboardd com.apple.RealityEnvironment com.apple.TextInput.kbd
 	com.apple.FileCoordination"
 # No fpsim2host on tvOS / watchOS: their FileProvider has no FPSimulatorSupportInterface (no Files app), so it exited 1
