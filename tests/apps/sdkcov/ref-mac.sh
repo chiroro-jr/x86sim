@@ -51,7 +51,7 @@ xcrun simctl install "$dev" "$W/sdkcov-$plat.app" || exit 1
 # app stayed inactive behind it, applicationState 1): grant it up front
 # (simctl privacy over ssh fails here: "Failed to create TCC authorization record: Operation not permitted"; the
 # device's TCC.db takes the row directly, as simctl would write it)
-case $plat in tvos|watchos|xros) xcrun simctl privacy "$dev" grant homekit com.x86sim.test.sdkcov >/dev/null 2>&1 ||
+case $plat in ios|tvos|watchos|xros) xcrun simctl privacy "$dev" grant homekit com.x86sim.test.sdkcov >/dev/null 2>&1 ||
 	sqlite3 "$HOME/Library/Developer/CoreSimulator/Devices/$dev/data/Library/TCC/TCC.db" "insert or replace into access
 		(service, client, client_type, auth_value, auth_reason, auth_version, flags) values
 		('kTCCServiceWillow', 'com.x86sim.test.sdkcov', 0, 2, 4, 1, 0)" || echo "ref-mac: HomeKit not pre-granted" ;; esac
@@ -60,6 +60,10 @@ case $plat in ios|tvos|xros) xcrun simctl privacy "$dev" grant photos com.x86sim
 	sqlite3 "$HOME/Library/Developer/CoreSimulator/Devices/$dev/data/Library/TCC/TCC.db" "insert or replace into access
 		(service, client, client_type, auth_value, auth_reason, auth_version, flags) values
 		('kTCCServicePhotos', 'com.x86sim.test.sdkcov', 0, 2, 4, 2, 0)" || echo "ref-mac: Photos not pre-granted" ;; esac
+# Location when in use + a simulated location (Apple Park) for P5_Location.swift's CoreLocation checks, as run.sh does
+# on x86Sim (x86sim privacy / x86sim location)
+xcrun simctl privacy "$dev" grant location com.x86sim.test.sdkcov >/dev/null 2>&1 || echo "ref-mac: location not pre-granted"
+xcrun simctl location "$dev" set 37.3349,-122.0090 >/dev/null 2>&1 || echo "ref-mac: no simulated location"
 # Contacts, Calendars (full access) and Reminders for P4_People.swift's store checks, as run.sh grants them on x86Sim
 for svc in AddressBook Calendar Reminders; do sqlite3 "$HOME/Library/Developer/CoreSimulator/Devices/$dev/data/Library/TCC/TCC.db" "insert or replace into access
 	(service, client, client_type, auth_value, auth_reason, auth_version, flags) values

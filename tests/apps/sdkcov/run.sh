@@ -35,9 +35,10 @@ DATA=$(xs get_app_container "$BID" data 2>/dev/null)
 [ -d "$DATA" ] || { echo "sdkcov: no data container for $BID" >&2; exit 1; }
 RES=$DATA/Documents/x86test-results.txt
 rm -f "$X86SIM_DEVICE"/data/tmp/sdkcov-*.out "$X86SIM_DEVICE"/data/tmp/sdkcov-*.err
-# tvOS / watchOS / visionOS: func:HomeKit.manager's Home access prompt would cover the app for the rest of the run (the
-# focus, window and snapshot checks then fail "not foreground-active"): granted up front, as ref-mac.sh does on Apple's
-case $plat in tvos|watchos|xros) sqlite3 "$X86SIM_DEVICE/data/Library/TCC/TCC.db" "insert or replace into access
+# func:HomeKit.manager's Home access prompt would cover the app for the rest of the run (tvOS / watchOS / visionOS: the
+# focus, window and snapshot checks then fail "not foreground-active"; P5_Home.swift's home manager checks need it on
+# iOS too): granted up front, as ref-mac.sh does on Apple's
+case $plat in ios|tvos|watchos|xros) sqlite3 "$X86SIM_DEVICE/data/Library/TCC/TCC.db" "insert or replace into access
 	(service, client, client_type, auth_value, auth_reason, auth_version, flags) values
 	('kTCCServiceWillow', '$BID', 0, 2, 4, 1, 0)" 2>/dev/null || echo "  note: HomeKit not pre-granted (no TCC.db yet?)" ;; esac
 # Photos read-write access (P1_Library.swift's library checks write and fetch assets; no prompt), the row simctl
@@ -49,6 +50,10 @@ case $plat in ios|tvos|xros) sqlite3 "$X86SIM_DEVICE/data/Library/TCC/TCC.db" "i
 for svc in AddressBook Calendar Reminders; do sqlite3 "$X86SIM_DEVICE/data/Library/TCC/TCC.db" "insert or replace into access
 	(service, client, client_type, auth_value, auth_reason, auth_version, flags) values
 	('kTCCService$svc', '$BID', 0, 2, 4, 1, 0)" 2>/dev/null || echo "  note: $svc not pre-granted (no TCC.db yet?)"; done
+# Location when in use + a simulated location (Apple Park) for P5_Location.swift's CoreLocation checks (no prompt): as
+# ref-mac.sh does with simctl privacy / simctl location
+xs privacy grant location "$BID" >/dev/null 2>&1 || echo "  note: location not pre-granted (x86sim privacy)"
+xs location set 37.3349,-122.0090 >/dev/null 2>&1 || echo "  note: no simulated location (x86sim location)"
 [ "$fresh" = 1 ] && rm -f "$RES" "$DATA/Documents/sdkcov-progress" "$DATA/Documents/sdkcov-coverage.json"
 # a finished previous run starts over by itself (Harness.prepare); an unfinished one resumes
 echo "sdkcov $plat on $(basename "$X86SIM_DEVICE"): results $RES"
