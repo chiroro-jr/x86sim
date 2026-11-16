@@ -345,8 +345,11 @@ extension Registry {
         #endif
         #if canImport(CoreMIDI) && (os(iOS) || os(visionOS))
         c.append(check("CoreMIDI", "virtual-loopback") {
+            // The client is kept for the life of the app, as apps do: with the process's last client disposed,
+            // MIDIServer exits when idle (~5 s) and CoreMIDI cancels this process's server connection for good; every
+            // later CoreMIDI call here failed (MIDINetworkSession's contacts stayed empty: func:CoreMIDI.ump-ci-network
+            // "contact not added"). Apple's simulator does the same (24B8117, --only func:CoreMIDI, 2026-11-16).
             var client = MIDIClientRef(); let cs = MIDIClientCreateWithBlock("sdkcov" as CFString, &client, nil); try expect(cs == noErr, "MIDIClientCreate \(cs)")
-            defer { MIDIClientDispose(client) }
             let got = NSLock(); var notes: [UInt32] = []
             var dst = MIDIEndpointRef()
             // Apple's simulator: the client works, a virtual destination does not (checked on 24B8117)
