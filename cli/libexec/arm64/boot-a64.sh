@@ -57,12 +57,19 @@ rm -rf "$D"/data/var/log/*.log
 # renders through crashed that phone's metalhostd -> backboardd -> SpringBoard and every app (a black screen with a
 # spinner for ~30-60 s, open apps lost; software rendering if no mtlvk came back): a CLI boot, a launcher phone with
 # sharing off, and every non-KEEP boot's exit did it.
+# A phone still booting has no darlingserver yet: its boot-a64.sh (A64_MTLVK_SOCKET from the launcher) counts too, or
+# stopping the mtlvk's owner in that window took the booting phone's Metal away.
 a64_mtlvk_users() {
 	local want="X86SIM_MTLVK_SOCKET=$1" n=0 p
 	for p in /proc/[0-9]*; do
-		[ "$(cat "$p/comm" 2>/dev/null)" = darlingserver ] || continue
-		tr '\0' ' ' < "$p/cmdline" 2>/dev/null | grep -q "darlingserver $DPREFIX " && continue
-		tr '\0' '\n' 2>/dev/null < "$p/environ" | grep -qxF "$want" && n=$((n+1))
+		case "$(cat "$p/comm" 2>/dev/null)" in
+		darlingserver)
+			tr '\0' ' ' < "$p/cmdline" 2>/dev/null | grep -q "darlingserver $DPREFIX " && continue
+			tr '\0' '\n' 2>/dev/null < "$p/environ" | grep -qxF "$want" && n=$((n+1)) ;;
+		boot-a64.sh)
+			tr '\0' '\n' 2>/dev/null < "$p/environ" | grep -qxF -e "A64_STOP_ONLY=1" -e "A64_DPREFIX=$DPREFIX" && continue
+			tr '\0' '\n' 2>/dev/null < "$p/environ" | grep -qxF "A64_MTLVK_SOCKET=$1" && n=$((n+1)) ;;
+		esac
 	done
 	echo $n
 }
@@ -82,7 +89,7 @@ stop_a64_mtlvk() {
 		fi
 	fi
 	old=$(cat "$ST/mtlvk.pid" 2>/dev/null || true)
-	if [ -n "$old" ] && [ -d "/proc/$old" ]; then
+	if [ -n "$old" ] && [ "$(cat "/proc/$old/comm" 2>/dev/null)" = mtlvk ]; then  # not a process that reused its pid
 		kill "$old" 2>/dev/null || true
 		sleep 0.2
 		[ -d "/proc/$old" ] && kill -9 "$old" 2>/dev/null || true
@@ -111,8 +118,11 @@ if [ -n "$X86SIM_METAL" ] && [ "$X86SIM_METAL" != 0 ] && [ -z "${A64_MTLVK_SOCKE
 		# another phone renders through this boot's earlier mtlvk: use it too (a fresh one would take theirs down)
 		echo "boot-a64: reusing mtlvk (pid $(cat "$ST/mtlvk.pid")), other phones use it" >&2
 	elif stop_a64_mtlvk && [ -x "$MTLVK_BIN" ]; then
-		setsid "$MTLVK_BIN" "$ST/mtlvk.sock" > "$ST/mtlvk.log" 2>&1 &
-		echo $! > "$ST/mtlvk.pid"
+		# started from a subshell that exits at once, so mtlvk is not a child of this script: stop_prefix ends an earlier
+		# boot's script of this device with its children (pkill -P), and while this script ran (its first ~40 s) a stop
+		# or a re-boot of this phone SIGTERMed the mtlvk that other phones had started sharing (their apps then got no
+		# MTLDevice until rebooted)
+		(setsid "$MTLVK_BIN" "$ST/mtlvk.sock" > "$ST/mtlvk.log" 2>&1 < /dev/null & echo $! > "$ST/mtlvk.pid")
 		for i in $(seq 1 50); do [ -S "$ST/mtlvk.sock" ] && break; sleep 0.1; done
 	fi
 	mpid=$(cat "$ST/mtlvk.pid" 2>/dev/null || true)
@@ -642,7 +652,10 @@ stop_prefix() {
 		[ "$(cat "$d/comm" 2>/dev/null)" = boot-a64.sh ] || continue
 		tr '\0' '\n' 2>/dev/null < "$d/environ" | grep -qxF "A64_DEVICE=$D" || continue
 		tr '\0' '\n' 2>/dev/null < "$d/environ" | grep -qx 'A64_STOP_ONLY=1' && continue
-		pkill -P "$p" 2>/dev/null; kill "$p" 2>/dev/null
+		# its children but an mtlvk (one an older boot-a64.sh started as its child): other phones may render through it,
+		# stop_a64_mtlvk / the launcher end it when none does
+		for c in $(pgrep -P "$p"); do [ "$(cat "/proc/$c/comm" 2>/dev/null)" = mtlvk ] || kill "$c" 2>/dev/null; done
+		kill "$p" 2>/dev/null
 	done
 	timeout 30 "$X86SIM_DARLING" shutdown 2>/dev/null
 	for i in $(seq 1 50); do
@@ -861,7 +874,13 @@ if [ "${A64_PREFETCH:-1}" != 0 ] && [ "${A64_PREFETCH_EARLY_CAPPED:-0}" != 1 ] &
 	(python3 -I "$X/cli/libexec/arm64/prefetch.py" read "$ST/prefetch.early" > "$ST/prefetch-read.log" 2>&1 &)
 	PF_INNER="$ST/prefetch.hot"
 fi
-(cli/libexec/limited.sh env \
+# The container at the highest OOM score (oom_score_adj 1000, inherited by darlingserver and every guest; a process may
+# raise its own): in a host-wide OOM the kernel takes a guest process (an app, a daemon its launchd restarts), not the
+# shared mtlvk (this script's score). On 2026-11-15 a host-wide OOM during parallel boots killed the iphone-duo's mtlvk
+# (the largest process at the same score), and every app of each phone rendering through it had no MTLDevice until
+# that phone was rebooted.
+(echo 1000 > /proc/self/oom_score_adj 2>/dev/null
+cli/libexec/limited.sh env \
 	DPREFIX="$DPREFIX" \
 	X86SIM_DARLING="$X86SIM_DARLING" \
 	A64_TZNAME="$TZNAME" \

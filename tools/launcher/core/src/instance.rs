@@ -722,7 +722,8 @@ pub fn restart(inst: &Instance, st: Option<&Status>, others: &[Status]) -> Resul
 }
 
 /// Ends the mtlvk a boot started in `state_dir` if no running container uses its socket (a darlingserver's
-/// environment names the socket its phone renders through).
+/// environment names the socket its phone renders through) and no phone still booting was given it (its boot-a64.sh's
+/// A64_MTLVK_SOCKET, `start`: before its darlingserver is up, stopping the mtlvk's owner took the new phone's Metal away).
 pub fn stop_gpu_helper(state_dir: &Path) {
     let Ok(pid) = read(&format!("{}/mtlvk.pid", state_dir.display())).trim().parse::<u32>() else { return };
     if read(&format!("/proc/{pid}/comm")).trim() != "mtlvk" {
@@ -730,9 +731,18 @@ pub fn stop_gpu_helper(state_dir: &Path) {
     }
     let sock = state_dir.join("mtlvk.sock");
     let want = format!("X86SIM_MTLVK_SOCKET={}", sock.display());
+    let booting = format!("A64_MTLVK_SOCKET={}", sock.display());
     let used = std::fs::read_dir("/proc").into_iter().flatten().flatten().any(|e| {
         let p = e.path();
-        read(&format!("{}/comm", p.display())).trim() == "darlingserver" && read(&format!("{}/environ", p.display())).split('\0').any(|kv| kv == want)
+        let env = || read(&format!("{}/environ", p.display()));
+        match read(&format!("{}/comm", p.display())).trim() {
+            "darlingserver" => env().split('\0').any(|kv| kv == want),
+            "boot-a64.sh" => {
+                let env = env();
+                !env.split('\0').any(|kv| kv == "A64_STOP_ONLY=1") && env.split('\0').any(|kv| kv == booting)
+            }
+            _ => false,
+        }
     });
     if used {
         return;
