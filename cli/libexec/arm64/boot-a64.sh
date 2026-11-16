@@ -238,6 +238,12 @@ MIN="com.apple.cfprefsd.xpc.daemon com.apple.cfprefsd.xpc.daemon.system com.appl
 # INVoiceShortcutCenter.getAllVoiceShortcuts answered IntentsErrorDomain 7001, Apple's visionOS simulator 0 shortcuts.
 # translationd (iOS, on demand, sdkcov P7): LanguageAvailability / TranslationSession; without it supportedLanguages
 # stayed empty for 15 s, Apple's lists 47.
+# callservicesd (iOS, watchOS, visionOS), UsageTrackingAgent, ScreenTimeAgent (iOS; on demand, sdkcov P3): CallKit's
+# call host and DeviceActivity's / ScreenTime's agents, all in Apple's simulators. Without them
+# CXProvider.reportNewIncomingCall failed (com.apple.CallKit.error 0) and CXCallController requests 4099,
+# DeviceActivityCenter.startMonitoring and STWebHistory.fetchAllHistory 4099, where Apple's iOS 27.2 simulator takes the
+# calls, answers unauthorized and 0 URLs (P3_Services.swift, P3_Family.swift); on watchOS / visionOS callservicesd
+# refuses both calls as Apple's does (incoming error 0, transaction unentitled 1).
 # managedconfiguration.profiled (iOS, on demand): ManagedConfiguration's restrictions. Without it ATTrackingManager's
 # trackingAuthorizationStatus was restricted (1: MC's check-in with com.apple.managedconfiguration.profiled.public failed,
 # "No XPC connection in Simulator"), where Apple's simulator answers notDetermined (0).
@@ -257,7 +263,8 @@ UI="com.apple.installcoordinationd com.apple.mobiletimerd com.apple.backboardd c
 	com.apple.contactsd com.apple.calaccessd com.apple.remindd com.apple.managedconfiguration.profiled com.apple.mediaremoted
 	com.apple.gamed com.apple.gamesaved
 	com.apple.homed
-	com.apple.linkd com.apple.mediaanalysisd com.apple.mediaanalysisd.service com.apple.translationd"
+	com.apple.linkd com.apple.mediaanalysisd com.apple.mediaanalysisd.service com.apple.translationd
+	com.apple.telephonyutilities.callservicesd com.apple.UsageTrackingAgent com.apple.ScreenTimeAgent"
 UI_SLIM="com.apple.backboardd com.apple.SpringBoard com.apple.TextInput.kbd com.apple.FileCoordination com.apple.InputUI
 	com.apple.assistantd"
 FULLUI="com.apple.chronod"
@@ -265,8 +272,14 @@ FULLUI="com.apple.chronod"
 # showed Recents. DesktopServicesHelper (Speed 17, on demand): Files lists On My iPhone (the LocalStorage domain, no
 # extension in iOS 27) through DesktopServices, whose com.apple.DesktopServicesHelper.FileService does the file
 # operations. Without it the folder stayed "Loading" and New Folder did nothing.
+# sdkcov P5: nisimhost (on demand: an NISession's first lookup) stands in for the Mac's CoreSimulator Nearby Interaction
+# service (host/nisimhost): Apple's simulators have no nearbyd, an NISession checks its discovery token in with
+# com.apple.CoreSimulator.NearbyInteraction on the host. Without it NISession.discoveryToken stayed nil where Apple's
+# iOS / watchOS 27.2 simulators give one (P5_Sensors.swift func:NearbyInteraction). No NearbyInteraction on tvOS.
+NI_JOB="com.x86sim.nisimhost=host/nisimhost/$A64_HOSTDIR/nisimhost|mach:com.apple.CoreSimulator.NearbyInteraction"
 OUR_JOBS="com.x86sim.openurl=host/openurl/$A64_HOSTDIR/openurl
-	com.x86sim.fpsim2host=host/fpsim2host/$A64_HOSTDIR/fpsim2host|mach:com.apple.FileProvider.sim2host"
+	com.x86sim.fpsim2host=host/fpsim2host/$A64_HOSTDIR/fpsim2host|mach:com.apple.FileProvider.sim2host
+	$NI_JOB"
 # Platforms 1: tvOS. PineBoard is tvOS's SpringBoard (the home screen, "Top Shelf" and the app switcher); TVSystemUIService
 # (angel) draws the system overlays (volume, Control Center). No sleepd, InputUI or nanoregistryd on tvOS.
 # geod + mediaremoted (tvOS sdkcov round, on demand, both in Apple's tvOS simulator): without geod an app's MapKit
@@ -289,6 +302,9 @@ OUR_JOBS="com.x86sim.openurl=host/openurl/$A64_HOSTDIR/openurl
 # sdkcov P1: assetsd (on demand, feature "photos") on tvOS and visionOS too, as in Apple's simulators: without it
 # PHPhotoLibrary.performChanges failed with PHPhotosErrorDomain 3301 (operation interrupted) on tvOS, where Apple's
 # tvOS 27.2 simulator creates and fetches the assets (sdkcov func:Photos.library-create-fetch-request).
+# backgroundassets.user (tvOS, on demand, sdkcov P3): Background Assets' per-user daemon. With BAInitialDownloadRestrictions
+# in the app (build.sh) BADownloadManager.fetchCurrentDownloads failed (Foundation._GenericObjCError 0) without it, where
+# Apple's tvOS 27.2 simulator answers 0 downloads (More_tvOS.swift func:BackgroundAssets.asset-pack-manager-downloads).
 TV_UI="com.apple.installcoordinationd com.apple.backboardd com.apple.Pineboard com.apple.TextInput.kbd
 	com.apple.homed com.apple.locationd
 	com.apple.FileCoordination com.apple.usernotificationsd com.apple.assistantd com.apple.TVSystemUIService
@@ -297,7 +313,7 @@ TV_UI="com.apple.installcoordinationd com.apple.backboardd com.apple.Pineboard c
 	com.apple.voiced com.apple.accessibility.axassetsd com.apple.geod com.apple.mediaremoted
 	com.apple.GameController.gamecontrollerd com.apple.assetsd
 	com.apple.ctkd com.apple.syncdefaultsd com.apple.accountsd com.apple.amsaccountsd com.apple.devicecheckd com.apple.gamed
-	com.apple.linkd"
+	com.apple.linkd com.apple.backgroundassets.user"
 TV_UI_SLIM="com.apple.backboardd com.apple.Pineboard com.apple.TextInput.kbd com.apple.FileCoordination"
 # Inputs 2: watchgesturesd (on demand): the hand gestures (double tap, wrist flick) simhid's "gesture" hands to its
 # WatchGesturesSimulatorServer, as Apple's watchOS SimulatorHID does; without it they did nothing.
@@ -325,7 +341,7 @@ WATCH_UI="com.apple.installcoordinationd com.apple.backboardd com.apple.Carousel
 	com.apple.accessibility.axassetsd com.apple.wcd com.apple.locationd com.apple.healthd
 	com.apple.ctkd com.apple.syncdefaultsd com.apple.accountsd com.apple.amsaccountsd com.apple.watchgesturesd com.apple.devicecheckd
 	com.apple.contactsd com.apple.calaccessd com.apple.remindd com.apple.mediaremoted com.apple.gamed
-	com.apple.linkd"
+	com.apple.linkd com.apple.telephonyutilities.callservicesd"
 WATCH_UI_SLIM="com.apple.backboardd com.apple.Carousel com.apple.TextInput.kbd com.apple.FileCoordination
 	com.apple.nanoregistryd com.apple.nanotimekitd"
 # Platforms 2: visionOS. SurfBoard is its SpringBoard; vhmdd (the simulator's virtual head-mounted display,
@@ -336,6 +352,14 @@ WATCH_UI_SLIM="com.apple.backboardd com.apple.Carousel com.apple.TextInput.kbd c
 # services sdkcov needs (searchd + corespotlightservice, CoreAuthentication.daemon ... axassetsd, as above). chronod
 # (WidgetCenter) stays the "widgets" feature as on iOS: on visionOS SurfBoard's RealityWidgets starts it at boot and it
 # runs the room's widget extensions (Calendar, News, ...): ~350 MB.
+# sdkcov gaps round: managedassetsd (on demand): visionOS locationd asks it for the app's in-use state
+# (#MAIUA addInUseObserverWithAuditToken, Framework-InUseArbiter); without it every app stayed InUseLevel 0 and
+# requestLocation / CLLocationUpdate.liveUpdates failed kCLErrorDenied although authorized when in use, where Apple's
+# visionOS 27.2 simulator delivers the simulated location (P5_Location.swift). eligibilityd (runs at boot until it has
+# written /var/db/eligibilityd/eligibility.plist, as in Apple's simulators: answers forced "Simulator"): without that file
+# GMAvailabilityWrapper.isDeviceEligible was false, kbd's DataDeliveryServices skipped "prewarm-embedding-assets" (no
+# UAF com.apple.linguisticdata subscription, no mBERT asset) and NLContextualEmbedding.hasAvailableAssets stayed false
+# where Apple's visionOS simulator downloads the asset and answers true (P7_ML.swift).
 XR_UI="com.apple.installcoordinationd com.apple.backboardd com.apple.SurfBoard com.apple.vhmdd com.apple.wakeboardd
 	com.apple.homed com.apple.healthd com.apple.geod com.apple.navd
 	com.apple.RealityEnvironment
@@ -350,15 +374,16 @@ XR_UI="com.apple.installcoordinationd com.apple.backboardd com.apple.SurfBoard c
 	com.apple.devicecheckd com.apple.AuthenticationServicesCore.AuthenticationServicesAgent
 	com.apple.contactsd com.apple.calaccessd com.apple.remindd com.apple.assetsd com.apple.mediaremoted
 	com.apple.gamed com.apple.gamesaved
-	com.apple.linkd com.apple.mediaanalysisd com.apple.mediaanalysisd.service com.apple.siriactionsd"
+	com.apple.linkd com.apple.mediaanalysisd com.apple.mediaanalysisd.service com.apple.siriactionsd
+	com.apple.managedassetsd com.apple.eligibilityd com.apple.telephonyutilities.callservicesd"
 XR_UI_SLIM="com.apple.backboardd com.apple.SurfBoard com.apple.vhmdd com.apple.wakeboardd com.apple.RealityEnvironment com.apple.TextInput.kbd
 	com.apple.FileCoordination"
 # No fpsim2host on tvOS / watchOS: their FileProvider has no FPSimulatorSupportInterface (no Files app), so it exited 1
 # at every boot.
 case $A64_PLATFORM in
 	tvos) UI=$TV_UI; UI_SLIM=$TV_UI_SLIM; FULLUI=; OUR_JOBS="com.x86sim.openurl=host/openurl/$A64_HOSTDIR/openurl" ;;
-	watchos) UI=$WATCH_UI; UI_SLIM=$WATCH_UI_SLIM; FULLUI=; OUR_JOBS="com.x86sim.openurl=host/openurl/$A64_HOSTDIR/openurl" ;;
-	xros) UI=$XR_UI; UI_SLIM=$XR_UI_SLIM; FULLUI=; OUR_JOBS="com.x86sim.openurl=host/openurl/$A64_HOSTDIR/openurl" ;;
+	watchos) UI=$WATCH_UI; UI_SLIM=$WATCH_UI_SLIM; FULLUI=; OUR_JOBS="com.x86sim.openurl=host/openurl/$A64_HOSTDIR/openurl $NI_JOB" ;;
+	xros) UI=$XR_UI; UI_SLIM=$XR_UI_SLIM; FULLUI=; OUR_JOBS="com.x86sim.openurl=host/openurl/$A64_HOSTDIR/openurl $NI_JOB" ;;
 esac
 case "${A64_JOBS:-std}" in
 	min) JOBS="$MIN $OUR_JOBS" ;;
@@ -684,6 +709,16 @@ for fw in CoreSpotlight; do
 	ln -sfn "/Volumes/SystemRoot$(realpath "$X86SIM_RUNTIME")/System/Library/Frameworks/$fw.framework" \
 		"$DPREFIX/System/Library/Frameworks/$fw.framework"
 done
+# The same for the LinguisticData catalog: DataDeliveryServices (kbd) reads the UAF locales of the linguistic assets from
+# /System/Library/LinguisticData/Info.plist by absolute path (DDSUAFSupportedLocalesForLinguisticDataAssets), on a Mac
+# the host's copy. Without it no locale was supported: kbd's "prewarm-embedding-assets" and TextInput assertions made no
+# UAF com.apple.linguisticdata subscription ("No asset set usages created from query"), the mBERT asset was never
+# downloaded and NLContextualEmbedding.hasAvailableAssets stayed false where Apple's visionOS 27.2 simulator answers true
+# once mobileassetd has it (P7_ML.swift).
+if [ -d "$X86SIM_RUNTIME/System/Library/LinguisticData" ]; then
+	mkdir -p "$DPREFIX/System/Library"
+	ln -sfn "/Volumes/SystemRoot$(realpath "$X86SIM_RUNTIME")/System/Library/LinguisticData" "$DPREFIX/System/Library/LinguisticData"
+fi
 # Private frameworks too: TextToSpeech opens [NSBundle bundleWithPath:@"/System/Library/PrivateFrameworks/
 # TextToSpeechMauiSupport.framework"] (the built-in voices, TTSResources): on a Mac that is the host's copy. Without it
 # AVSpeechSynthesisVoice.speechVoices() was empty (axassetsd's VoiceDB: OnDiskVoiceError) and AVSpeechSynthesizer silent.
@@ -717,6 +752,16 @@ for fw in PrivateFrameworks/AuthKitUI; do
 		[ -e "$DLOWER/System/Library/$fw.framework/${e##*/}" ] || ln -sfn "/Volumes/SystemRoot$e" "$dst/${e##*/}"
 	done
 done
+# Host frameworks no runtime has: ARKit's errors (ns_error_create_with_code_and_userinfo) take their descriptions from
+# ARKitCoreBundle() = [NSBundle bundleWithPath:@"/System/Library/PrivateFrameworks/ARKitCore.framework"], on a Mac the
+# host's macOS framework (Info.plist only: the description is the key, e.g. "Adding an object failed."). With no such
+# bundle every description was nil: visionOS WorldTrackingProvider.addAnchor failed "com.apple.arkit error 200" where
+# Apple's visionOS 27.2 simulator says "Adding an object failed." (P2_Reality.swift). A bundle with the host's identifier.
+fw="$DPREFIX/System/Library/PrivateFrameworks/ARKitCore.framework"
+[ -e "$DLOWER/System/Library/PrivateFrameworks/ARKitCore.framework" ] || [ -f "$fw/Info.plist" ] || {
+	mkdir -p "$fw" && python3 -c 'import plistlib,sys; plistlib.dump({"CFBundleIdentifier": "com.apple.ARKitCore",
+		"CFBundleName": "ARKitCore", "CFBundlePackageType": "FMWK", "CFBundleDevelopmentRegion": "en",
+		"CFBundleInfoDictionaryVersion": "6.0"}, open(sys.argv[1], "wb"))' "$fw/Info.plist"; }
 # TextToSpeech's voice database (axassetsd, /var/mobile/Library/Accessibility/voicedb.sqlite) is refilled at every
 # start by its loaders, each skipped when com.apple.SpeakSelection's PreferencesLastLoadedOn says it already loaded in
 # this boot: the value is kern.boottime, which here is the Linux host's for every device boot. So after the first
