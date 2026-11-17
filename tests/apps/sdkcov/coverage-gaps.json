@@ -93,13 +93,16 @@
   },
   "Accelerate": {
    "existing_checks": [
-    "func:Accelerate.vdsp-vimage-blas-sparse"
+    "func:Accelerate.vdsp-vimage-blas-sparse",
+    "func:Accelerate.lapack-solve-eigen"
    ],
    "gaps": [
-    "[a] BNNS Graph compile/execute, LAPACK solve"
+    "[a] BNNS Graph compile/execute"
    ],
+   "note": "FFT, sgemm, vImage, simd; LAPACK dgesv solve + dsyev eigenvalues (Apple and x86Sim PASS on iOS, 2026-11-18)",
    "package": "P8 Foundation, networking, security, identity & device management",
-   "rejudged": false,
+   "r14": true,
+   "rejudged": true,
    "status": "covered"
   },
   "Accessibility": {
@@ -253,20 +256,19 @@
    "status": "covered"
   },
   "AlarmKit": {
-   "apple_sim_na": "requestAuthorization is denied without a prompt: SpringBoard refuses mobiletimerd's CFUserNotification (entitlement com.apple.springboard.CFUserNotification missing)",
+   "apple_sim_na": "requestAuthorization is denied without a prompt: SpringBoard's CFUserNotification server refuses mobiletimerd (no com.apple.springboard.CFUserNotification entitlement, and no runtime path counts as the system partition)",
    "apple_sim_na_done": true,
    "existing_checks": [
     "func:AlarmKit.manager-state",
     "func:AlarmKit.authorization-alarms-updates",
     "func:AlarmKit.request-schedule-refused"
    ],
-   "gaps": [
-    "[b: AlarmKit prompt] x86Sim's SpringBoard shows the AlarmKit prompt (Apple refuses the CFUserNotification): request-schedule-refused FAILs (hangs) on x86"
-   ],
-   "note": "request-schedule-refused: denied at once, state denied, schedule com.apple.AlarmKit.Alarm 1, 0 alarms (Apple PASS 2026-11-18; x86Sim FAIL: prompt shown); manager-state / authorization-alarms-updates accept denied after a request",
+   "gaps": [],
+   "note": "request-schedule-refused: denied at once, state denied, schedule com.apple.AlarmKit.Alarm 1, 0 alarms (Apple and x86Sim PASS, 2026-11-18); manager-state / authorization-alarms-updates accept denied after a request",
    "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "r13": true,
+   "r14": true,
    "rejudged": true,
    "status": "apple-sim-na"
   },
@@ -3815,13 +3817,16 @@
   },
   "Accelerate": {
    "existing_checks": [
-    "func:Accelerate.vdsp-vimage-blas-sparse"
+    "func:Accelerate.vdsp-vimage-blas-sparse",
+    "func:Accelerate.lapack-solve-eigen"
    ],
    "gaps": [
-    "[a] BNNS Graph compile/execute, LAPACK solve"
+    "[a] BNNS Graph compile/execute"
    ],
+   "note": "FFT, sgemm, vImage, simd; LAPACK dgesv solve + dsyev eigenvalues",
    "package": "P8 Foundation, networking, security, identity & device management",
-   "rejudged": false,
+   "r14": true,
+   "rejudged": true,
    "status": "covered"
   },
   "Accessibility": {
@@ -5968,13 +5973,16 @@
   },
   "Accelerate": {
    "existing_checks": [
-    "func:Accelerate.vdsp-vimage-blas-sparse"
+    "func:Accelerate.vdsp-vimage-blas-sparse",
+    "func:Accelerate.lapack-solve-eigen"
    ],
    "gaps": [
-    "[a] BNNS Graph compile/execute, LAPACK solve"
+    "[a] BNNS Graph compile/execute"
    ],
+   "note": "FFT, sgemm, vImage, simd; LAPACK dgesv solve + dsyev eigenvalues",
    "package": "P8 Foundation, networking, security, identity & device management",
-   "rejudged": false,
+   "r14": true,
+   "rejudged": true,
    "status": "covered"
   },
   "Accessibility": {
@@ -7763,13 +7771,16 @@
   },
   "Accelerate": {
    "existing_checks": [
-    "func:Accelerate.vdsp-vimage-blas-sparse"
+    "func:Accelerate.vdsp-vimage-blas-sparse",
+    "func:Accelerate.lapack-solve-eigen"
    ],
    "gaps": [
-    "[a] BNNS Graph compile/execute, LAPACK solve"
+    "[a] BNNS Graph compile/execute"
    ],
+   "note": "FFT, sgemm, vImage, simd; LAPACK dgesv solve + dsyev eigenvalues",
    "package": "P8 Foundation, networking, security, identity & device management",
-   "rejudged": false,
+   "r14": true,
+   "rejudged": true,
    "status": "covered"
   },
   "Accessibility": {
