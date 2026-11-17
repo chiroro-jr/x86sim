@@ -145,7 +145,26 @@ extension Registry {
                 try expect(sv.frame.size == CGSize(width: 100, height: 100) && sv.contentOffset.y == 150 && sv.contentSize.height == 400, "scroll view \(sv.frame) offset \(sv.contentOffset)")
                 let sug = BETextSuggestion(inputText: "sdkcov")
                 try expect(sug.inputText == "sdkcov", "suggestion \(sug.inputText)")
-                return "BEScrollView offset \(sv.contentOffset.y) of \(sv.contentSize.height), suggestion '\(sug.inputText)'"
+                // a scroll view's delegate names its parent scroll view; nested BEScrollViews
+                final class D: NSObject, BEScrollViewDelegate { weak var parent: BEScrollView?; func parentScrollView(for s: BEScrollView) -> BEScrollView? { parent } }
+                let outer = BEScrollView(frame: CGRect(x: 0, y: 0, width: 200, height: 200)); outer.addSubview(sv)
+                let d = D(); d.parent = outer; sv.delegate = d
+                try expect(sv.delegate === d && (sv.delegate as? D)?.parentScrollView(for: sv) === outer && sv.superview === outer, "scroll view delegate")
+                // a web app manifest round-trips its JSON and URL
+                let json = Data(#"{"name":"sdkcov","start_url":"/","display":"standalone"}"#.utf8)
+                let murl = URL(string: "https://example.com/manifest.json")!
+                guard let m = BEWebAppManifest(jsonData: json, manifestURL: murl) else { throw Fail("manifest refused") }
+                try expect(m.jsonData == json && m.manifestURL == murl, "manifest \(m.manifestURL)")
+                // browser accessibility attributes on a view (a web element's role, state and focus)
+                let el = UIView()
+                el.browserAccessibilityRoleDescription = "sdkcov role"; el.browserAccessibilityIsRequired = true
+                el.browserAccessibilityPressedState = .true; el.browserAccessibilityHasDOMFocus = true; el.browserAccessibilityContainerType = .list
+                try expect(el.browserAccessibilityRoleDescription == "sdkcov role" && el.browserAccessibilityIsRequired && el.browserAccessibilityPressedState == .true
+                           && el.browserAccessibilityHasDOMFocus && el.browserAccessibilityContainerType == .list, "browser accessibility attributes")
+                // the text interaction installed on a view
+                let ti = BETextInteraction(); let host = UIView(); host.addInteraction(ti)
+                try expect(ti.view === host && host.interactions.contains { $0 === ti }, "text interaction view \(String(describing: ti.view))")
+                return "BEScrollView offset \(sv.contentOffset.y) of \(sv.contentSize.height) with a parent via its delegate, suggestion '\(sug.inputText)', manifest, browser accessibility attributes, text interaction on a view"
             }
         })
         #endif
