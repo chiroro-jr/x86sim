@@ -2,7 +2,7 @@
 
 Goal: every public framework of each platform SDK (manifest-<plat>.json = the Xcode 27.2 simulator SDK framework list, incl. sdks/XRSimulator-xcode.sdk for visionOS) has functional checks exercising its main public API with real assertions, matching Apple's simulator (the bar, not hardware). Machine-readable: `coverage-gaps.json` (`{platform: {framework: {status, existing_checks, gaps, package, rejudged, used_inside?, apple_sim_na?, apple_sim_na_done?, api_unavailable?, sdk_availability?, note?}}}`).
 
-Refreshed 2026-11-17 (r12 round: 2 x86Sim bugs fixed, 22 platform entries moved: 11 to covered, 11 to Apple-sim N/A done; before it the thin/trivial round moved 23; first pass: commit 4dfb0f4, 2026-11-15). Inputs: 729 distinct framework check ids in checks/*.swift (was 381; +348 from P1..P8, the gaps/FSEvents/FoundationModels rounds and More2 on all platforms); which ids run on which platform and their x86Sim + Apple-reference results = every sdkcov result under ~/scratch since 2026-11-15 (results.txt / sdkcov-N.err of the comb2, P-round, gaps, fse, fm and *-ref-* runs: ios 618, tvos 389, watchos 280, xros 500 ids). Every framework whose check set changed was re-judged from the check bodies (`rejudged: true`); the rest keep their first-pass judgement. Libraries (usr/lib) are out of scope.
+Refreshed 2026-11-18 (r13 round: AppClip covered, AlarmKit Apple-sim N/A done, 1 x86Sim bug found (AlarmKit prompt); r12 round: 2 x86Sim bugs fixed, 22 platform entries moved: 11 to covered, 11 to Apple-sim N/A done; before it the thin/trivial round moved 23; first pass: commit 4dfb0f4, 2026-11-15). Inputs: 729 distinct framework check ids in checks/*.swift (was 381; +348 from P1..P8, the gaps/FSEvents/FoundationModels rounds and More2 on all platforms); which ids run on which platform and their x86Sim + Apple-reference results = every sdkcov result under ~/scratch since 2026-11-15 (results.txt / sdkcov-N.err of the comb2, P-round, gaps, fse, fm and *-ref-* runs: ios 618, tvos 389, watchos 280, xros 500 ids). Every framework whose check set changed was re-judged from the check bodies (`rejudged: true`); the rest keep their first-pass judgement. Libraries (usr/lib) are out of scope.
 
 Status: **covered** = real assertions on the main API and its main areas; **thin** = real checks but main areas untested; **trivial** = only existence / availability / authorization status / construction, or values reported but not asserted; **none** = no check on that platform; **apple-sim-na** = the main API cannot work in Apple's simulator (hardware, entitlement, missing service): the check must assert the simulator answer (*done* when such an asserting check passes on Apple, *open* otherwise); **api-unavailable** = the SDK marks the whole public API unavailable on that platform (Swift `@available(<os>, unavailable)` / `API_UNAVAILABLE(<os>)` on every declaration; visionOS inherits iOS unavailability): only loading is possible, the load check covers it; **excluded** = headers-only / re-export-only / not in the runtime.
 
@@ -12,7 +12,7 @@ Gap tags: **[a]** doable as a check; **[b: ...]** blocked by an x86Sim bug (name
 
 | platform | frameworks | covered | thin | trivial | none | apple-sim-na (done / open) | api-unavailable | excluded |
 |---|---|---|---|---|---|---|---|---|
-| iOS/iPadOS | 285 | 198 | 7 | 0 | 0 | 73 (73 / 0) | 0 | 7 |
+| iOS/iPadOS | 285 | 199 | 5 | 0 | 0 | 74 (74 / 0) | 0 | 7 |
 | tvOS | 167 | 133 | 0 | 0 | 0 | 18 (18 / 0) | 10 | 6 |
 | watchOS | 140 | 111 | 0 | 0 | 0 | 15 (15 / 0) | 11 | 3 |
 | visionOS | 230 | 170 | 5 | 1 | 0 | 38 (38 / 0) | 9 | 7 |
@@ -34,9 +34,9 @@ Entries = framework [platforms] with status thin / trivial / none / apple-sim-na
 
 ### P3 App extensions, system services, communication & parental controls
 
-2026-11-17 r12: ManagedSettingsUI default shield, DeviceActivity report placeholder, AccessoryLiveActivities unpaired refusal (Apple-sim N/A done), ExtensionFoundation watchOS Apple-point refusal, NotificationCenter widget update. Left: AlarmKit schedule flow (system prompt), App Clip activation (_XCAppClipURL), system-UI-only extensions (FileProviderUI, UserNotificationsUI: Apple's fresh-device notification delivery is unreliable, 2003), WidgetKit visionOS timelines (needs a placed widget), BrowserEngineCore visionOS (C-only BEMemory).
+2026-11-18 r13: App Clip launched by the host with _XCAppClipURL (covered), AlarmKit request/schedule asserts Apple's instant denial (Apple-sim N/A done; x86Sim shows the prompt: open bug). 2026-11-17 r12: ManagedSettingsUI default shield, DeviceActivity report placeholder, AccessoryLiveActivities unpaired refusal (Apple-sim N/A done), ExtensionFoundation watchOS Apple-point refusal, NotificationCenter widget update. Left: system-UI-only extensions (FileProviderUI, UserNotificationsUI: Apple's fresh-device notification delivery is unreliable, 2003), WidgetKit visionOS timelines (needs a placed widget), BrowserEngineCore visionOS (C-only BEMemory).
 
-- **thin**: AlarmKit [I], AppClip [I], FileProviderUI [IV], UserNotificationsUI [IV], WidgetKit [V]
+- **thin**: FileProviderUI [IV], UserNotificationsUI [IV], WidgetKit [V]
 - **trivial**: BrowserEngineCore [V]
 
 ### P4 Data, cloud, contacts/calendars & commerce
@@ -55,6 +55,7 @@ Done 2026-11-17: _ManagedAppDistribution_SwiftUI accessibility (x86Sim Redownloa
 
 Open x86Sim bugs / missing pieces:
 
+- **AlarmKit prompt** (`AlarmKit.request-schedule-refused`, r13): Apple's SpringBoard refuses mobiletimerd's CFUserNotification ("Entitlement com.apple.springboard.CFUserNotification" missing, FBServiceClientAuthenticatorErrorDomain 13), so requestAuthorization is denied at once; x86Sim's SpringBoard shows the "Allow sdkcov to schedule alarms and timers?" alert and the request waits (a second one: AuthorizationManagerError 1). Entitlement blobs reach SpringBoard (csops_audittoken op 7 OK): the gate that differs is in SpringBoard's CFUserNotification server, not located yet.
 - **FoundationModels without a Mac**: x86 answers modelNotReady (iOS respond/guided/tools/stream SKIP, Apple PASS via its host Mac) unless X86SIM_FM_RELAY points at a Mac with Apple Intelligence; with the relay the iPad results equal Apple's. Configuration, not a bug.
 - **fseventsd stand-in**: kFSEventStreamCreateFlagIgnoreSelf / MarkSelf not implemented (inotify does not say which process made a change), nor hard-link flags or extended data / document ids beyond what the client fills in. `CoreServices.fsevents-stream-file-events` has only an iOS x86 result in the harvested runs (no Apple result, no tvOS/watchOS/visionOS run).
 - **BrowserEngineCore JIT witness**: `kevent-jit-restrict` / `bememory-symbols` report "JIT witness supported" 0 on x86 vs 1 on Apple (a CPU feature of the host); not asserted (0 or 1 accepted).
@@ -140,12 +141,10 @@ Most are ports: the framework is checked on another platform; usually widen the 
 |---|---|---|---|---|
 | BrowserEngineCore | V | bememory-symbols | [c] BEMemory is C-only inline asm (__SWIFT_UNAVAILABLE): from Swift only the exported _impl / _supported symbols; be_kevent / BEAudioSession are unavailable on visionOS | P3 |
 
-## Thin coverage of main areas (8 frameworks)
+## Thin coverage of main areas (6 frameworks)
 
 | framework | platforms | existing checks | gaps / check ideas | package |
 |---|---|---|---|---|
-| AlarmKit | I | authorization-alarms-updates, manager-state | [a] AlarmManager.requestAuthorization + schedule a countdown alarm / cancel (NSAlarmKitUsageDescription; system prompt needs auto-accept) | P3 |
-| AppClip | I | activation-payload, clip-installed-with-parent | [a] launch the clip with _XCAppClipURL (host-driven, as Xcode) and call APActivationPayload.confirmAcquired(in:) | P3 |
 | ClassKitUI | IV | assigned-document-views, unassigned-document-views | [c] an assigned document needs a Schoolwork class (none in the simulator): only the unassigned views | P8 |
 | FileProviderUI | IV | action-extension-controller, action-extension-registered | [c] the action extension runs only from the Files app's action menu (system UI) | P3 |
 | IdentityLookupUI | IV | classification-extension-registered, classification-view-controller | [c] the reporting UI runs only from Messages / Phone's report-junk flow (system UI) | P8 |
@@ -160,7 +159,7 @@ Not to be chased beyond asserting the simulator answer.
 | framework | platforms | existing checks | gaps / check ideas | package |
 |---|---|---|---|---|
 
-## Apple-sim N/A, done (asserting check passes on Apple) (85 frameworks)
+## Apple-sim N/A, done (asserting check passes on Apple) (86 frameworks)
 
 Remaining gaps here are optional depth.
 
@@ -173,6 +172,7 @@ Remaining gaps here are optional depth.
 | AccessoryTransportExtension | I | extension-registered, message-builder | done (only Apple's host (private entitlement) runs a com.apple.accessory-transport-extension extension: the app's monitor is refused (extensionKit 16)) | P5 |
 | AdAttributionKit | I | impression-postback-answers | done (AdAttributionKit is unsupported in the simulator (every call NSCocoaErrorDomain 3328)) | P4 |
 | AdServices | IV | attribution-token, attribution-token-sim-error | done (attributionToken errors in the simulator) | P4 |
+| AlarmKit | I | authorization-alarms-updates, manager-state, request-schedule-refused | [b: AlarmKit prompt] x86Sim's SpringBoard shows the AlarmKit prompt (Apple refuses the CFUserNotification): request-schedule-refused FAILs (hangs) on x86 (requestAuthorization is denied without a prompt: SpringBoard refuses mobiletimerd's CFUserNotification (entitlement com.apple.springboard.CFUserNotification missing)) | P3 |
 | AppMigrationKit | I | extension-tester, status-identifiers | done (AppMigrationTester cannot start the app's migration extension from the app: exportController throws extensionKit 2 / RBSServiceErrorDomain 1) | P3 |
 | BackgroundAssets | IV | asset-pack-manager, asset-pack-status-download | [a] BADownloaderExtension: a scheduled BADownload running in the downloader extension (extension registered, seen by ExtensionFoundation monitor on tvOS/visionOS); I: [a] bundle the downloader extension on iOS too; V: [run] x86 result missing (only ref ran) (managed asset packs need App Store hosting: AssetPackManager answers each call with an error (asserted by asset-pack-status-download)) | P3 |
 | BackgroundTasks | ITV | continued-processing-request, register-submit | done (BGTaskScheduler.submit -> .unavailable in Apple's simulator (asserted by register-submit)) | P3 |

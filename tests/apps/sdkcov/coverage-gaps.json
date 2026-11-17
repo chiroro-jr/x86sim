@@ -253,32 +253,36 @@
    "status": "covered"
   },
   "AlarmKit": {
+   "apple_sim_na": "requestAuthorization is denied without a prompt: SpringBoard refuses mobiletimerd's CFUserNotification (entitlement com.apple.springboard.CFUserNotification missing)",
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:AlarmKit.manager-state",
-    "func:AlarmKit.authorization-alarms-updates"
+    "func:AlarmKit.authorization-alarms-updates",
+    "func:AlarmKit.request-schedule-refused"
    ],
    "gaps": [
-    "[a] AlarmManager.requestAuthorization + schedule a countdown alarm / cancel (NSAlarmKitUsageDescription; system prompt needs auto-accept)"
+    "[b: AlarmKit prompt] x86Sim's SpringBoard shows the AlarmKit prompt (Apple refuses the CFUserNotification): request-schedule-refused FAILs (hangs) on x86"
    ],
-   "note": "manager-state / authorization-alarms-updates assert notDetermined, 0 alarms and an empty first alarmUpdates (Apple).",
+   "note": "request-schedule-refused: denied at once, state denied, schedule com.apple.AlarmKit.Alarm 1, 0 alarms (Apple PASS 2026-11-18; x86Sim FAIL: prompt shown); manager-state / authorization-alarms-updates accept denied after a request",
    "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
+   "r13": true,
    "rejudged": true,
-   "status": "thin"
+   "status": "apple-sim-na"
   },
   "AppClip": {
    "existing_checks": [
     "func:AppClip.activation-payload",
-    "func:AppClip.clip-installed-with-parent"
+    "func:AppClip.clip-installed-with-parent",
+    "func:AppClip.input-clip-launch"
    ],
-   "gaps": [
-    "[a] launch the clip with _XCAppClipURL (host-driven, as Xcode) and call APActivationPayload.confirmAcquired(in:)"
-   ],
-   "note": "clip-installed-with-parent: AppClips/sdkcovClip.app installed after the app (run.sh / ref-mac.sh), LS App Clip record with parent com.x86sim.test.sdkcov (Apple; x86Sim PASS 2026-11-17)",
+   "gaps": [],
+   "note": "clip-installed-with-parent (LS App Clip record, parent the app); input-clip-launch: the host launches the clip with _XCAppClipURL (inputs.sh clip / ref-mac.sh CLIP=1): it launches, no invocation activity / payload (the runtime reads no such variable; Xcode builds the invocation itself) (Apple and x86Sim PASS, 2026-11-18)",
    "p10": true,
    "package": "P3 App extensions, system services, communication & parental controls",
+   "r13": true,
    "rejudged": true,
-   "status": "thin"
+   "status": "covered"
   },
   "AppIntents": {
    "existing_checks": [
