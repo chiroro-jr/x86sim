@@ -814,13 +814,17 @@ extension Registry {
         })
         // MARK: tvOS services
         c.append(check("DeviceDiscoveryUI", "device-picker", timeout: 30) {
-            // the picker's view needs the app's NSApplicationServices Info.plist entry (DeviceDiscoveryUI aborts the
-            // app without it, "Missing TCC info for browse", on Apple's too); sdkcov has none, so the view isn't loaded
+            // with the app's NSApplicationServices Info.plist entry (build.sh; without it DeviceDiscoveryUI aborts the app,
+            // "Missing TCC info for browse")
             try await tvMain { () async throws -> String in
                 let desc = NWBrowser.Descriptor.applicationService(name: "sdkcov")
                 let ok = DDDevicePickerViewController.isSupported(desc, using: .applicationService)
                 let p = DDDevicePickerViewController(browseDescriptor: desc, parameters: .applicationService)
-                return "supported \(ok), picker \(p != nil)"
+                // the picker is not supported on tvOS (Apple's tvOS 27.2 simulator: isSupported false); its view isn't loaded:
+                // viewDidLoad raises there (NSInvalidArgumentException, a nil insert) and leaves UIKit's trait collection
+                // broken for the hosting controllers that follow (NSInternalInconsistencyException)
+                try expect(!ok && p != nil, "supported \(ok), picker \(p != nil) (Apple's simulator: false, made)")
+                return "not supported, picker made (its view refuses to load, as on Apple's tvOS simulator)"
             }
         })
         c.append(check("_DeviceDiscoveryUI_SwiftUI", "device-picker-supports") {
@@ -1242,9 +1246,18 @@ extension Registry {
         c.append(check("_AppIntents_SwiftUI", "siri-tip-view", timeout: 30) {
             try await tvMain { () async throws -> String in
                 var visible = true
-                let v = SiriTipView(intent: SDKCovIntent(), isVisible: Binding(get: { visible }, set: { visible = $0 })).siriTipViewStyle(.dark)
-                return try await tvHost(v.frame(width: 800, height: 200), secs: 1) { hc in
-                    "\(tvSubviews(hc.view).count) views, visible \(visible)"
+                let size = P7Box<CGSize>(), label = P7Box<CGSize>()
+                let v = VStack(spacing: 0) {
+                    Text("sdkcov tip").onGeometryChange(for: CGSize.self) { $0.size } action: { label.set($0) }
+                    SiriTipView(intent: SDKCovIntent(), isVisible: Binding(get: { visible }, set: { visible = $0 })).siriTipViewStyle(.dark)
+                        .onGeometryChange(for: CGSize.self) { $0.size } action: { size.set($0) }
+                    Spacer()
+                }
+                return try await tvHost(v, secs: 1) { hc in
+                    let n = tvSubviews(hc.view).count
+                    // Apple's tvOS 27.2 simulator: the tip lays out at 0x0 (no Siri phrase to show) under a drawn label
+                    try expect(size.value == .zero && (label.value?.width ?? 0) > 10 && visible, "tip size \(String(describing: size.value)), label \(String(describing: label.value)), visible \(visible) (Apple's simulator: tip 0x0, label laid out)")
+                    return "\(n) views; SiriTipView lays out at 0x0 under a laid-out label, as on Apple's tvOS simulator"
                 }
             }
         })
