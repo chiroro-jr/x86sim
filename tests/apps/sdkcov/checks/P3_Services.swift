@@ -76,6 +76,7 @@ import AccessorySetupKit
 #if canImport(AlarmKit) && os(iOS)
 import AlarmKit
 import ActivityKit
+struct P3AlarmMeta: AlarmMetadata { var n = 1 }
 #endif
 
 #if canImport(TipKit)
@@ -531,8 +532,29 @@ extension Registry {
             let cd = Alarm.CountdownDuration(preAlert: 10, postAlert: 5)
             try expect(cd.preAlert == 10 && cd.postAlert == 5, "countdown duration")
             // Apple's simulator: not determined, no alarms, and alarmUpdates yields the empty list at once
-            try expect(st == .notDetermined && alarms.isEmpty && n == 0, "authorization \(st), \(alarms.count) alarms, first update \(String(describing: n)) (Apple's simulator: notDetermined, 0, 0)")
+            // (denied once request-schedule-refused has asked on this device: the answer persists)
+            try expect((st == .notDetermined || st == .denied) && alarms.isEmpty && n == 0, "authorization \(st), \(alarms.count) alarms, first update \(String(describing: n)) (Apple's simulator: notDetermined (denied after a request), 0, 0)")
             return "authorization \(st), \(alarms.count) alarms, first update \(n.map { "\($0) alarms" } ?? "none in 5 s")"
+        })
+        c.append(check("AlarmKit", "request-schedule-refused", timeout: 20) {
+            // the schedule flow: Apple's simulator answers requestAuthorization with denied at once, no prompt, also on a
+            // fresh device (mobiletimerd's CFUserNotification is refused by SpringBoard: "Entitlement
+            // com.apple.springboard.CFUserNotification" missing, FBServiceClientAuthenticatorErrorDomain 13), so scheduling
+            // a countdown timer is refused (com.apple.AlarmKit.Alarm 1) and nothing is listed. x86Sim's SpringBoard shows
+            // the prompt instead (the request waits for it; a second request: AuthorizationManagerError 1, in progress)
+            let m = AlarmManager.shared
+            let st = try await m.requestAuthorization()
+            let alert = AlarmPresentation.Alert(title: "sdkcov alarm", stopButton: AlarmButton(text: "Stop", textColor: .white, systemImageName: "stop.circle"))
+            let attrs = AlarmAttributes<P3AlarmMeta>(presentation: AlarmPresentation(alert: alert), metadata: P3AlarmMeta(), tintColor: .blue)
+            let id = UUID()
+            var sched = "scheduled"
+            do { _ = try await m.schedule(id: id, configuration: .timer(duration: 600, attributes: attrs)); try? m.cancel(id: id) }
+            catch { let e = error as NSError; sched = "\(e.domain) \(e.code)" }
+            let listed = try m.alarms.count
+            let after = m.authorizationState
+            try expect(st == .denied && after == .denied && sched == "com.apple.AlarmKit.Alarm 1" && listed == 0,
+                       "request \(st), state after \(after), schedule: \(sched), \(listed) alarms (Apple's simulator: denied, denied, com.apple.AlarmKit.Alarm 1, 0)")
+            return "request \(st), state after \(after), schedule: \(sched), \(listed) alarms"
         })
         #endif
         return c

@@ -1066,7 +1066,8 @@ extension Registry {
             let st = m.authorizationState
             let alarms = try m.alarms
             // Apple's simulator (fresh install, no prompt answered): not determined, no alarms
-            try expect(st == .notDetermined && alarms.isEmpty, "authorization \(st), \(alarms.count) alarms (Apple's simulator: notDetermined, 0)")
+            // (denied once func:AlarmKit.request-schedule-refused has asked on this device: Apple's simulator denies without a prompt)
+            try expect((st == .notDetermined || st == .denied) && alarms.isEmpty, "authorization \(st), \(alarms.count) alarms (Apple's simulator: notDetermined, denied after a request; 0)")
             return "authorization \(st), \(alarms.count) alarms"
         })
         c.append(check("FamilyControls", "authorization-status") {
