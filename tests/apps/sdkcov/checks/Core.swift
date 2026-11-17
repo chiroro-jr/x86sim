@@ -392,6 +392,23 @@ extension Registry {
             let m = simd_float4x4(diagonal: [2, 2, 2, 1]); try expect(simd_determinant(m) == 8, "simd det")
             return "FFT, sgemm, vImage, simd"
         },
+        check("Accelerate", "lapack-solve-eigen") {
+            // LAPACK (CLAPACK interface): a 3x3 system by LU (dgesv) and a symmetric eigenproblem (dsyev), column-major
+            var a: [Double] = [2, 1, 1, 1, 3, 2, 1, 0, 0], b: [Double] = [4, 5, 6]
+            var n: __CLPK_integer = 3, nrhs: __CLPK_integer = 1, lda: __CLPK_integer = 3, ldb: __CLPK_integer = 3, info: __CLPK_integer = 0
+            var piv = [__CLPK_integer](repeating: 0, count: 3)
+            dgesv_(&n, &nrhs, &a, &lda, &piv, &b, &ldb, &info)
+            try expect(info == 0, "dgesv info \(info)")
+            // A x = (4, 5, 6) with A rows (2 1 1; 1 3 0; 1 2 0): x = (8, -1, -11)
+            let want = [8.0, -1.0, -11.0]
+            try expect(zip(b, want).allSatisfy { abs($0 - $1) < 1e-9 }, "dgesv x \(b)")
+            var s: [Double] = [2, 1, 0, 1, 2, 0, 0, 0, 5], w = [Double](repeating: 0, count: 3)
+            var jobz = Int8(UInt8(ascii: "N")), uplo = Int8(UInt8(ascii: "U")), lwork: __CLPK_integer = 64
+            var work = [Double](repeating: 0, count: 64)
+            dsyev_(&jobz, &uplo, &n, &s, &lda, &w, &work, &lwork, &info)
+            try expect(info == 0 && zip(w, [1.0, 3.0, 5.0]).allSatisfy { abs($0 - $1) < 1e-9 }, "dsyev info \(info), eigenvalues \(w)")
+            return "dgesv x \(b.map { String(format: "%.4f", $0) }), dsyev eigenvalues \(w)"
+        },
         check("Network", "path-monitor") {
             let m = NWPathMonitor()
             let p: NWPath = await withCheckedContinuation { c in
