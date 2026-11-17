@@ -140,7 +140,16 @@ extension Registry {
             do { _ = try AppExtensionPoint(identifier: "com.x86sim.test.sdkcov.no-such-point") } catch { unknown = "\(error)" }
             try expect(unknown != "no error", "an unknown extension point resolved")
             #if os(watchOS)
-            return "unknown point: \(unknown.prefix(80))"
+            // watchOS installs no app extension on these points: a monitor on one of Apple's public points that supports
+            // watchOS (App Intents extensions; its host entitlement is Apple-private)
+            var mon = "monitor"
+            do {
+                let m = try await AppExtensionPoint.Monitor(appExtensionPoint: try AppExtensionPoint(identifier: "com.apple.appintents-extension"))
+                mon = "monitor, identities \(m.identities.map(\.bundleIdentifier))"
+            } catch { mon = p3Err(error) }
+            // Apple's watchOS 27.2 simulator: refused, host not entitled (com.apple.extensionKit.errorDomain 16)
+            try expect(mon == "com.apple.extensionKit.errorDomain 16", "monitor on com.apple.appintents-extension: \(mon) (Apple's simulator: com.apple.extensionKit.errorDomain 16)")
+            return "Apple point monitor: \(mon); unknown point: \(unknown.prefix(80))"
             #else
             let point = try AppExtensionPoint(identifier: "com.apple.background-asset-downloader-extension")
             let mon = try await AppExtensionPoint.Monitor(appExtensionPoint: point)
