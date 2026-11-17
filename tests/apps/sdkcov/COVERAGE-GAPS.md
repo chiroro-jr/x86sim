@@ -2,7 +2,7 @@
 
 Goal: every public framework of each platform SDK (manifest-<plat>.json = the Xcode 27.2 simulator SDK framework list, incl. sdks/XRSimulator-xcode.sdk for visionOS) has functional checks exercising its main public API with real assertions, matching Apple's simulator (the bar, not hardware). Machine-readable: `coverage-gaps.json` (`{platform: {framework: {status, existing_checks, gaps, package, rejudged, used_inside?, apple_sim_na?, apple_sim_na_done?, api_unavailable?, sdk_availability?, note?}}}`).
 
-Refreshed 2026-11-16 (first pass: commit 4dfb0f4, 2026-11-15). Inputs: 729 distinct framework check ids in checks/*.swift (was 381; +348 from P1..P8, the gaps/FSEvents/FoundationModels rounds and More2 on all platforms); which ids run on which platform and their x86Sim + Apple-reference results = every sdkcov result under ~/scratch since 2026-11-15 (results.txt / sdkcov-N.err of the comb2, P-round, gaps, fse, fm and *-ref-* runs: ios 618, tvos 389, watchos 280, xros 500 ids). Every framework whose check set changed was re-judged from the check bodies (`rejudged: true`); the rest keep their first-pass judgement. Libraries (usr/lib) are out of scope.
+Refreshed 2026-11-17 (P10 x86 runs, fin round; first pass: commit 4dfb0f4, 2026-11-15). Inputs: 729 distinct framework check ids in checks/*.swift (was 381; +348 from P1..P8, the gaps/FSEvents/FoundationModels rounds and More2 on all platforms); which ids run on which platform and their x86Sim + Apple-reference results = every sdkcov result under ~/scratch since 2026-11-15 (results.txt / sdkcov-N.err of the comb2, P-round, gaps, fse, fm and *-ref-* runs: ios 618, tvos 389, watchos 280, xros 500 ids). Every framework whose check set changed was re-judged from the check bodies (`rejudged: true`); the rest keep their first-pass judgement. Libraries (usr/lib) are out of scope.
 
 Status: **covered** = real assertions on the main API and its main areas; **thin** = real checks but main areas untested; **trivial** = only existence / availability / authorization status / construction, or values reported but not asserted; **none** = no check on that platform; **apple-sim-na** = the main API cannot work in Apple's simulator (hardware, entitlement, missing service): the check must assert the simulator answer (*done* when such an asserting check passes on Apple, *open* otherwise); **api-unavailable** = the SDK marks the whole public API unavailable on that platform (Swift `@available(<os>, unavailable)` / `API_UNAVAILABLE(<os>)` on every declaration; visionOS inherits iOS unavailability): only loading is possible, the load check covers it; **excluded** = headers-only / re-export-only / not in the runtime.
 
@@ -12,10 +12,10 @@ Gap tags: **[a]** doable as a check; **[b: ...]** blocked by an x86Sim bug (name
 
 | platform | frameworks | covered | thin | trivial | none | apple-sim-na (done / open) | api-unavailable | excluded |
 |---|---|---|---|---|---|---|---|---|
-| iOS/iPadOS | 285 | 187 | 13 | 12 | 0 | 66 (66 / 0) | 0 | 7 |
+| iOS/iPadOS | 285 | 187 | 12 | 12 | 0 | 67 (67 / 0) | 0 | 7 |
 | tvOS | 167 | 129 | 4 | 2 | 0 | 16 (16 / 0) | 10 | 6 |
-| watchOS | 140 | 104 | 6 | 3 | 0 | 13 (13 / 0) | 11 | 3 |
-| visionOS | 230 | 164 | 11 | 4 | 0 | 35 (34 / 1) | 9 | 7 |
+| watchOS | 140 | 105 | 6 | 2 | 0 | 13 (13 / 0) | 11 | 3 |
+| visionOS | 230 | 164 | 11 | 4 | 0 | 35 (35 / 0) | 9 | 7 |
 
 First pass (2026-11-15) for comparison:
 
@@ -61,24 +61,17 @@ watchOS Contacts/EventKit answers with access, ATT request flow after a pre-gran
 
 ### P5 Health, home, location, sensors & accessories
 
-P10: Matter MTRDeviceController offline start/shutdown (all four), SafetyKit exception (objc/SDKCovCatch.m), HomeExtensions / AccessoryTransportExtension / DeviceDiscoveryExtension appex refusals asserted. Left: NearbyInteraction two-peer run (nisimhost) + single-peer answer; DeviceDiscoveryUI with NSApplicationServices; AccessoryNotifications forwarding (data-provider appex); _WorkoutKit_SwiftUI presented on watchOS.
+P10: Matter MTRDeviceController offline start/shutdown (all four), SafetyKit exception (objc/SDKCovCatch.m), HomeExtensions / AccessoryTransportExtension / DeviceDiscoveryExtension appex refusals asserted. AccessoryNotifications forwarding: a data-provider appex with the NotificationsForwarding capability, registered, never run (no paired accessory; 2026-11-17). Left: NearbyInteraction two-peer run (nisimhost) + single-peer answer; DeviceDiscoveryUI with NSApplicationServices; _WorkoutKit_SwiftUI presented on watchOS.
 
-- **thin**: AccessoryNotifications [I], DeviceDiscoveryExtension [V], NearbyInteraction [IW], _WorkoutKit_SwiftUI [W]
+- **thin**: DeviceDiscoveryExtension [V], NearbyInteraction [IW], _WorkoutKit_SwiftUI [W]
 - **trivial**: DeviceDiscoveryUI [IT]
-
-### P6 UI frameworks depth & platform UI
-
-Done except _DataDetection_SwiftUI on watchOS (needs the Text on screen and its detected links read back: ImageRenderer draws before detection).
-
-- **trivial**: _DataDetection_SwiftUI [W]
 
 ### P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language
 
-FoundationModels visionOS 1026 refusal asserted when the model is available (not re-verified: Apple model not ready in the P9 runs); x86 bug SensitiveContentAnalysisML 15 on visionOS. _CoreSpotlight_FoundationModels SpotlightSearchTool.call without the model, _FoundationModels_UIKit image segment, _AppIntents_SwiftUI tvOS/watchOS sizes. TranslationUIProvider extension done in P10 (host refused, asserted).
+FoundationModels visionOS 1026 refusal asserted when the model is available (Apple and x86Sim with the relay PASS, 2026-11-17; the SensitiveContentAnalysisML 15 seen before is a just-started modelmanagerd, Apple's too, asked again). _CoreSpotlight_FoundationModels SpotlightSearchTool.call without the model, _FoundationModels_UIKit image segment, _AppIntents_SwiftUI tvOS/watchOS sizes. TranslationUIProvider extension done in P10 (host refused, asserted).
 
 - **thin**: SuggestedActions [IV]
 - **trivial**: _AppIntents_SwiftUI [TW], _CoreSpotlight_FoundationModels [IV], _FoundationModels_UIKit [IV]
-- **apple-sim-na open**: FoundationModels [V]
 
 ### P8 Foundation, networking, security, identity & device management
 
@@ -91,8 +84,6 @@ P10: IdentityLookupUI / IdentityLookup extensions registered (reporting UI syste
 
 Open x86Sim bugs / missing pieces:
 
-- **FileProvider replicated domain** (`FileProvider.replicated-extension-domain`, iOS x86 FAIL "root lists []", Apple PASS on a fresh device; visionOS x86 not run): fileproviderd's `-[FPFSVolume setupForPath:]` needs VOL_CAP_FMT_DOCUMENT_ID | WRITE_GENERATION_COUNT and VOL_CAP_INT_CLONE | RENAME_EXCL from the Darling volume (else ENODEV, domain disabled; patch ~/scratch/fse/darling-volcaps.patch, reverted); with it the next blocker is the missing dataless-materialization upcall (kernel namespace resolver), so the extension is never launched. (The FSEvents half was fixed by the host/fseventsd stand-in.)
-- **FoundationModels on visionOS** (relay on): `system-model-availability` FAILs with SensitiveContentAnalysisML error 15 (local sanitizer, OnDeviceInferenceAssetRepository 2); the check now asserts Apple's ModelManagerError 1026 refusal once the model is available.
 - **FoundationModels without a Mac**: x86 answers modelNotReady (iOS respond/guided/tools/stream SKIP, Apple PASS via its host Mac) unless X86SIM_FM_RELAY points at a Mac with Apple Intelligence; with the relay the iPad results equal Apple's. Configuration, not a bug.
 - **fseventsd stand-in**: kFSEventStreamCreateFlagIgnoreSelf / MarkSelf not implemented (inotify does not say which process made a change), nor hard-link flags or extended data / document ids beyond what the client fills in. `CoreServices.fsevents-stream-file-events` has only an iOS x86 result in the harvested runs (no Apple result, no tvOS/watchOS/visionOS run).
 - **BrowserEngineCore JIT witness**: `kevent-jit-restrict` / `bememory-symbols` report "JIT witness supported" 0 on x86 vs 1 on Apple (a CPU feature of the host); not asserted (0 or 1 accepted).
@@ -171,7 +162,7 @@ Most are ports: the framework is checked on another platform; usually widen the 
 | framework | platforms | existing checks | gaps / check ideas | package |
 |---|---|---|---|---|
 
-## Trivial checks only (17 frameworks)
+## Trivial checks only (16 frameworks)
 
 | framework | platforms | existing checks | gaps / check ideas | package |
 |---|---|---|---|---|
@@ -186,18 +177,16 @@ Most are ports: the framework is checked on another platform; usually widen the 
 | Twitter | I | compose-can-send | [a] deprecated (no Swift module): keep runtime call | P8 |
 | _AppIntents_SwiftUI | TW | siri-tip-view, siri-tip-view-shortcuts-link | T: [a] assert siri-tip-view hosted size/subviews (only reported); W: [a] render SiriTipView (e.g. ImageRenderer) and assert size (only built) | P7 |
 | _CoreSpotlight_FoundationModels | IV | spotlight-search-tool | [a] SpotlightSearchTool.call(arguments:) directly over an indexed CSSearchableItem (no model needed); session use needs the model (x86: FM relay) | P7 |
-| _DataDetection_SwiftUI | W | text-data-detection | [a] host the Text on screen and assert detected links (ImageRenderer draws before async detection; check only asserts ink) | P6 |
 | _DeviceActivity_SwiftUI | I | report-view-hosted | [c] report content needs a DeviceActivityReport extension + authorization: assert the simulator answer | P3 |
 | _FoundationModels_UIKit | IV | uiimage-attachment-prompt | [a] assert the Prompt carries an image segment; respond(to:) with it where the model is available (x86 iOS: FM relay) | P7 |
 | _GameController_SwiftUI | V | handles-game-controller-events-modifier | [c] GCVirtualController is API_UNAVAILABLE(visionos): no injectable gamepad | P2 |
 | _SecureElementCredential_SwiftUI | I | transaction-task-modifier | [c] transactionTask with a real configuration needs a credential session (assert the simulator answer) | P8 |
 | _SecureElementCredential_UIKit | I | window-scene-events | [c] scene connection-options credential events need an NFC presentment (assert the simulator answer) | P8 |
 
-## Thin coverage of main areas (24 frameworks)
+## Thin coverage of main areas (23 frameworks)
 
 | framework | platforms | existing checks | gaps / check ideas | package |
 |---|---|---|---|---|
-| AccessoryNotifications | I | notification-model-codable | [a] NotificationsForwarding provider / forwarding session in an accessory extension (needs appex) | P5 |
 | AlarmKit | I | authorization-alarms-updates, manager-state | [a] AlarmManager.requestAuthorization + schedule a countdown alarm / cancel (NSAlarmKitUsageDescription; system prompt needs auto-accept) | P3 |
 | AppClip | I | activation-payload, clip-installed-with-parent | [a] launch the clip with _XCAppClipURL (host-driven, as Xcode) and call APActivationPayload.confirmAcquired(in:) | P3 |
 | AppTrackingTransparency | ITV | not-determined-on-fresh-install, status | [a] requestTrackingAuthorization with a pre-granted / denied tracking privacy -> status authorized/denied; T: [a] x86 run of not-determined-on-fresh-install (last x86 tvOS status check said 1 = restricted, Apple 0) | P4 |
@@ -222,21 +211,21 @@ Most are ports: the framework is checked on another platform; usually widen the 
 | _MarketplaceKit_UIKit | I | install-metadata-display-options | [c] ActionButton init blocks the main thread on Apple outside a marketplace app | P4 |
 | _WorkoutKit_SwiftUI | W | workout-preview-modifier-watch | [a] present the preview (isPresented true) and assert it shows | P5 |
 
-## Apple-sim N/A, open (no asserting check yet) (1 frameworks)
+## Apple-sim N/A, open (no asserting check yet) (0 frameworks)
 
 Not to be chased beyond asserting the simulator answer.
 
 | framework | platforms | existing checks | gaps / check ideas | package |
 |---|---|---|---|---|
-| FoundationModels | V | private-cloud-compute-model, schemas-content-transcript, system-model-availability, system-model-respond-guided-tools-stream | [b: SensitiveContentAnalysisML error 15] with X86SIM_FM_RELAY, system-model-availability FAILs with SensitiveContentAnalysisML 15 (local sanitizer, OnDeviceInferenceAssetRepository 2) where Apple FAILs with ModelManagerError 1026; [c] system-model-availability asserts the ModelManagerError 1026 refusal once the model is available; in the 2026-11-16 Apple runs the model stayed modelNotReady > 30 s (host Mac state), so the check SKIPped there and the refusal is not re-verified (Apple's visionOS/watchOS simulators refuse generation (ModelManagerError 1026)) | P7 |
 
-## Apple-sim N/A, done (asserting check passes on Apple) (74 frameworks)
+## Apple-sim N/A, done (asserting check passes on Apple) (75 frameworks)
 
 Remaining gaps here are optional depth.
 
 | framework | platforms | existing checks | gaps / check ideas | package |
 |---|---|---|---|---|
 | ARKit | I | configurations, simulator-unsupported-answers | done (iOS: no ARKit tracking in Apple's simulator; visionOS sim supports only WorldTrackingProvider) | P2 |
+| AccessoryNotifications | I | forwarding-extension-registered, notification-model-codable | done (notification forwarding needs an accessory paired through AccessorySetupKit whose forwarding the user allowed: none in the simulator) | P5 |
 | AccessorySetupKit | I | descriptors-display-items, session-activate | done (ASAccessorySession never activates in Apple's simulator (and traps without NSAccessorySetupKitSupports)) | P5 |
 | AccessoryTransportExtension | I | extension-registered, message-builder | done (only Apple's host (private entitlement) runs a com.apple.accessory-transport-extension extension: the app's monitor is refused (extensionKit 16)) | P5 |
 | AdAttributionKit | I | impression-postback-answers | done (AdAttributionKit is unsupported in the simulator (every call NSCocoaErrorDomain 3328)) | P4 |
@@ -263,7 +252,7 @@ Remaining gaps here are optional depth.
 | ExternalAccessory | ITV | manager, no-accessories-wifi-browser | done (no MFi accessories) | P5 |
 | FamilyControls | I | authorization-selection, authorization-status | [a] FamilyActivityPicker render (requestAuthorization(for: .individual) -> NSCocoaErrorDomain 4099 (no FamilyControlsAgent in Apple's simulator)) | P3 |
 | FinanceKit | I | availability-authorization | done (FinanceStore authorization/queries trap without the Apple-granted FinanceKit entitlement) | P4 |
-| FoundationModels | W | private-cloud-compute-model, schemas-content-transcript, watch-pcc-session-refused | done (no on-device model on watchOS; Private Cloud Compute: deviceNotEligible in the sim) | P7 |
+| FoundationModels | WV | private-cloud-compute-model, schemas-content-transcript, system-model-availability, system-model-respond-guided-tools-stream, watch-pcc-session-refused | done (no on-device model on watchOS; Private Cloud Compute: deviceNotEligible in the sim) | P7 |
 | GameKit | ITWV | local-player-leaderboard-objects, unauthenticated-player-leaderboards-matchmaking | [a] GKTurnBasedMatch.loadMatches / GKLeaderboard.loadEntries error paths without an account (Game Center server features need a signed-in sandbox account (Apple sim: same)) | P2 |
 | GameSave | IV | synced-directory-without-icloud | done (GameSaveSyncedDirectory needs an iCloud account) | P2 |
 | GroupActivities | ITV | activity-metadata-prepare, activity-sessions, no-call-activation-coding, observer | [c] GroupSessionMessenger / GroupSessionJournal need a session (FaceTime call): only the no-session answer is assertable (SharePlay sessions need FaceTime) | P4 |
@@ -369,7 +358,7 @@ Remaining gaps here are optional depth.
 | CryptoTokenKit | ITWV | [a] TKTokenKeychainContents (needs a token extension) |
 | EventKitUI | IV | [a] EKEventEditViewController save/cancel through editViewDelegate |
 | ExtensionFoundation | ITV | V: [run] x86 result missing |
-| FileProvider | IV | I: [b: fileproviderd volume caps DOCUMENT_ID/WRITE_GENERATION_COUNT/CLONE/RENAME_EXCL + dataless materialization upcall] replicated-extension-domain enumerate/materialize/create; [a] NSFileProviderManager evictItem / import / pending items; V: [run] x86 result missing |
+| FileProvider | IV | [a] NSFileProviderManager evictItem / import / pending items |
 | Foundation | ITWV | T: [a] user-activity saved-activity deletion (check skips it on tvOS) |
 | FoundationModels | I | [b: config] respond/guided/tools/stream need X86SIM_FM_RELAY (a Mac with Apple Intelligence); without it x86 answers modelNotReady where Apple's sim (host Mac) PASSes; with the relay iPad = Apple |
 | GLKit | IT | [a] GLKView/GLKBaseEffect draw (iOS/tvOS) |
