@@ -207,6 +207,26 @@ extension Registry {
             return "granted by the host; requestTrackingAuthorization answered authorized, IDFA \(idfa)"
         })
         #endif
+        #if os(iOS)
+        c.append(check("AppClip", "input-clip-launch", timeout: 120) {
+            // the App Clip launched by the host (inputs.sh clip: x86sim launch, simctl launch on the Mac) with
+            // _XCAppClipURL in its environment, as Xcode's Run of a clip target sets it. The runtime reads no such
+            // variable (Xcode itself turns it into the invocation): the clip launches, its scene gets no browsing-web
+            // user activity and so no activation payload (Apple's iOS 27.2 simulator)
+            let wait = inputWait
+            guard wait > 0 else { return "SDKCOV_INPUT_WAIT unset: no clip launch awaited" }
+            let t0 = Date()
+            // the clip takes the foreground: keep running in the background meanwhile
+            let bg = await onMain { UIApplication.shared.beginBackgroundTask(withName: "sdkcov clip") }
+            defer { Task { @MainActor in UIApplication.shared.endBackgroundTask(bg) } }
+            let launched = await inUntil(wait) { !p3Marks("clip-launch", since: t0).isEmpty }
+            try expect(launched, "no clip launch in \(Int(wait)) s (the host launch never came)")
+            try? await Task.sleep(nanoseconds: 8_000_000_000)
+            let acts = p3Marks("clip-activity", since: t0)
+            try expect(acts.isEmpty, "clip got user activities \(acts) (Apple's simulator: none for a launch with _XCAppClipURL)")
+            return "clip launched by the host (\(p3Marks("clip-launch", since: t0).last ?? "-")), no invocation activity"
+        })
+        #endif
         return c
     }
 }

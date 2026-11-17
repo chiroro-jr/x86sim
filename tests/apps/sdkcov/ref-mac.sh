@@ -6,6 +6,7 @@
 #   ipad     the iOS app on an iPad (iPad Air 11-inch (M3), as x86Sim's cov-ipad) instead of an iPhone 17 Pro
 # Env TRACKING=1 (with --only func:AppTrackingTransparency.input-tracking-granted): the app's tracking answered Allow
 #   ahead (its kTCCServiceUserTracking row) and SDKCOV_INPUT_WAIT=40 in its launch environment, as inputs.sh tracking
+# Env CLIP=1 (with --only func:AppClip.input-clip-launch): the App Clip launched 10 s in with _XCAppClipURL, as inputs.sh clip
 #   --only   one launch running just the checks whose id contains one of these (as run.sh --only); their results
 #            are printed (the app's stderr is OUT/sdkcov-1.err), no report
 # Env: RUNTIME (simctl runtime id, default the Mac's newest of the platform), DEVTYPE (simctl device type id, default
@@ -37,7 +38,7 @@ APP=${SDKCOV_APPS:-$X86SIM_SCRATCH/apps}/sdkcov-$plat.app
 # the whole run happens on the Mac in one ssh session: the app goes over as a tar on stdin, the results come back
 # (the remote script is an argument: stdin carries the app)
 read -r -d '' REMOTE <<'MAC'
-plat=$1 rtname=$2 dtype=$3 rt=$4 secs=$5 only=$6 name=$7 tracking=${8:-}
+plat=$1 rtname=$2 dtype=$3 rt=$4 secs=$5 only=$6 name=$7 tracking=${8:-} clip=${9:-}
 set -u
 W=$(mktemp -d /tmp/sdkcov-ref.XXXXXX); cd "$W"; tar xf - -C "$W"
 exec 3>&1 1>&2
@@ -87,6 +88,7 @@ fi ;; esac
 [ -n "$tracking" ] && { sqlite3 "$HOME/Library/Developer/CoreSimulator/Devices/$dev/data/Library/TCC/TCC.db" "insert or replace into access
 	(service, client, client_type, auth_value, auth_reason, auth_version, flags) values
 	('kTCCServiceUserTracking', 'com.x86sim.test.sdkcov', 0, 2, 2, 1, 0)" || echo "ref-mac: tracking not granted"; export SIMCTL_CHILD_SDKCOV_INPUT_WAIT=40; }
+[ -n "$clip" ] && export SIMCTL_CHILD_SDKCOV_INPUT_WAIT=40
 data=$(xcrun simctl get_app_container "$dev" com.x86sim.test.sdkcov data)
 res=$data/Documents/x86test-results.txt
 t0=$(date +%s); n=0 miss=0
@@ -94,6 +96,7 @@ if [ -n "$only" ]; then   # one launch; its stderr is the result
 	# --console-pty: the app's stdout / stderr come back through simctl (a --stderr file stays empty here)
 	xcrun simctl launch --console-pty "$dev" com.x86sim.test.sdkcov --only "$only" >"$W/sdkcov-1.err" 2>&1 &
 	sleep 5
+	[ -n "$clip" ] && { sleep 5; SIMCTL_CHILD__XCAppClipURL=https://example.com/sdkcov xcrun simctl launch "$dev" com.x86sim.test.sdkcov.Clip >/dev/null; }
 	while [ $(( $(date +%s) - t0 )) -lt "$secs" ] && ! grep -q "X86TEST sdkcov done " "$W/sdkcov-1.err" 2>/dev/null; do
 		# gone only after 3 misses in a row (as run.sh: one empty answer ended a run with the app still going)
 		if xcrun simctl spawn "$dev" launchctl list 2>/dev/null | grep -q "com.x86sim.test.sdkcov"; then miss=0
@@ -117,7 +120,7 @@ xcrun simctl io "$dev" screenshot "$W/screen.png" >/dev/null 2>&1
 cd "$W" && tar cf - results.txt coverage.json screen.png sdkcov-*.err 2>/dev/null >&3
 MAC
 tar cf - -C "$(dirname "$APP")" "$(basename "$APP")" |
-	ssh -o BatchMode=yes "$MAC" "bash -c $(printf '%q' "$REMOTE") ref $plat $rtname $dtype '${RUNTIME:-}' ${SECS:-900} '$only' $name '${TRACKING:-}'" > "$OUT/ref.tar"
+	ssh -o BatchMode=yes "$MAC" "bash -c $(printf '%q' "$REMOTE") ref $plat $rtname $dtype '${RUNTIME:-}' ${SECS:-900} '$only' $name '${TRACKING:-}' '${CLIP:-}'" > "$OUT/ref.tar"
 (cd "$OUT" && tar xf ref.tar && rm ref.tar)
 if [ -n "$only" ]; then
 	tr -d '\r' < "$OUT/sdkcov-1.err" | grep "^X86TEST" | grep -v -e " only " -e " done " | cut -d' ' -f3-

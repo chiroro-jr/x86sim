@@ -3,7 +3,7 @@
 # --only) with SDKCOV_INPUT_WAIT set, while this script sends its input every few seconds through the x86sim CLI
 # (host/simhid), as Apple's simulator would (DeviceHub's Shake / Rotate / Face ID menus, a game controller).
 # Usage: tests/apps/sdkcov/inputs.sh <device> [--no-build] [shake|orientation|biometric|gamepad|memwarn|push|pointer|keyboard|
-# drag tracking ...]   (default: all the device's platform has; pointer / keyboard / drag: iPad, checks/More_iPadOS.swift)
+# drag tracking clip ...]   (default: all the device's platform has; pointer / keyboard / drag: iPad, checks/More_iPadOS.swift)
 # On Apple's simulator the same inputs are: notifyutil -p com.apple.UIKit.SimulatorShake (simctl spawn), devicectl
 # device orientation set, notifyutil -s com.apple.BiometricKit.enrollmentChanged 1 + devicectl device simulate
 # biometrics --success, an Indigo game controller message (SimulatorKit IndigoHIDMessageForGameControllerEvent) and
@@ -23,7 +23,7 @@ build=; want=
 for a in "$@"; do case $a in --no-build) build=--no-build ;; *) want="$want $a" ;; esac; done
 rt=$(cat "$X86SIM_DEVICE/runtime" 2>/dev/null); plat=${rt%%-*}
 case $plat in
-	ios) all="shake orientation biometric gamepad memwarn push tracking"
+	ios) all="shake orientation biometric gamepad memwarn push tracking clip"
 		case $(cat "$X86SIM_DEVICE/model" 2>/dev/null) in iPad*) all="$all pointer keyboard drag" ;; esac ;; xros) all="shake biometric gamepad memwarn tracking" ;; tvos) all="gamepad memwarn tracking" ;;
 	*) echo "inputs: no input checks for $plat" >&2; exit 0 ;;
 esac
@@ -39,6 +39,12 @@ for k in ${want:-$all}; do
 		gamepad) id=func:GameController.input-gamepad; send() { xs gamepad press a; } ; undo() { :; } ;;
 		memwarn) id=func:UIKit.input-memory-warning; send() { xs memwarn; } ; undo() { :; } ;;
 		push) id=func:UserNotifications.service-extension-push; send() { echo '{"aps":{"alert":{"title":"sdkcov push","body":"p10"},"mutable-content":1}}' | xs push com.x86sim.test.sdkcov -; } ; undo() { :; } ;;
+		# the App Clip launched by the host with _XCAppClipURL (as Xcode runs a clip target), once, after the check has
+		# started (it counts launches from its start; the app can take ~25 s to get there)
+		clip) id=func:AppClip.input-clip-launch; send() { [ -e "$OUT/clip-sent" ] && return
+			f=$(find "$X86SIM_DEVICE"/data/tmp -name 'sdkcov-*.err' -newer "$OUT/run.log" 2>/dev/null | head -1)
+			grep -qs "X86TEST sdkcov only " "$f" || return; timeout 5 tail -f /dev/null; touch "$OUT/clip-sent"
+			xs launch --env _XCAppClipURL=https://example.com/sdkcov com.x86sim.test.sdkcov.Clip; } ; undo() { xs terminate com.x86sim.test.sdkcov.Clip; } ;;
 		# App Tracking Transparency answered ahead: the app's kTCCServiceUserTracking row allowed (as the prompt's Allow
 		# writes it; ref-mac.sh TRACKING=1 on the Mac), removed afterwards so a later run starts not determined again
 		tracking) id=func:AppTrackingTransparency.input-tracking-granted; send() { sqlite3 "$X86SIM_DEVICE/data/Library/TCC/TCC.db" "insert or replace into access
