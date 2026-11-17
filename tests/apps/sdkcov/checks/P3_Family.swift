@@ -103,7 +103,12 @@ extension Registry {
                 let close = p3Show(host); defer { close() }
                 host.view.layoutIfNeeded()
                 try expect(host.view.bounds.width > 0, "hosted view \(host.view.bounds)")
-                return "report \(ctx.rawValue) hosted \(Int(host.view.bounds.width))x\(Int(host.view.bounds.height))"
+                // the report's content comes from the app's DeviceActivityReport extension with Family Controls
+                // authorization: neither here, so the hosted report shows nothing (what Apple's simulator gives)
+                let kids = p8Subviews(host.view).map { "\(type(of: $0))" }
+                // Apple's simulator: the ExtensionKit host view with its placeholder (no report extension runs)
+                try expect(kids.contains("_EXHostView") && kids.last == "EXPlaceholderView", "report subviews \(kids) (Apple's simulator: _EXHostView with an EXPlaceholderView)")
+                return "report \(ctx.rawValue) hosted \(Int(host.view.bounds.width))x\(Int(host.view.bounds.height)), subviews \(kids)"
             }
         })
         #endif
@@ -136,8 +141,14 @@ extension Registry {
                                           title: .init(text: "sdkcov", color: .label), subtitle: .init(text: "limited", color: .secondaryLabel),
                                           primaryButtonLabel: .init(text: "OK", color: .white), primaryButtonBackgroundColor: .systemBlue, secondaryButtonLabel: nil)
             try expect(cfg.title?.text == "sdkcov" && cfg.primaryButtonLabel?.text == "OK" && cfg.secondaryButtonLabel == nil, "configuration")
+            // the data source's default answers (what a ShieldConfiguration extension that overrides nothing shows); the
+            // shield itself is drawn only for an app a Family Controls-authorized store shields, none in the simulator
             let ds = ShieldConfigurationDataSource()
-            return "configuration built; data source \(type(of: ds))"
+            let d = ds.configuration(shielding: Application(bundleIdentifier: "com.apple.mobilesafari"))
+            let auth = await onMain { AuthorizationCenter.shared.authorizationStatus }
+            try expect(d.title == nil && d.primaryButtonLabel == nil && d.icon == nil && auth == .notDetermined,
+                       "default configuration title \(String(describing: d.title?.text)), button \(String(describing: d.primaryButtonLabel?.text)), authorization \(auth) (Apple's simulator: nil, nil, notDetermined)")
+            return "configuration built; data source default: no title / button / icon; Family Controls \(auth)"
         })
         #endif
         #if canImport(ScreenTime) && os(iOS)

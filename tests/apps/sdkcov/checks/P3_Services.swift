@@ -71,6 +71,7 @@ import BusinessChat
 #endif
 #if canImport(AccessoryLiveActivities) && os(iOS)
 import AccessoryLiveActivities
+import AccessorySetupKit
 #endif
 #if canImport(AlarmKit) && os(iOS)
 import AlarmKit
@@ -507,7 +508,15 @@ extension Registry {
             let all = AccessoryAuthorizationResult.allCases.map(\.description)
             let fid = LiveActivityForwarding.featureID
             try expect(!all.isEmpty && !fid.isEmpty, "results \(all), feature \(fid)")
-            return "feature \(fid), results \(all)"
+            // forwarding authorization for an accessory: only AccessorySetupKit pairs one (none in the simulator); asked
+            // for an accessory object that was never paired
+            var ans = "-"
+            if let cls = NSClassFromString("ASAccessory") as? NSObject.Type, let acc = cls.init() as? ASAccessory {
+                do { ans = "\(try await LiveActivityForwarding.authorization(forAccessory: acc))" } catch { ans = "\(type(of: error)) \(p3Err(error))" }
+            } else { ans = "no ASAccessory" }
+            // Apple's iOS 27.2 simulator: the accessory service refuses the connection (BSServiceConnectionErrorDomain 3)
+            try expect(ans == "NSError BSServiceConnectionErrorDomain 3", "authorization(forAccessory:) of an unpaired accessory: \(ans) (Apple's simulator: NSError BSServiceConnectionErrorDomain 3)")
+            return "feature \(fid), results \(all); unpaired accessory authorization \(ans)"
         })
         #endif
         #if canImport(AlarmKit) && os(iOS)
