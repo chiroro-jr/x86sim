@@ -16,6 +16,9 @@ import CoreMIDI
 #if canImport(MediaPlayer)
 import MediaPlayer
 #endif
+#if canImport(UIKit)
+import UIKit
+#endif
 #if canImport(AVKit)
 import AVKit
 #endif
@@ -369,13 +372,34 @@ extension Registry {
         #endif
         #if canImport(MediaPlayer)
         c.append(check("MediaPlayer", "nowplaying-remote-commands") {
+            // now playing info (title, duration, elapsed time, rate, media type, artwork) and the remote command center's
+            // configuration: skip intervals, change playback position, feedback titles, enable state, targets
             let info = MPNowPlayingInfoCenter.default()
-            info.nowPlayingInfo = [MPMediaItemPropertyTitle: "sdkcov", MPMediaItemPropertyPlaybackDuration: 42.0]
-            try expect(info.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String == "sdkcov", "nowPlayingInfo")
-            let t = MPRemoteCommandCenter.shared().playCommand.addTarget { _ in .success }
-            MPRemoteCommandCenter.shared().playCommand.removeTarget(t)
+            let art = MPMediaItemArtwork(boundsSize: CGSize(width: 64, height: 64)) { _ in UIImage(cgImage: bitmap(64, 64).makeImage()!) }
+            info.nowPlayingInfo = [MPMediaItemPropertyTitle: "sdkcov", MPMediaItemPropertyArtist: "x86sim", MPMediaItemPropertyPlaybackDuration: 42.0,
+                                   MPNowPlayingInfoPropertyElapsedPlaybackTime: 7.5, MPNowPlayingInfoPropertyPlaybackRate: 1.0,
+                                   MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue, MPMediaItemPropertyArtwork: art]
+            let np = info.nowPlayingInfo ?? [:]
+            try expect(np[MPMediaItemPropertyTitle] as? String == "sdkcov" && np[MPMediaItemPropertyArtist] as? String == "x86sim"
+                       && np[MPNowPlayingInfoPropertyElapsedPlaybackTime] as? Double == 7.5 && np[MPMediaItemPropertyPlaybackDuration] as? Double == 42
+                       && (np[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork)?.bounds.size == CGSize(width: 64, height: 64), "nowPlayingInfo \(np.keys.sorted())")
+            let cc = MPRemoteCommandCenter.shared()
+            cc.skipForwardCommand.preferredIntervals = [30]; cc.skipBackwardCommand.preferredIntervals = [15]
+            cc.skipForwardCommand.isEnabled = true
+            cc.changePlaybackRateCommand.supportedPlaybackRates = [0.5, 1, 2]
+            cc.likeCommand.localizedTitle = "sdkcov like"; cc.likeCommand.isActive = true
+            cc.nextTrackCommand.isEnabled = false
+            let t1 = cc.skipForwardCommand.addTarget { _ in .success }
+            let t2 = cc.changePlaybackPositionCommand.addTarget { e in (e as? MPChangePlaybackPositionCommandEvent).map { _ in .success } ?? .commandFailed }
+            let t3 = cc.playCommand.addTarget { _ in .success }
+            try expect(cc.skipForwardCommand.preferredIntervals == [30] && cc.skipBackwardCommand.preferredIntervals == [15]
+                       && cc.changePlaybackRateCommand.supportedPlaybackRates == [0.5, 1, 2] && cc.likeCommand.localizedTitle == "sdkcov like"
+                       && cc.likeCommand.isActive && !cc.nextTrackCommand.isEnabled && cc.skipForwardCommand.isEnabled, "command configuration")
+            cc.skipForwardCommand.removeTarget(t1); cc.changePlaybackPositionCommand.removeTarget(t2); cc.playCommand.removeTarget(t3)
+            cc.nextTrackCommand.isEnabled = true; cc.likeCommand.isActive = false
             info.nowPlayingInfo = nil
-            return "ok"
+            try expect(info.nowPlayingInfo == nil, "nowPlayingInfo not cleared")
+            return "now playing info with artwork; skip / rate / like / position commands configured and targets removed"
         })
         #endif
         #if canImport(AVKit) && !os(watchOS)
