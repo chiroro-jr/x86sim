@@ -70,6 +70,17 @@ xcrun simctl location "$dev" set 37.3349,-122.0090 >/dev/null 2>&1 || echo "ref-
 for svc in AddressBook Calendar Reminders; do sqlite3 "$HOME/Library/Developer/CoreSimulator/Devices/$dev/data/Library/TCC/TCC.db" "insert or replace into access
 	(service, client, client_type, auth_value, auth_reason, auth_version, flags) values
 	('kTCCService$svc', 'com.x86sim.test.sdkcov', 0, 2, 4, 1, 0)" || echo "ref-mac: $svc not pre-granted"; done
+# the app's FileProvider extension enabled as on a device whose fileproviderd first starts with the app installed:
+# fileproviderd's one-time LegacyEnabledStateHasBeenMigrated migration enables the extensions present then; one it meets
+# later stays disabled ("Sync is not enabled", -2011) until the user enables it in Files
+# (func:FileProvider.replicated-extension-domain). As run.sh does on x86Sim
+fp="$HOME/Library/Developer/CoreSimulator/Devices/$dev/data/Library/Application Support/FileProvider"
+case $plat in ios|xros) if [ -e "$fp/LegacyEnabledStateHasBeenMigrated" ] &&
+		[ "$(plutil -extract NSFileProviderDomainDefaultIdentifier.Enabled raw "$fp/com.x86sim.test.sdkcov.fileprovider/Domains.plist" 2>/dev/null)" != true ]; then
+	rm -rf "$fp/LegacyEnabledStateHasBeenMigrated" "$fp/com.x86sim.test.sdkcov.fileprovider"
+	xcrun simctl spawn "$dev" launchctl kill SIGKILL user/foreground/com.apple.FileProvider >/dev/null 2>&1
+	echo "ref-mac: FileProvider extension state reset (enable migration rerun)"
+fi ;; esac
 data=$(xcrun simctl get_app_container "$dev" com.x86sim.test.sdkcov data)
 res=$data/Documents/x86test-results.txt
 t0=$(date +%s); n=0 miss=0

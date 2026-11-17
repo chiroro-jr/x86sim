@@ -34,6 +34,19 @@ xs install "$X86SIM_DEVICE" "$APP" >"$OUT/install.log" 2>&1 || { echo "install F
 # the App Clip (iOS: AppClips/sdkcovClip.app) goes in after the app, as Xcode installs one (installing the full app
 # removes an installed clip of it): func:AppClip.clip-installed-with-parent
 for c in "$APP"/AppClips/*.app; do [ -d "$c" ] && { xs install "$X86SIM_DEVICE" "$c" >>"$OUT/install.log" 2>&1 || echo "  note: App Clip $(basename "$c") not installed: $(tail -1 "$OUT/install.log")"; }; done
+# the app's FileProvider extension enabled as on a device whose fileproviderd first starts with the app installed
+# (a fresh device; ref-mac.sh does the same): fileproviderd's one-time LegacyEnabledStateHasBeenMigrated migration
+# enables the extensions present then, one it meets later stays disabled ("Sync is not enabled", -2011; Apple's
+# simulator the same) until the user enables it in Files: func:FileProvider.replicated-extension-domain. Reset, and
+# fileproviderd restarted (launchd starts it again on demand) to rerun the migration
+FP="$X86SIM_DEVICE/data/Library/Application Support/FileProvider"
+case $plat in ios|xros) if [ -e "$FP/LegacyEnabledStateHasBeenMigrated" ] && ! python3 -I -c 'import plistlib, sys
+sys.exit(0 if plistlib.load(open(sys.argv[1], "rb"))["NSFileProviderDomainDefaultIdentifier"]["Enabled"] is True else 1)' \
+		"$FP/$BID.fileprovider/Domains.plist" 2>/dev/null; then
+	rm -rf "$FP/LegacyEnabledStateHasBeenMigrated" "$FP/$BID.fileprovider"
+	for p in $(pgrep -x fileproviderd); do tr '\0' '\n' < "/proc/$p/environ" 2>/dev/null | grep -qF "$X86SIM_DEVICE/data" && kill -9 "$p"; done
+	echo "  FileProvider extension state reset (enable migration rerun)"
+fi ;; esac
 DATA=$(xs get_app_container "$BID" data 2>/dev/null)
 [ -d "$DATA" ] || { echo "sdkcov: no data container for $BID" >&2; exit 1; }
 RES=$DATA/Documents/x86test-results.txt
