@@ -162,7 +162,8 @@ extension Registry {
                 try expect(el.browserAccessibilityRoleDescription == "sdkcov role" && el.browserAccessibilityIsRequired && el.browserAccessibilityPressedState == .true
                            && el.browserAccessibilityHasDOMFocus && el.browserAccessibilityContainerType == .list, "browser accessibility attributes")
                 // the text interaction installed on a view
-                let ti = BETextInteraction(); let host = UIView(); host.addInteraction(ti)
+                // (a text view: on visionOS the interaction asks its view for UITextInput state, markedTextRange)
+                let ti = BETextInteraction(); let host = UITextView(); host.addInteraction(ti)
                 try expect(ti.view === host && host.interactions.contains { $0 === ti }, "text interaction view \(String(describing: ti.view))")
                 return "BEScrollView offset \(sv.contentOffset.y) of \(sv.contentSize.height) with a parent via its delegate, suggestion '\(sug.inputText)', manifest, browser accessibility attributes, text interaction on a view"
             }
