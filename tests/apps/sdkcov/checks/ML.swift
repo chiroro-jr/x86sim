@@ -110,11 +110,20 @@ extension Registry {
             // more than 30 s). Available: every generation is refused (ModelManagerError 1026, wrapped in a
             // LanguageModelError) in Apple's visionOS simulator, the answer asserted
             try skipIf(av != "available", "model \(av) after 30 s (Apple's visionOS simulator follows the host Mac; when available, generation is refused 1026)")
-            do {
-                let r = try await LanguageModelSession().respond(to: "Reply with the single word: pong")
-                throw Fail("answered '\(r.content.prefix(40))' (Apple's visionOS simulator refuses generation: ModelManagerError 1026)")
-            } catch let e where "\(e as NSError)".contains("ModelManagerError Code=1026") {
-                return "available; generation refused: ModelManagerError 1026 (as Apple's visionOS simulator)"
+            // a modelmanagerd that has just (re)started has not loaded its asset repository yet: the input sanitizer's
+            // request fails with SensitiveContentAnalysisML 15 (... OnDeviceInferenceAssetRepository 2) for a few
+            // seconds, in Apple's visionOS simulator too (modelmanagerd killed right before the request): asked again
+            var cold = 0
+            while true {
+                do {
+                    let r = try await LanguageModelSession().respond(to: "Reply with the single word: pong")
+                    throw Fail("answered '\(r.content.prefix(40))' (Apple's visionOS simulator refuses generation: ModelManagerError 1026)")
+                } catch let e where "\(e as NSError)".contains("ModelManagerError Code=1026") {
+                    return "available; generation refused: ModelManagerError 1026 (as Apple's visionOS simulator)\(cold > 0 ? "; \(cold) cold-modelmanagerd answer(s) (SensitiveContentAnalysisML 15) before" : "")"
+                } catch let e where cold < 6 && "\(e as NSError)".contains("OnDeviceInferenceAssetRepository Code=2") {
+                    cold += 1
+                    try await Task.sleep(for: .seconds(5))
+                }
             }
             #else
             let m = SystemLanguageModel.default
