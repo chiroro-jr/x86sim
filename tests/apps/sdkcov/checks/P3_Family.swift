@@ -5,6 +5,7 @@
 // as an ordinary app gets and asserts the answer Apple's simulator gives (ref-mac.sh); FileProviderUI's action
 // controller without an extension context.
 import Foundation
+import AVFAudio
 import SwiftUI
 #if canImport(UIKit)
 import UIKit
@@ -234,6 +235,26 @@ extension Registry {
             // Apple's simulator: one event, the 10 ms one-shot timer (ident 1)
             try expect(n == 1 && out.ident == 1 && out.filter == Int16(EVFILT_TIMER), "be_kevent -> \(n) (errno \(errno)), ident \(out.ident), filter \(out.filter) (Apple's simulator: 1 timer event, ident 1)")
             return "be_kevent -> \(n) (errno \(n < 0 ? errno : 0)), timer event \(n == 1 ? "fired, ident \(out.ident)" : "-"), JIT witness supported \(supported)"
+        })
+        #endif
+        #if canImport(BrowserEngineCore) && os(iOS)
+        c.append(check("BrowserEngineCore", "audio-session-preferred-output", timeout: 20) {
+            // BEAudioSession (iOS 26): a browser engine's output routing over an AVAudioSession
+            let av = AVAudioSession.sharedInstance()
+            try av.setCategory(.playback)
+            try av.setActive(true)
+            defer { try? av.setActive(false, options: .notifyOthersOnDeactivation) }
+            let be = BEAudioSession(audioSession: av)
+            let outs = be.availableOutputs
+            let route = av.currentRoute.outputs.map(\.portType.rawValue)
+            // Apple's iOS 27.2 simulator: the route is the speaker, but no output is offered for routing and none preferred
+            try expect(route == ["Speaker"] && outs.isEmpty && be.preferredOutput == nil, "outputs \(outs.map(\.portType.rawValue)), route \(route), preferred \(String(describing: be.preferredOutput)) (Apple's simulator: none offered, route Speaker)")
+            // clearing the preferred output calls AVAudioSession's setPreferredPersistentInputUIDs:outputUIDs:error:, which
+            // the simulator's AVAudioSession lacks: NSInvalidArgumentException (unrecognized selector) on Apple's too
+            var err = "none"
+            let x = SDKCovCatch { do { try be.setPreferredOutput(nil) } catch { err = "\((error as NSError).domain) \((error as NSError).code)" } }
+            try expect(x?.first == "NSInvalidArgumentException" && (x?.last ?? "").contains("setPreferredPersistentInputUIDs:outputUIDs:error:"), "setPreferredOutput(nil): \(x ?? ["no exception", err]) (Apple's simulator: unrecognized selector setPreferredPersistentInputUIDs:outputUIDs:error:)")
+            return "no output offered, route \(route); setPreferredOutput(nil): \(x?.first ?? "no exception, error \(err)")"
         })
         #endif
         #if canImport(BrowserKit) && os(iOS)
