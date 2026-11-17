@@ -22,15 +22,16 @@
     "func:AVFAudio.speech-synthesis-to-buffer",
     "func:AVFAudio.audio-player-playback",
     "func:AVFAudio.source-node-time-pitch-offline",
-    "func:AVFAudio.sequencer-sampler-offline"
+    "func:AVFAudio.sequencer-sampler-offline",
+    "func:AVFAudio.session-preferred-rate-io-duration"
    ],
    "gaps": [
     "[a] AVAudioRecorder / AVAudioEngine.inputNode capture (sim mic input): assert record + file length",
-    "[a] AVAudioSession interruption / route-change notifications, setPreferredSampleRate / setPreferredIOBufferDuration",
-    "[a] AVAudioSinkNode in a manual-render engine"
+    "[a] AVAudioSession interruption / route-change notifications"
    ],
-   "note": "offline render with effects, realtime output, AAC convert, speech-to-buffer, TimePitch/Varispeed, AVAudioSequencer+Sampler (SMF), spatial environment node (visionOS); Apple visionOS speech-synthesis-to-buffer FAILs while x86 passes.",
+   "note": "offline render with effects, realtime output, AAC convert, speech-to-buffer, TimePitch/Varispeed, AVAudioSequencer+Sampler (SMF), spatial environment node (visionOS); Apple visionOS speech-synthesis-to-buffer FAILs while x86 passes. P11: AVAudioSession preferred sample rate / IO buffer duration applied on activation. AVAudioSinkNode cannot be pulled by a manual-render engine (\"player started when in a disconnected state\" on Apple too): gap dropped (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
+   "r15": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -53,16 +54,18 @@
     "func:AVFoundation.queue-player-seek-rate-looper",
     "func:AVFoundation.sample-buffer-renderers-synchronizer",
     "func:AVFoundation.asset-load-formats",
-    "func:AVFoundation.capture-simulator-answers"
+    "func:AVFoundation.capture-simulator-answers",
+    "func:AVFoundation.player-item-failed-status"
    ],
    "gaps": [
     "[a] AVContentKeySession (clear key) / AVAssetDownloadURLSession offline HLS",
     "[a] chapter metadata: timed-metadata-chapters reports chapters (empty) - assert chapterMetadataGroups from a chaptered m4a/mov",
-    "[a] AVPlayerItem failed/stall notifications (AVPlayerItemPlaybackStalled, failedToPlayToEndTime)",
+    "[a] AVPlayerItemPlaybackStalled / failedToPlayToEndTime notifications",
     "[a] AVAssetExportSession fileLengthLimit / metadata write-through on export"
    ],
-   "note": "asset writer/reader/image generator, CI video compositor + export + presets, HLS loopback with WebVTT, resource loader, timed metadata, AVMutableMovie, queue player/looper/seek/rate, sample-buffer renderers+synchronizer, multi-format loads; capture-simulator-answers asserts 0 cameras and input-less session error -11819 as on Apple.",
+   "note": "asset writer/reader/image generator, CI video compositor + export + presets, HLS loopback with WebVTT, resource loader, timed metadata, AVMutableMovie, queue player/looper/seek/rate, sample-buffer renderers+synchronizer, multi-format loads; capture-simulator-answers asserts 0 cameras and input-less session error -11819 as on Apple. P11: an unplayable item fails with AVFoundationErrorDomain -11829 (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
+   "r15": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -99,9 +102,10 @@
    "gaps": [
     "[a] BNNS Graph compile/execute"
    ],
-   "note": "FFT, sgemm, vImage, simd; LAPACK dgesv solve + dsyev eigenvalues (Apple and x86Sim PASS on iOS, 2026-11-18)",
+   "note": "FFT, sgemm, vImage, simd; LAPACK dgesv solve + dsyev eigenvalues (Apple and x86Sim PASS on all four, 2026-11-18)",
    "package": "P8 Foundation, networking, security, identity & device management",
    "r14": true,
+   "r15": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -774,13 +778,16 @@
   },
   "CoreGraphics": {
    "existing_checks": [
-    "func:CoreGraphics.bitmap-paths-gradients-pdf"
+    "func:CoreGraphics.bitmap-paths-gradients-pdf",
+    "func:CoreGraphics.pdf-scanner-gradient-jpeg-provider"
    ],
    "gaps": [
-    "[a] CGPDFDocument parsing/scanning (CGPDFScanner), CGImageSource-less JPEG via CGDataProvider, shading/patterns"
+    "[a] CGShading with a CGFunction, CGPattern"
    ],
+   "note": "P11: CGPDFScanner operators of a generated PDF, linear gradient pixels, JPEG through CGImage(jpegDataProviderSource:) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
-   "rejudged": false,
+   "r15": true,
+   "rejudged": true,
    "status": "covered"
   },
   "CoreHaptics": {
@@ -798,14 +805,17 @@
   "CoreImage": {
    "existing_checks": [
     "func:CoreImage.filters-context-qr",
-    "func:CoreImage.metal-vs-software-filter-chain"
+    "func:CoreImage.metal-vs-software-filter-chain",
+    "func:CoreImage.color-kernel-processor-kernel"
    ],
    "gaps": [
-    "[a] CIRAWFilter / CIImage from HEIF/RAW, CIImageProcessorKernel, custom CIKernel (Metal) at runtime",
+    "[a] CIRAWFilter / CIImage from HEIF/RAW, CIKernel from a compiled Metal library",
     "[a] CIDetector face/text (Vision-backed: verify on Apple sim)"
    ],
+   "note": "P11: CIColorKernel from source, CIImageProcessorKernel CPU buffer path (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
-   "rejudged": false,
+   "r15": true,
+   "rejudged": true,
    "status": "covered",
    "used_inside": [
     "func:AVFoundation.video-composition-compositor-ci-export",
@@ -966,13 +976,14 @@
   },
   "CoreTransferable": {
    "existing_checks": [
-    "func:CoreTransferable.transfer-representation"
+    "func:CoreTransferable.transfer-representation",
+    "func:CoreTransferable.data-file-representation-roundtrip"
    ],
-   "gaps": [
-    "[a] FileRepresentation / DataRepresentation import/export"
-   ],
+   "gaps": [],
+   "note": "P11: DataRepresentation export/import, FileRepresentation import, malformed data refused (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P8 Foundation, networking, security, identity & device management",
-   "rejudged": false,
+   "r15": true,
+   "rejudged": true,
    "status": "covered"
   },
   "CoreVideo": {
@@ -1382,13 +1393,15 @@
   "GameplayKit": {
    "existing_checks": [
     "func:GameplayKit.agents-strategists-rules-ecs-trees-noise",
-    "func:GameplayKit.random-pathfinding-statemachine"
+    "func:GameplayKit.random-pathfinding-statemachine",
+    "func:GameplayKit.obstacle-graph-pathfinding"
    ],
    "gaps": [
-    "[a] GKObstacleGraph pathfinding around polygon obstacles, GKScene loaded from an .sks file"
+    "[a] GKScene loaded from an .sks file"
    ],
-   "note": "Agents/goals, minmax + Monte Carlo strategists, rule system, ECS, quadtree, R-tree, noise, pathfinding, state machine.",
+   "note": "Agents/goals, minmax + Monte Carlo strategists, rule system, ECS, quadtree, R-tree, noise, pathfinding, state machine. P11: GKObstacleGraph path around a buffered polygon obstacle (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
+   "r15": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -1475,14 +1488,15 @@
     "func:HomeKit.home-manager-add-remove-home",
     "func:HomeKit.characteristic-service-types",
     "func:HomeKit.accessory-browser-setup-payload",
-    "func:HomeKit.manager"
+    "func:HomeKit.manager",
+    "func:HomeKit.event-trigger-predicates"
    ],
    "gaps": [
-    "[c] HMHome rooms/accessories/action sets: Apple's simulator refuses addHome (HMErrorDomain 2040 / no answer)",
-    "[a] HMEventTrigger / HMSignificantTimeEvent / HMCalendarEvent construction and predicates (no home needed)"
+    "[c] HMHome rooms/accessories/action sets: Apple's simulator refuses addHome (HMErrorDomain 2040 / no answer)"
    ],
-   "note": "HMHomeManager authorized with 0 homes, iOS/visionOS addHome refused, tvOS update callback, HAP type UUIDs, iOS HMAccessoryBrowser + X-HM setup payload.",
+   "note": "HMHomeManager authorized with 0 homes, iOS/visionOS addHome refused, tvOS update callback, HAP type UUIDs, iOS HMAccessoryBrowser + X-HM setup payload. P11: HMSignificantTimeEvent / HMCalendarEvent, HMEventTrigger predicates (iOS/visionOS: an HMEventTrigger built from them) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P5 Health, home, location, sensors & accessories",
+   "r15": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -1642,13 +1656,14 @@
   },
   "JavaScriptCore": {
    "existing_checks": [
-    "func:JavaScriptCore.context-bridge"
+    "func:JavaScriptCore.context-bridge",
+    "func:JavaScriptCore.jsexport-virtual-machine"
    ],
-   "gaps": [
-    "[a] JSExport ObjC class bridging, JSVirtualMachine across contexts"
-   ],
+   "gaps": [],
+   "note": "P11: JSExport class bridging, a value shared by two contexts of one JSVirtualMachine, a block as a JS function (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
-   "rejudged": false,
+   "r15": true,
+   "rejudged": true,
    "status": "covered"
   },
   "LinkPresentation": {
@@ -1945,13 +1960,15 @@
     "func:Metal.counters-timestamps",
     "func:Metal.capture-manager-gputrace",
     "func:Metal.shader-logging-logstate",
-    "func:Metal.rasterization-rate-map"
+    "func:Metal.rasterization-rate-map",
+    "func:Metal.texture-view-swizzle-fence"
    ],
    "gaps": [
-    "[a] MTLParallelRenderCommandEncoder, stencil test, texture views / swizzle, MTLFence across encoders"
+    "[a] MTLParallelRenderCommandEncoder, stencil test"
    ],
-   "note": "Strong render/compute checks plus asserted Apple-sim answers: feature set, no Metal 4/MTLIO/tensor classes, binary archive not serialized, dynamic libraries refused, no function pointers/raytracing/mesh/tile/ICB, residency set nil, capture refused, log state refused, no rate map.",
+   "note": "Strong render/compute checks plus asserted Apple-sim answers: feature set, no Metal 4/MTLIO/tensor classes, binary archive not serialized, dynamic libraries refused, no function pointers/raytracing/mesh/tile/ICB, residency set nil, capture refused, log state refused, no rate map. P11: a swizzled texture view read by a kernel, an MTLFence between two compute encoders (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
+   "r15": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -1984,13 +2001,15 @@
     "func:MetalPerformanceShaders.blur-matmul",
     "func:MetalPerformanceShaders.cnn-conv-pool-fullyconnected",
     "func:MetalPerformanceShaders.image-histogram-sobel-lanczos-morphology",
-    "func:MetalPerformanceShaders.ndarray-matmul-topk-softmax"
+    "func:MetalPerformanceShaders.ndarray-matmul-topk-softmax",
+    "func:MetalPerformanceShaders.threshold-median-cholesky"
    ],
    "gaps": [
-    "[a] MPSImageConversion / threshold / median, MPSMatrixDecompositionCholesky / LU solve"
+    "[a] MPSImageConversion, MPSMatrixDecompositionLU / MPSMatrixSolveLU"
    ],
-   "note": "Blur + matmul, CNN conv/pool/fully-connected values, histogram/Sobel/Lanczos/morphology, NDArray matmul, softmax, top-K.",
+   "note": "Blur + matmul, CNN conv/pool/fully-connected values, histogram/Sobel/Lanczos/morphology, NDArray matmul, softmax, top-K. P11: MPSImageMedian + MPSImageThresholdBinary on a texture, MPSMatrixDecompositionCholesky (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
+   "r15": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -2038,13 +2057,15 @@
     "func:ModelIO.mesh-asset-export",
     "func:ModelIO.obj-usda-import-roundtrip",
     "func:ModelIO.procedural-textures-noise-sky-normalmap",
-    "func:ModelIO.voxels-skeleton-animation-uv-unwrap"
+    "func:ModelIO.voxels-skeleton-animation-uv-unwrap",
+    "func:ModelIO.material-ambient-occlusion"
    ],
    "gaps": [
-    "[a] MDLMaterial / MDLScatteringFunction, MDLLight light probes, ambient occlusion baking"
+    "[a] MDLLightProbe irradiance"
    ],
-   "note": "OBJ import, usda/usdc/obj round trips, noise/sky/normal-map textures, voxels, skeleton/animation, UV unwrap.",
+   "note": "OBJ import, usda/usdc/obj round trips, noise/sky/normal-map textures, voxels, skeleton/animation, UV unwrap. P11: MDLPhysicallyPlausibleScatteringFunction material properties, light color by temperature, ambient occlusion baked into vertex values (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
+   "r15": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -2174,13 +2195,16 @@
   },
   "OSLog": {
    "existing_checks": [
-    "func:OSLog.store-read-own-entries"
+    "func:OSLog.store-read-own-entries",
+    "func:OSLog.store-signposts-position"
    ],
    "gaps": [
-    "[a] OSLogStore position filtering, signpost entries (OSLogEntrySignpost)"
+    "[c] OSLogEntrySignpost: the simulator's process store returns no signposts (0 on Apple and x86Sim); a position by date does not filter older entries (Apple too)"
    ],
+   "note": "P11: a Logger marker read back from the process store, reverse enumeration newest first (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P8 Foundation, networking, security, identity & device management",
-   "rejudged": false,
+   "r15": true,
+   "rejudged": true,
    "status": "covered"
   },
   "OpenAL": {
@@ -2221,14 +2245,16 @@
   },
   "PHASE": {
    "existing_checks": [
-    "func:PHASE.engine"
+    "func:PHASE.engine",
+    "func:PHASE.spatial-sound-event-playback"
    ],
    "gaps": [
-    "[a] port visionOS spatial-sound-event-playback (engine-only today)",
     "[a] PHASEOccluder/material, ambient mixer"
    ],
+   "note": "P11: spatial sound event plays to the end on iOS/tvOS too (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
-   "rejudged": false,
+   "r15": true,
+   "rejudged": true,
    "status": "covered"
   },
   "PaperKit": {
@@ -2353,13 +2379,15 @@
     "func:QuartzCore.layers-render-animation",
     "func:QuartzCore.metal-layer-drawable-present",
     "func:QuartzCore.replicator-transform-shape-emitter-layers",
-    "func:QuartzCore.presentation-values-transaction-completion-tiled"
+    "func:QuartzCore.presentation-values-transaction-completion-tiled",
+    "func:QuartzCore.gradient-text-layer-render"
    ],
    "gaps": [
-    "[a] CAGradientLayer / CATextLayer rendered pixels, CADisplayLink frame cadence"
+    "[a] CADisplayLink frame cadence"
    ],
-   "note": "CAMetalLayer drawables, replicator/transform/shape/emitter layers on screen, presentation() values, transaction completion, tiled layer; watchOS: runtime media clock, timing function control points, CALayer KVC.",
+   "note": "CAMetalLayer drawables, replicator/transform/shape/emitter layers on screen, presentation() values, transaction completion, tiled layer; watchOS: runtime media clock, timing function control points, CALayer KVC. P11: CAGradientLayer / CATextLayer rendered pixels (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
+   "r15": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -2379,13 +2407,16 @@
   },
   "QuickLookThumbnailing": {
    "existing_checks": [
-    "func:QuickLookThumbnailing.png-thumbnail"
+    "func:QuickLookThumbnailing.png-thumbnail",
+    "func:QuickLookThumbnailing.thumbnails-pdf-text"
    ],
    "gaps": [
-    "[a] thumbnails for PDF/movie/text types"
+    "[a] movie thumbnails"
    ],
+   "note": "P11: PDF and plain-text thumbnails (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
-   "rejudged": false,
+   "r15": true,
+   "rejudged": true,
    "status": "covered"
   },
   "RealityFoundation": {
@@ -2500,13 +2531,15 @@
     "func:SceneKit.physics-contact-hittest",
     "func:SceneKit.scene-write-source-load-usdz",
     "func:SceneKit.animation-player-morpher-skinner",
-    "func:SceneKit.shader-modifier-program-technique"
+    "func:SceneKit.shader-modifier-program-technique",
+    "func:SceneKit.renderer-shadows-particles"
    ],
    "gaps": [
-    "[a] SCNParticleSystem, light shadows, SCNAudioSource"
+    "[a] SCNAudioSource"
    ],
-   "note": "Offscreen pixels, physics contact + hit tests, .scn/usdz load, animation player/morpher/skinner, shader modifier/SCNProgram/technique; watchOS: scene graph here, physics via _SceneKit_SwiftUI.",
+   "note": "Offscreen pixels, physics contact + hit tests, .scn/usdz load, animation player/morpher/skinner, shader modifier/SCNProgram/technique; watchOS: scene graph here, physics via _SceneKit_SwiftUI. P11: SCNRenderer snapshots: a shadow-casting light darkens the scene, a particle system is visible (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
+   "r15": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -2623,13 +2656,13 @@
   "ShazamKit": {
    "existing_checks": [
     "func:ShazamKit.signature-generation",
-    "func:ShazamKit.custom-catalog-match"
+    "func:ShazamKit.custom-catalog-match",
+    "func:ShazamKit.library-add-read"
    ],
-   "gaps": [
-    "[a] SHLibrary.default items add/read"
-   ],
-   "note": "signature generation, SHCustomCatalog match with offset ~4 s, no-match for other signal, catalog data round trip, SHManagedSession idle.",
+   "gaps": [],
+   "note": "signature generation, SHCustomCatalog match with offset ~4 s, no-match for other signal, catalog data round trip, SHManagedSession idle. P11: SHLibrary.default.addItems never answers on Apple's simulator (tvOS: no shazamd, ShazamLibrary 301): asserted; x86Sim answered 301 at once on iOS/watchOS/visionOS until shazamd joined boot-a64.sh (fixed 2026-11-18) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
+   "r15": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -3058,14 +3091,15 @@
     "func:Vision.swift-requests-rectangles-contours",
     "func:Vision.barcodes-from-coreimage-generators",
     "func:Vision.translational-registration-horizon",
-    "func:Vision.saliency-faces-poses-classify"
+    "func:Vision.saliency-faces-poses-classify",
+    "func:Vision.optical-flow-homographic"
    ],
    "gaps": [
-    "[a] VNGenerateOpticalFlowRequest / homographic registration",
     "[c] faces/landmarks/body/hand/classify/saliency: Apple sim has no inference context - checks accept the error (done)"
    ],
-   "note": "rectangles/contours, translational registration recovers the shift, horizon; NN requests complete-or-error like Apple (saliency NSOSStatus -1).",
+   "note": "rectangles/contours, translational registration recovers the shift, horizon; NN requests complete-or-error like Apple (saliency NSOSStatus -1). P11: identity homography for the test pair, VNGenerateOpticalFlowRequest fails com.apple.Vision 9 (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
+   "r15": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -3748,15 +3782,16 @@
     "func:AVFAudio.session-category",
     "func:AVFAudio.speech-synthesis-to-buffer",
     "func:AVFAudio.source-node-time-pitch-offline",
-    "func:AVFAudio.sequencer-sampler-offline"
+    "func:AVFAudio.sequencer-sampler-offline",
+    "func:AVFAudio.session-preferred-rate-io-duration"
    ],
    "gaps": [
     "[a] AVAudioRecorder / AVAudioEngine.inputNode capture (sim mic input): assert record + file length",
-    "[a] AVAudioSession interruption / route-change notifications, setPreferredSampleRate / setPreferredIOBufferDuration",
-    "[a] AVAudioSinkNode in a manual-render engine"
+    "[a] AVAudioSession interruption / route-change notifications"
    ],
-   "note": "offline render with effects, realtime output, AAC convert, speech-to-buffer, TimePitch/Varispeed, AVAudioSequencer+Sampler (SMF), spatial environment node (visionOS); Apple visionOS speech-synthesis-to-buffer FAILs while x86 passes.",
+   "note": "offline render with effects, realtime output, AAC convert, speech-to-buffer, TimePitch/Varispeed, AVAudioSequencer+Sampler (SMF), spatial environment node (visionOS); Apple visionOS speech-synthesis-to-buffer FAILs while x86 passes. P11: AVAudioSession preferred sample rate / IO buffer duration applied on activation. AVAudioSinkNode cannot be pulled by a manual-render engine (\"player started when in a disconnected state\" on Apple too): gap dropped (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
+   "r15": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -3776,16 +3811,18 @@
     "func:AVFoundation.queue-player-seek-rate-looper",
     "func:AVFoundation.sample-buffer-renderers-synchronizer",
     "func:AVFoundation.asset-load-formats",
-    "func:AVFoundation.capture-simulator-answers"
+    "func:AVFoundation.capture-simulator-answers",
+    "func:AVFoundation.player-item-failed-status"
    ],
    "gaps": [
     "[a] AVContentKeySession (clear key) / AVAssetDownloadURLSession offline HLS",
     "[a] chapter metadata: timed-metadata-chapters reports chapters (empty) - assert chapterMetadataGroups from a chaptered m4a/mov",
-    "[a] AVPlayerItem failed/stall notifications (AVPlayerItemPlaybackStalled, failedToPlayToEndTime)",
+    "[a] AVPlayerItemPlaybackStalled / failedToPlayToEndTime notifications",
     "[a] AVAssetExportSession fileLengthLimit / metadata write-through on export"
    ],
-   "note": "asset writer/reader/image generator, CI video compositor + export + presets, HLS loopback with WebVTT, resource loader, timed metadata, AVMutableMovie, queue player/looper/seek/rate, sample-buffer renderers+synchronizer, multi-format loads; capture-simulator-answers asserts 0 cameras and input-less session error -11819 as on Apple.",
+   "note": "asset writer/reader/image generator, CI video compositor + export + presets, HLS loopback with WebVTT, resource loader, timed metadata, AVMutableMovie, queue player/looper/seek/rate, sample-buffer renderers+synchronizer, multi-format loads; capture-simulator-answers asserts 0 cameras and input-less session error -11819 as on Apple. P11: an unplayable item fails with AVFoundationErrorDomain -11829 (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
+   "r15": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -3823,9 +3860,10 @@
    "gaps": [
     "[a] BNNS Graph compile/execute"
    ],
-   "note": "FFT, sgemm, vImage, simd; LAPACK dgesv solve + dsyev eigenvalues",
+   "note": "FFT, sgemm, vImage, simd; LAPACK dgesv solve + dsyev eigenvalues (Apple and x86Sim PASS on all four, 2026-11-18)",
    "package": "P8 Foundation, networking, security, identity & device management",
    "r14": true,
+   "r15": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -4131,13 +4169,16 @@
   },
   "CoreGraphics": {
    "existing_checks": [
-    "func:CoreGraphics.bitmap-paths-gradients-pdf"
+    "func:CoreGraphics.bitmap-paths-gradients-pdf",
+    "func:CoreGraphics.pdf-scanner-gradient-jpeg-provider"
    ],
    "gaps": [
-    "[a] CGPDFDocument parsing/scanning (CGPDFScanner), CGImageSource-less JPEG via CGDataProvider, shading/patterns"
+    "[a] CGShading with a CGFunction, CGPattern"
    ],
+   "note": "P11: CGPDFScanner operators of a generated PDF, linear gradient pixels, JPEG through CGImage(jpegDataProviderSource:) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
-   "rejudged": false,
+   "r15": true,
+   "rejudged": true,
    "status": "covered"
   },
   "CoreHaptics": {
@@ -4155,14 +4196,17 @@
   "CoreImage": {
    "existing_checks": [
     "func:CoreImage.filters-context-qr",
-    "func:CoreImage.metal-vs-software-filter-chain"
+    "func:CoreImage.metal-vs-software-filter-chain",
+    "func:CoreImage.color-kernel-processor-kernel"
    ],
    "gaps": [
-    "[a] CIRAWFilter / CIImage from HEIF/RAW, CIImageProcessorKernel, custom CIKernel (Metal) at runtime",
+    "[a] CIRAWFilter / CIImage from HEIF/RAW, CIKernel from a compiled Metal library",
     "[a] CIDetector face/text (Vision-backed: verify on Apple sim)"
    ],
+   "note": "P11: CIColorKernel from source, CIImageProcessorKernel CPU buffer path (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
-   "rejudged": false,
+   "r15": true,
+   "rejudged": true,
    "status": "covered",
    "used_inside": [
     "func:AVFoundation.video-composition-compositor-ci-export",
@@ -4262,13 +4306,14 @@
   },
   "CoreTransferable": {
    "existing_checks": [
-    "func:CoreTransferable.transfer-representation"
+    "func:CoreTransferable.transfer-representation",
+    "func:CoreTransferable.data-file-representation-roundtrip"
    ],
-   "gaps": [
-    "[a] FileRepresentation / DataRepresentation import/export"
-   ],
+   "gaps": [],
+   "note": "P11: DataRepresentation export/import, FileRepresentation import, malformed data refused (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P8 Foundation, networking, security, identity & device management",
-   "rejudged": false,
+   "r15": true,
+   "rejudged": true,
    "status": "covered"
   },
   "CoreVideo": {
@@ -4502,13 +4547,15 @@
   "GameplayKit": {
    "existing_checks": [
     "func:GameplayKit.agents-strategists-rules-ecs-trees-noise",
-    "func:GameplayKit.random-pathfinding-statemachine"
+    "func:GameplayKit.random-pathfinding-statemachine",
+    "func:GameplayKit.obstacle-graph-pathfinding"
    ],
    "gaps": [
-    "[a] GKObstacleGraph pathfinding around polygon obstacles, GKScene loaded from an .sks file"
+    "[a] GKScene loaded from an .sks file"
    ],
-   "note": "Agents/goals, minmax + Monte Carlo strategists, rule system, ECS, quadtree, R-tree, noise, pathfinding, state machine.",
+   "note": "Agents/goals, minmax + Monte Carlo strategists, rule system, ECS, quadtree, R-tree, noise, pathfinding, state machine. P11: GKObstacleGraph path around a buffered polygon obstacle (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
+   "r15": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -4552,14 +4599,15 @@
    "existing_checks": [
     "func:HomeKit.home-manager-add-remove-home",
     "func:HomeKit.characteristic-service-types",
-    "func:HomeKit.manager"
+    "func:HomeKit.manager",
+    "func:HomeKit.event-trigger-predicates"
    ],
    "gaps": [
-    "[c] HMHome rooms/accessories/action sets: Apple's simulator refuses addHome (HMErrorDomain 2040 / no answer)",
-    "[a] HMEventTrigger / HMSignificantTimeEvent / HMCalendarEvent construction and predicates (no home needed)"
+    "[c] HMHome rooms/accessories/action sets: Apple's simulator refuses addHome (HMErrorDomain 2040 / no answer)"
    ],
-   "note": "HMHomeManager authorized with 0 homes, iOS/visionOS addHome refused, tvOS update callback, HAP type UUIDs, iOS HMAccessoryBrowser + X-HM setup payload.",
+   "note": "HMHomeManager authorized with 0 homes, iOS/visionOS addHome refused, tvOS update callback, HAP type UUIDs, iOS HMAccessoryBrowser + X-HM setup payload. P11: HMSignificantTimeEvent / HMCalendarEvent, HMEventTrigger predicates (iOS/visionOS: an HMEventTrigger built from them) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P5 Health, home, location, sensors & accessories",
+   "r15": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -4627,13 +4675,14 @@
   },
   "JavaScriptCore": {
    "existing_checks": [
-    "func:JavaScriptCore.context-bridge"
+    "func:JavaScriptCore.context-bridge",
+    "func:JavaScriptCore.jsexport-virtual-machine"
    ],
-   "gaps": [
-    "[a] JSExport ObjC class bridging, JSVirtualMachine across contexts"
-   ],
+   "gaps": [],
+   "note": "P11: JSExport class bridging, a value shared by two contexts of one JSVirtualMachine, a block as a JS function (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
-   "rejudged": false,
+   "r15": true,
+   "rejudged": true,
    "status": "covered"
   },
   "LinkPresentation": {
@@ -4812,13 +4861,15 @@
     "func:Metal.counters-timestamps",
     "func:Metal.capture-manager-gputrace",
     "func:Metal.shader-logging-logstate",
-    "func:Metal.rasterization-rate-map"
+    "func:Metal.rasterization-rate-map",
+    "func:Metal.texture-view-swizzle-fence"
    ],
    "gaps": [
-    "[a] MTLParallelRenderCommandEncoder, stencil test, texture views / swizzle, MTLFence across encoders"
+    "[a] MTLParallelRenderCommandEncoder, stencil test"
    ],
-   "note": "Strong render/compute checks plus asserted Apple-sim answers: feature set, no Metal 4/MTLIO/tensor classes, binary archive not serialized, dynamic libraries refused, no function pointers/raytracing/mesh/tile/ICB, residency set nil, capture refused, log state refused, no rate map.",
+   "note": "Strong render/compute checks plus asserted Apple-sim answers: feature set, no Metal 4/MTLIO/tensor classes, binary archive not serialized, dynamic libraries refused, no function pointers/raytracing/mesh/tile/ICB, residency set nil, capture refused, log state refused, no rate map. P11: a swizzled texture view read by a kernel, an MTLFence between two compute encoders (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
+   "r15": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -4851,13 +4902,15 @@
     "func:MetalPerformanceShaders.blur-matmul",
     "func:MetalPerformanceShaders.cnn-conv-pool-fullyconnected",
     "func:MetalPerformanceShaders.image-histogram-sobel-lanczos-morphology",
-    "func:MetalPerformanceShaders.ndarray-matmul-topk-softmax"
+    "func:MetalPerformanceShaders.ndarray-matmul-topk-softmax",
+    "func:MetalPerformanceShaders.threshold-median-cholesky"
    ],
    "gaps": [
-    "[a] MPSImageConversion / threshold / median, MPSMatrixDecompositionCholesky / LU solve"
+    "[a] MPSImageConversion, MPSMatrixDecompositionLU / MPSMatrixSolveLU"
    ],
-   "note": "Blur + matmul, CNN conv/pool/fully-connected values, histogram/Sobel/Lanczos/morphology, NDArray matmul, softmax, top-K.",
+   "note": "Blur + matmul, CNN conv/pool/fully-connected values, histogram/Sobel/Lanczos/morphology, NDArray matmul, softmax, top-K. P11: MPSImageMedian + MPSImageThresholdBinary on a texture, MPSMatrixDecompositionCholesky (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
+   "r15": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -4886,13 +4939,15 @@
     "func:ModelIO.mesh-asset-export",
     "func:ModelIO.obj-usda-import-roundtrip",
     "func:ModelIO.procedural-textures-noise-sky-normalmap",
-    "func:ModelIO.voxels-skeleton-animation-uv-unwrap"
+    "func:ModelIO.voxels-skeleton-animation-uv-unwrap",
+    "func:ModelIO.material-ambient-occlusion"
    ],
    "gaps": [
-    "[a] MDLMaterial / MDLScatteringFunction, MDLLight light probes, ambient occlusion baking"
+    "[a] MDLLightProbe irradiance"
    ],
-   "note": "OBJ import, usda/usdc/obj round trips, noise/sky/normal-map textures, voxels, skeleton/animation, UV unwrap.",
+   "note": "OBJ import, usda/usdc/obj round trips, noise/sky/normal-map textures, voxels, skeleton/animation, UV unwrap. P11: MDLPhysicallyPlausibleScatteringFunction material properties, light color by temperature, ambient occlusion baked into vertex values (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
+   "r15": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -4995,13 +5050,16 @@
   },
   "OSLog": {
    "existing_checks": [
-    "func:OSLog.store-read-own-entries"
+    "func:OSLog.store-read-own-entries",
+    "func:OSLog.store-signposts-position"
    ],
    "gaps": [
-    "[a] OSLogStore position filtering, signpost entries (OSLogEntrySignpost)"
+    "[c] OSLogEntrySignpost: the simulator's process store returns no signposts (0 on Apple and x86Sim); a position by date does not filter older entries (Apple too)"
    ],
+   "note": "P11: a Logger marker read back from the process store, reverse enumeration newest first (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P8 Foundation, networking, security, identity & device management",
-   "rejudged": false,
+   "r15": true,
+   "rejudged": true,
    "status": "covered"
   },
   "OpenAL": {
@@ -5043,14 +5101,16 @@
   },
   "PHASE": {
    "existing_checks": [
-    "func:PHASE.engine"
+    "func:PHASE.engine",
+    "func:PHASE.spatial-sound-event-playback"
    ],
    "gaps": [
-    "[a] port visionOS spatial-sound-event-playback (engine-only today)",
     "[a] PHASEOccluder/material, ambient mixer"
    ],
+   "note": "P11: spatial sound event plays to the end on iOS/tvOS too (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
-   "rejudged": false,
+   "r15": true,
+   "rejudged": true,
    "status": "covered"
   },
   "Photos": {
@@ -5084,13 +5144,15 @@
     "func:QuartzCore.layers-render-animation",
     "func:QuartzCore.metal-layer-drawable-present",
     "func:QuartzCore.replicator-transform-shape-emitter-layers",
-    "func:QuartzCore.presentation-values-transaction-completion-tiled"
+    "func:QuartzCore.presentation-values-transaction-completion-tiled",
+    "func:QuartzCore.gradient-text-layer-render"
    ],
    "gaps": [
-    "[a] CAGradientLayer / CATextLayer rendered pixels, CADisplayLink frame cadence"
+    "[a] CADisplayLink frame cadence"
    ],
-   "note": "CAMetalLayer drawables, replicator/transform/shape/emitter layers on screen, presentation() values, transaction completion, tiled layer; watchOS: runtime media clock, timing function control points, CALayer KVC.",
+   "note": "CAMetalLayer drawables, replicator/transform/shape/emitter layers on screen, presentation() values, transaction completion, tiled layer; watchOS: runtime media clock, timing function control points, CALayer KVC. P11: CAGradientLayer / CATextLayer rendered pixels (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
+   "r15": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -5167,13 +5229,15 @@
     "func:SceneKit.physics-contact-hittest",
     "func:SceneKit.scene-write-source-load-usdz",
     "func:SceneKit.animation-player-morpher-skinner",
-    "func:SceneKit.shader-modifier-program-technique"
+    "func:SceneKit.shader-modifier-program-technique",
+    "func:SceneKit.renderer-shadows-particles"
    ],
    "gaps": [
-    "[a] SCNParticleSystem, light shadows, SCNAudioSource"
+    "[a] SCNAudioSource"
    ],
-   "note": "Offscreen pixels, physics contact + hit tests, .scn/usdz load, animation player/morpher/skinner, shader modifier/SCNProgram/technique; watchOS: scene graph here, physics via _SceneKit_SwiftUI.",
+   "note": "Offscreen pixels, physics contact + hit tests, .scn/usdz load, animation player/morpher/skinner, shader modifier/SCNProgram/technique; watchOS: scene graph here, physics via _SceneKit_SwiftUI. P11: SCNRenderer snapshots: a shadow-casting light darkens the scene, a particle system is visible (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
+   "r15": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -5228,13 +5292,13 @@
   "ShazamKit": {
    "existing_checks": [
     "func:ShazamKit.signature-generation",
-    "func:ShazamKit.custom-catalog-match"
+    "func:ShazamKit.custom-catalog-match",
+    "func:ShazamKit.library-add-read"
    ],
-   "gaps": [
-    "[a] SHLibrary.default items add/read"
-   ],
-   "note": "signature generation, SHCustomCatalog match with offset ~4 s, no-match for other signal, catalog data round trip, SHManagedSession idle.",
+   "gaps": [],
+   "note": "signature generation, SHCustomCatalog match with offset ~4 s, no-match for other signal, catalog data round trip, SHManagedSession idle. P11: SHLibrary.default.addItems never answers on Apple's simulator (tvOS: no shazamd, ShazamLibrary 301): asserted; x86Sim answered 301 at once on iOS/watchOS/visionOS until shazamd joined boot-a64.sh (fixed 2026-11-18) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
+   "r15": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -5567,14 +5631,15 @@
     "func:Vision.swift-requests-rectangles-contours",
     "func:Vision.barcodes-from-coreimage-generators",
     "func:Vision.translational-registration-horizon",
-    "func:Vision.saliency-faces-poses-classify"
+    "func:Vision.saliency-faces-poses-classify",
+    "func:Vision.optical-flow-homographic"
    ],
    "gaps": [
-    "[a] VNGenerateOpticalFlowRequest / homographic registration",
     "[c] faces/landmarks/body/hand/classify/saliency: Apple sim has no inference context - checks accept the error (done)"
    ],
-   "note": "rectangles/contours, translational registration recovers the shift, horizon; NN requests complete-or-error like Apple (saliency NSOSStatus -1).",
+   "note": "rectangles/contours, translational registration recovers the shift, horizon; NN requests complete-or-error like Apple (saliency NSOSStatus -1). P11: identity homography for the test pair, VNGenerateOpticalFlowRequest fails com.apple.Vision 9 (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
+   "r15": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -5930,12 +5995,12 @@
    ],
    "gaps": [
     "[a] AVAudioRecorder / AVAudioEngine.inputNode capture (sim mic input): assert record + file length",
-    "[a] AVAudioSession interruption / route-change notifications, setPreferredSampleRate / setPreferredIOBufferDuration",
-    "[a] AVAudioSinkNode in a manual-render engine",
+    "[a] AVAudioSession interruption / route-change notifications (setPreferredSampleRate / IOBufferDuration are unavailable on watchOS)",
     "[a] port source-node-time-pitch-offline / sequencer-sampler-offline where the units exist on watchOS"
    ],
    "note": "offline render with effects, realtime output, AAC convert, speech-to-buffer, TimePitch/Varispeed, AVAudioSequencer+Sampler (SMF), spatial environment node (visionOS); Apple visionOS speech-synthesis-to-buffer FAILs while x86 passes.",
    "package": "P1 Media & AV",
+   "r15": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -5948,16 +6013,18 @@
     "func:AVFoundation.mutable-movie-edit-header",
     "func:AVFoundation.queue-player-seek-rate-looper",
     "func:AVFoundation.sample-buffer-renderers-synchronizer",
-    "func:AVFoundation.asset-load-formats"
+    "func:AVFoundation.asset-load-formats",
+    "func:AVFoundation.player-item-failed-status"
    ],
    "gaps": [
     "[a] AVContentKeySession (clear key) / AVAssetDownloadURLSession offline HLS",
     "[a] chapter metadata: timed-metadata-chapters reports chapters (empty) - assert chapterMetadataGroups from a chaptered m4a/mov",
-    "[a] AVPlayerItem failed/stall notifications (AVPlayerItemPlaybackStalled, failedToPlayToEndTime)",
+    "[a] AVPlayerItemPlaybackStalled / failedToPlayToEndTime notifications",
     "[a] AVAssetExportSession fileLengthLimit / metadata write-through on export"
    ],
-   "note": "asset writer/reader/image generator, CI video compositor + export + presets, HLS loopback with WebVTT, resource loader, timed metadata, AVMutableMovie, queue player/looper/seek/rate, sample-buffer renderers+synchronizer, multi-format loads; capture-simulator-answers asserts 0 cameras and input-less session error -11819 as on Apple.",
+   "note": "asset writer/reader/image generator, CI video compositor + export + presets, HLS loopback with WebVTT, resource loader, timed metadata, AVMutableMovie, queue player/looper/seek/rate, sample-buffer renderers+synchronizer, multi-format loads; capture-simulator-answers asserts 0 cameras and input-less session error -11819 as on Apple. P11: an unplayable item fails with AVFoundationErrorDomain -11829 (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
+   "r15": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -5979,9 +6046,10 @@
    "gaps": [
     "[a] BNNS Graph compile/execute"
    ],
-   "note": "FFT, sgemm, vImage, simd; LAPACK dgesv solve + dsyev eigenvalues",
+   "note": "FFT, sgemm, vImage, simd; LAPACK dgesv solve + dsyev eigenvalues (Apple and x86Sim PASS on all four, 2026-11-18)",
    "package": "P8 Foundation, networking, security, identity & device management",
    "r14": true,
+   "r15": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -6267,13 +6335,16 @@
   },
   "CoreGraphics": {
    "existing_checks": [
-    "func:CoreGraphics.bitmap-paths-gradients-pdf"
+    "func:CoreGraphics.bitmap-paths-gradients-pdf",
+    "func:CoreGraphics.pdf-scanner-gradient-jpeg-provider"
    ],
    "gaps": [
-    "[a] CGPDFDocument parsing/scanning (CGPDFScanner), CGImageSource-less JPEG via CGDataProvider, shading/patterns"
+    "[a] CGShading with a CGFunction, CGPattern"
    ],
+   "note": "P11: CGPDFScanner operators of a generated PDF, linear gradient pixels, JPEG through CGImage(jpegDataProviderSource:) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
-   "rejudged": false,
+   "r15": true,
+   "rejudged": true,
    "status": "covered"
   },
   "CoreLocation": {
@@ -6377,13 +6448,14 @@
   },
   "CoreTransferable": {
    "existing_checks": [
-    "func:CoreTransferable.transfer-representation"
+    "func:CoreTransferable.transfer-representation",
+    "func:CoreTransferable.data-file-representation-roundtrip"
    ],
-   "gaps": [
-    "[a] FileRepresentation / DataRepresentation import/export"
-   ],
+   "gaps": [],
+   "note": "P11: DataRepresentation export/import, FileRepresentation import, malformed data refused (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P8 Foundation, networking, security, identity & device management",
-   "rejudged": false,
+   "r15": true,
+   "rejudged": true,
    "status": "covered"
   },
   "CoreVideo": {
@@ -6653,14 +6725,15 @@
    "existing_checks": [
     "func:HomeKit.home-manager-add-remove-home",
     "func:HomeKit.characteristic-service-types",
-    "func:HomeKit.manager"
+    "func:HomeKit.manager",
+    "func:HomeKit.event-trigger-predicates"
    ],
    "gaps": [
-    "[c] HMHome rooms/accessories/action sets: Apple's simulator refuses addHome (HMErrorDomain 2040 / no answer)",
-    "[a] HMEventTrigger / HMSignificantTimeEvent / HMCalendarEvent construction and predicates (no home needed)"
+    "[c] HMHome rooms/accessories/action sets: Apple's simulator refuses addHome (HMErrorDomain 2040 / no answer)"
    ],
-   "note": "HMHomeManager authorized with 0 homes, iOS/visionOS addHome refused, tvOS update callback, HAP type UUIDs, iOS HMAccessoryBrowser + X-HM setup payload.",
+   "note": "HMHomeManager authorized with 0 homes, iOS/visionOS addHome refused, tvOS update callback, HAP type UUIDs, iOS HMAccessoryBrowser + X-HM setup payload. P11: HMSignificantTimeEvent / HMCalendarEvent, HMEventTrigger predicates (iOS/visionOS: an HMEventTrigger built from them) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P5 Health, home, location, sensors & accessories",
+   "r15": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -6923,13 +6996,16 @@
   },
   "OSLog": {
    "existing_checks": [
-    "func:OSLog.store-read-own-entries"
+    "func:OSLog.store-read-own-entries",
+    "func:OSLog.store-signposts-position"
    ],
    "gaps": [
-    "[a] OSLogStore position filtering, signpost entries (OSLogEntrySignpost)"
+    "[c] OSLogEntrySignpost: the simulator's process store returns no signposts (0 on Apple and x86Sim); a position by date does not filter older entries (Apple too)"
    ],
+   "note": "P11: a Logger marker read back from the process store, reverse enumeration newest first (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P8 Foundation, networking, security, identity & device management",
-   "rejudged": false,
+   "r15": true,
+   "rejudged": true,
    "status": "covered"
   },
   "PassKit": {
@@ -6977,14 +7053,12 @@
    "existing_checks": [
     "func:QuartzCore.watch-runtime-timing-clock"
    ],
-   "gaps": [
-    "[a] CAGradientLayer / CATextLayer rendered pixels, CADisplayLink frame cadence",
-    "[a] CATransform3D math through the runtime"
-   ],
+   "gaps": [],
    "note": "CAMetalLayer drawables, replicator/transform/shape/emitter layers on screen, presentation() values, transaction completion, tiled layer; watchOS: runtime media clock, timing function control points, CALayer KVC.",
    "package": "P2 Graphics, 3D, AR & games",
+   "r15": true,
    "rejudged": true,
-   "sdk_availability": "only CATransform3D functions and CACurrentMediaTime are available (every CA class API_UNAVAILABLE(watchos))",
+   "sdk_availability": "only CACurrentMediaTime is available (every CA class and the CATransform3D functions API_UNAVAILABLE(watchos))",
    "status": "covered"
   },
   "RelevanceKit": {
@@ -7059,13 +7133,13 @@
   "ShazamKit": {
    "existing_checks": [
     "func:ShazamKit.signature-generation",
-    "func:ShazamKit.custom-catalog-match"
+    "func:ShazamKit.custom-catalog-match",
+    "func:ShazamKit.library-add-read"
    ],
-   "gaps": [
-    "[a] SHLibrary.default items add/read"
-   ],
-   "note": "signature generation, SHCustomCatalog match with offset ~4 s, no-match for other signal, catalog data round trip, SHManagedSession idle.",
+   "gaps": [],
+   "note": "signature generation, SHCustomCatalog match with offset ~4 s, no-match for other signal, catalog data round trip, SHManagedSession idle. P11: SHLibrary.default.addItems never answers on Apple's simulator (tvOS: no shazamd, ShazamLibrary 301): asserted; x86Sim answered 301 at once on iOS/watchOS/visionOS until shazamd joined boot-a64.sh (fixed 2026-11-18) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
+   "r15": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -7275,12 +7349,11 @@
     "func:Vision.saliency-faces-poses-classify"
    ],
    "gaps": [
-    "[a] port translational-registration-horizon",
-    "[a] VNGenerateOpticalFlowRequest / homographic registration",
     "[c] faces/landmarks/body/hand/classify/saliency: Apple sim has no inference context - checks accept the error (done)"
    ],
-   "note": "rectangles/contours, translational registration recovers the shift, horizon; NN requests complete-or-error like Apple (saliency NSOSStatus -1).",
+   "note": "rectangles/contours, translational registration recovers the shift, horizon; NN requests complete-or-error like Apple (saliency NSOSStatus -1). P11: translational registration through TrackTranslationalImageRegistrationRequest (watchOS has only the tracking form; no optical flow / homographic requests) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
+   "r15": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -7701,15 +7774,16 @@
     "func:AVFAudio.speech-synthesis-to-buffer",
     "func:AVFAudio.environment-node-spatial-offline",
     "func:AVFAudio.source-node-time-pitch-offline",
-    "func:AVFAudio.sequencer-sampler-offline"
+    "func:AVFAudio.sequencer-sampler-offline",
+    "func:AVFAudio.session-preferred-rate-io-duration"
    ],
    "gaps": [
     "[a] AVAudioRecorder / AVAudioEngine.inputNode capture (sim mic input): assert record + file length",
-    "[a] AVAudioSession interruption / route-change notifications, setPreferredSampleRate / setPreferredIOBufferDuration",
-    "[a] AVAudioSinkNode in a manual-render engine"
+    "[a] AVAudioSession interruption / route-change notifications"
    ],
-   "note": "offline render with effects, realtime output, AAC convert, speech-to-buffer, TimePitch/Varispeed, AVAudioSequencer+Sampler (SMF), spatial environment node (visionOS); Apple visionOS speech-synthesis-to-buffer FAILs while x86 passes.",
+   "note": "offline render with effects, realtime output, AAC convert, speech-to-buffer, TimePitch/Varispeed, AVAudioSequencer+Sampler (SMF), spatial environment node (visionOS); Apple visionOS speech-synthesis-to-buffer FAILs while x86 passes. P11: AVAudioSession preferred sample rate / IO buffer duration applied on activation. AVAudioSinkNode cannot be pulled by a manual-render engine (\"player started when in a disconnected state\" on Apple too): gap dropped (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
+   "r15": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -7730,16 +7804,18 @@
     "func:AVFoundation.queue-player-seek-rate-looper",
     "func:AVFoundation.sample-buffer-renderers-synchronizer",
     "func:AVFoundation.asset-load-formats",
-    "func:AVFoundation.capture-simulator-answers"
+    "func:AVFoundation.capture-simulator-answers",
+    "func:AVFoundation.player-item-failed-status"
    ],
    "gaps": [
     "[a] AVContentKeySession (clear key) / AVAssetDownloadURLSession offline HLS",
     "[a] chapter metadata: timed-metadata-chapters reports chapters (empty) - assert chapterMetadataGroups from a chaptered m4a/mov",
-    "[a] AVPlayerItem failed/stall notifications (AVPlayerItemPlaybackStalled, failedToPlayToEndTime)",
+    "[a] AVPlayerItemPlaybackStalled / failedToPlayToEndTime notifications",
     "[a] AVAssetExportSession fileLengthLimit / metadata write-through on export"
    ],
-   "note": "asset writer/reader/image generator, CI video compositor + export + presets, HLS loopback with WebVTT, resource loader, timed metadata, AVMutableMovie, queue player/looper/seek/rate, sample-buffer renderers+synchronizer, multi-format loads; capture-simulator-answers asserts 0 cameras and input-less session error -11819 as on Apple.",
+   "note": "asset writer/reader/image generator, CI video compositor + export + presets, HLS loopback with WebVTT, resource loader, timed metadata, AVMutableMovie, queue player/looper/seek/rate, sample-buffer renderers+synchronizer, multi-format loads; capture-simulator-answers asserts 0 cameras and input-less session error -11819 as on Apple. P11: an unplayable item fails with AVFoundationErrorDomain -11829 (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
+   "r15": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -7777,9 +7853,10 @@
    "gaps": [
     "[a] BNNS Graph compile/execute"
    ],
-   "note": "FFT, sgemm, vImage, simd; LAPACK dgesv solve + dsyev eigenvalues",
+   "note": "FFT, sgemm, vImage, simd; LAPACK dgesv solve + dsyev eigenvalues (Apple and x86Sim PASS on all four, 2026-11-18)",
    "package": "P8 Foundation, networking, security, identity & device management",
    "r14": true,
+   "r15": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -8205,13 +8282,16 @@
   },
   "CoreGraphics": {
    "existing_checks": [
-    "func:CoreGraphics.bitmap-paths-gradients-pdf"
+    "func:CoreGraphics.bitmap-paths-gradients-pdf",
+    "func:CoreGraphics.pdf-scanner-gradient-jpeg-provider"
    ],
    "gaps": [
-    "[a] CGPDFDocument parsing/scanning (CGPDFScanner), CGImageSource-less JPEG via CGDataProvider, shading/patterns"
+    "[a] CGShading with a CGFunction, CGPattern"
    ],
+   "note": "P11: CGPDFScanner operators of a generated PDF, linear gradient pixels, JPEG through CGImage(jpegDataProviderSource:) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
-   "rejudged": false,
+   "r15": true,
+   "rejudged": true,
    "status": "covered"
   },
   "CoreHaptics": {
@@ -8229,14 +8309,17 @@
   "CoreImage": {
    "existing_checks": [
     "func:CoreImage.filters-context-qr",
-    "func:CoreImage.metal-vs-software-filter-chain"
+    "func:CoreImage.metal-vs-software-filter-chain",
+    "func:CoreImage.color-kernel-processor-kernel"
    ],
    "gaps": [
-    "[a] CIRAWFilter / CIImage from HEIF/RAW, CIImageProcessorKernel, custom CIKernel (Metal) at runtime",
+    "[a] CIRAWFilter / CIImage from HEIF/RAW, CIKernel from a compiled Metal library",
     "[a] CIDetector face/text (Vision-backed: verify on Apple sim)"
    ],
+   "note": "P11: CIColorKernel from source, CIImageProcessorKernel CPU buffer path (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
-   "rejudged": false,
+   "r15": true,
+   "rejudged": true,
    "status": "covered",
    "used_inside": [
     "func:AVFoundation.video-composition-compositor-ci-export",
@@ -8354,13 +8437,14 @@
   },
   "CoreTransferable": {
    "existing_checks": [
-    "func:CoreTransferable.transfer-representation"
+    "func:CoreTransferable.transfer-representation",
+    "func:CoreTransferable.data-file-representation-roundtrip"
    ],
-   "gaps": [
-    "[a] FileRepresentation / DataRepresentation import/export"
-   ],
+   "gaps": [],
+   "note": "P11: DataRepresentation export/import, FileRepresentation import, malformed data refused (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P8 Foundation, networking, security, identity & device management",
-   "rejudged": false,
+   "r15": true,
+   "rejudged": true,
    "status": "covered"
   },
   "CoreVideo": {
@@ -8669,13 +8753,15 @@
   "GameplayKit": {
    "existing_checks": [
     "func:GameplayKit.agents-strategists-rules-ecs-trees-noise",
-    "func:GameplayKit.random-pathfinding-statemachine"
+    "func:GameplayKit.random-pathfinding-statemachine",
+    "func:GameplayKit.obstacle-graph-pathfinding"
    ],
    "gaps": [
-    "[a] GKObstacleGraph pathfinding around polygon obstacles, GKScene loaded from an .sks file"
+    "[a] GKScene loaded from an .sks file"
    ],
-   "note": "Agents/goals, minmax + Monte Carlo strategists, rule system, ECS, quadtree, R-tree, noise, pathfinding, state machine.",
+   "note": "Agents/goals, minmax + Monte Carlo strategists, rule system, ECS, quadtree, R-tree, noise, pathfinding, state machine. P11: GKObstacleGraph path around a buffered polygon obstacle (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
+   "r15": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -8745,14 +8831,15 @@
    "existing_checks": [
     "func:HomeKit.home-manager-add-remove-home",
     "func:HomeKit.characteristic-service-types",
-    "func:HomeKit.manager"
+    "func:HomeKit.manager",
+    "func:HomeKit.event-trigger-predicates"
    ],
    "gaps": [
-    "[c] HMHome rooms/accessories/action sets: Apple's simulator refuses addHome (HMErrorDomain 2040 / no answer)",
-    "[a] HMEventTrigger / HMSignificantTimeEvent / HMCalendarEvent construction and predicates (no home needed)"
+    "[c] HMHome rooms/accessories/action sets: Apple's simulator refuses addHome (HMErrorDomain 2040 / no answer)"
    ],
-   "note": "HMHomeManager authorized with 0 homes, iOS/visionOS addHome refused, tvOS update callback, HAP type UUIDs, iOS HMAccessoryBrowser + X-HM setup payload.",
+   "note": "HMHomeManager authorized with 0 homes, iOS/visionOS addHome refused, tvOS update callback, HAP type UUIDs, iOS HMAccessoryBrowser + X-HM setup payload. P11: HMSignificantTimeEvent / HMCalendarEvent, HMEventTrigger predicates (iOS/visionOS: an HMEventTrigger built from them) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P5 Health, home, location, sensors & accessories",
+   "r15": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -8884,13 +8971,14 @@
   },
   "JavaScriptCore": {
    "existing_checks": [
-    "func:JavaScriptCore.context-bridge"
+    "func:JavaScriptCore.context-bridge",
+    "func:JavaScriptCore.jsexport-virtual-machine"
    ],
-   "gaps": [
-    "[a] JSExport ObjC class bridging, JSVirtualMachine across contexts"
-   ],
+   "gaps": [],
+   "note": "P11: JSExport class bridging, a value shared by two contexts of one JSVirtualMachine, a block as a JS function (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
-   "rejudged": false,
+   "r15": true,
+   "rejudged": true,
    "status": "covered"
   },
   "LinkPresentation": {
@@ -9134,13 +9222,15 @@
     "func:Metal.counters-timestamps",
     "func:Metal.capture-manager-gputrace",
     "func:Metal.shader-logging-logstate",
-    "func:Metal.rasterization-rate-map"
+    "func:Metal.rasterization-rate-map",
+    "func:Metal.texture-view-swizzle-fence"
    ],
    "gaps": [
-    "[a] MTLParallelRenderCommandEncoder, stencil test, texture views / swizzle, MTLFence across encoders"
+    "[a] MTLParallelRenderCommandEncoder, stencil test"
    ],
-   "note": "Strong render/compute checks plus asserted Apple-sim answers: feature set, no Metal 4/MTLIO/tensor classes, binary archive not serialized, dynamic libraries refused, no function pointers/raytracing/mesh/tile/ICB, residency set nil, capture refused, log state refused, no rate map.",
+   "note": "Strong render/compute checks plus asserted Apple-sim answers: feature set, no Metal 4/MTLIO/tensor classes, binary archive not serialized, dynamic libraries refused, no function pointers/raytracing/mesh/tile/ICB, residency set nil, capture refused, log state refused, no rate map. P11: a swizzled texture view read by a kernel, an MTLFence between two compute encoders (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
+   "r15": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -9173,13 +9263,15 @@
     "func:MetalPerformanceShaders.blur-matmul",
     "func:MetalPerformanceShaders.cnn-conv-pool-fullyconnected",
     "func:MetalPerformanceShaders.image-histogram-sobel-lanczos-morphology",
-    "func:MetalPerformanceShaders.ndarray-matmul-topk-softmax"
+    "func:MetalPerformanceShaders.ndarray-matmul-topk-softmax",
+    "func:MetalPerformanceShaders.threshold-median-cholesky"
    ],
    "gaps": [
-    "[a] MPSImageConversion / threshold / median, MPSMatrixDecompositionCholesky / LU solve"
+    "[a] MPSImageConversion, MPSMatrixDecompositionLU / MPSMatrixSolveLU"
    ],
-   "note": "Blur + matmul, CNN conv/pool/fully-connected values, histogram/Sobel/Lanczos/morphology, NDArray matmul, softmax, top-K.",
+   "note": "Blur + matmul, CNN conv/pool/fully-connected values, histogram/Sobel/Lanczos/morphology, NDArray matmul, softmax, top-K. P11: MPSImageMedian + MPSImageThresholdBinary on a texture, MPSMatrixDecompositionCholesky (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
+   "r15": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -9227,13 +9319,15 @@
     "func:ModelIO.mesh-asset-export",
     "func:ModelIO.obj-usda-import-roundtrip",
     "func:ModelIO.procedural-textures-noise-sky-normalmap",
-    "func:ModelIO.voxels-skeleton-animation-uv-unwrap"
+    "func:ModelIO.voxels-skeleton-animation-uv-unwrap",
+    "func:ModelIO.material-ambient-occlusion"
    ],
    "gaps": [
-    "[a] MDLMaterial / MDLScatteringFunction, MDLLight light probes, ambient occlusion baking"
+    "[a] MDLLightProbe irradiance"
    ],
-   "note": "OBJ import, usda/usdc/obj round trips, noise/sky/normal-map textures, voxels, skeleton/animation, UV unwrap.",
+   "note": "OBJ import, usda/usdc/obj round trips, noise/sky/normal-map textures, voxels, skeleton/animation, UV unwrap. P11: MDLPhysicallyPlausibleScatteringFunction material properties, light color by temperature, ambient occlusion baked into vertex values (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
+   "r15": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -9340,13 +9434,16 @@
   },
   "OSLog": {
    "existing_checks": [
-    "func:OSLog.store-read-own-entries"
+    "func:OSLog.store-read-own-entries",
+    "func:OSLog.store-signposts-position"
    ],
    "gaps": [
-    "[a] OSLogStore position filtering, signpost entries (OSLogEntrySignpost)"
+    "[c] OSLogEntrySignpost: the simulator's process store returns no signposts (0 on Apple and x86Sim); a position by date does not filter older entries (Apple too)"
    ],
+   "note": "P11: a Logger marker read back from the process store, reverse enumeration newest first (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P8 Foundation, networking, security, identity & device management",
-   "rejudged": false,
+   "r15": true,
+   "rejudged": true,
    "status": "covered"
   },
   "OpenGLES": {
@@ -9484,13 +9581,15 @@
     "func:QuartzCore.layers-render-animation",
     "func:QuartzCore.metal-layer-drawable-present",
     "func:QuartzCore.replicator-transform-shape-emitter-layers",
-    "func:QuartzCore.presentation-values-transaction-completion-tiled"
+    "func:QuartzCore.presentation-values-transaction-completion-tiled",
+    "func:QuartzCore.gradient-text-layer-render"
    ],
    "gaps": [
-    "[a] CAGradientLayer / CATextLayer rendered pixels, CADisplayLink frame cadence"
+    "[a] CADisplayLink frame cadence"
    ],
-   "note": "CAMetalLayer drawables, replicator/transform/shape/emitter layers on screen, presentation() values, transaction completion, tiled layer; watchOS: runtime media clock, timing function control points, CALayer KVC.",
+   "note": "CAMetalLayer drawables, replicator/transform/shape/emitter layers on screen, presentation() values, transaction completion, tiled layer; watchOS: runtime media clock, timing function control points, CALayer KVC. P11: CAGradientLayer / CATextLayer rendered pixels (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
+   "r15": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -9510,13 +9609,16 @@
   },
   "QuickLookThumbnailing": {
    "existing_checks": [
-    "func:QuickLookThumbnailing.png-thumbnail"
+    "func:QuickLookThumbnailing.png-thumbnail",
+    "func:QuickLookThumbnailing.thumbnails-pdf-text"
    ],
    "gaps": [
-    "[a] thumbnails for PDF/movie/text types"
+    "[a] movie thumbnails"
    ],
+   "note": "P11: PDF and plain-text thumbnails (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
-   "rejudged": false,
+   "r15": true,
+   "rejudged": true,
    "status": "covered"
   },
   "RealityFoundation": {
@@ -9606,13 +9708,15 @@
     "func:SceneKit.physics-contact-hittest",
     "func:SceneKit.scene-write-source-load-usdz",
     "func:SceneKit.animation-player-morpher-skinner",
-    "func:SceneKit.shader-modifier-program-technique"
+    "func:SceneKit.shader-modifier-program-technique",
+    "func:SceneKit.renderer-shadows-particles"
    ],
    "gaps": [
-    "[a] SCNParticleSystem, light shadows, SCNAudioSource"
+    "[a] SCNAudioSource"
    ],
-   "note": "Offscreen pixels, physics contact + hit tests, .scn/usdz load, animation player/morpher/skinner, shader modifier/SCNProgram/technique; watchOS: scene graph here, physics via _SceneKit_SwiftUI.",
+   "note": "Offscreen pixels, physics contact + hit tests, .scn/usdz load, animation player/morpher/skinner, shader modifier/SCNProgram/technique; watchOS: scene graph here, physics via _SceneKit_SwiftUI. P11: SCNRenderer snapshots: a shadow-casting light darkens the scene, a particle system is visible (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
+   "r15": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -9680,13 +9784,13 @@
   "ShazamKit": {
    "existing_checks": [
     "func:ShazamKit.signature-generation",
-    "func:ShazamKit.custom-catalog-match"
+    "func:ShazamKit.custom-catalog-match",
+    "func:ShazamKit.library-add-read"
    ],
-   "gaps": [
-    "[a] SHLibrary.default items add/read"
-   ],
-   "note": "signature generation, SHCustomCatalog match with offset ~4 s, no-match for other signal, catalog data round trip, SHManagedSession idle.",
+   "gaps": [],
+   "note": "signature generation, SHCustomCatalog match with offset ~4 s, no-match for other signal, catalog data round trip, SHManagedSession idle. P11: SHLibrary.default.addItems never answers on Apple's simulator (tvOS: no shazamd, ShazamLibrary 301): asserted; x86Sim answered 301 at once on iOS/watchOS/visionOS until shazamd joined boot-a64.sh (fixed 2026-11-18) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
+   "r15": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -10042,14 +10146,16 @@
     "func:Vision.swift-requests-rectangles-contours",
     "func:Vision.barcodes-from-coreimage-generators",
     "func:Vision.translational-registration-horizon",
-    "func:Vision.saliency-faces-poses-classify"
+    "func:Vision.saliency-faces-poses-classify",
+    "func:Vision.optical-flow-homographic"
    ],
    "gaps": [
-    "[a] VNGenerateOpticalFlowRequest / homographic registration",
-    "[c] faces/landmarks/body/hand/classify/saliency: Apple sim has no inference context - checks accept the error (done)"
+    "[c] faces/landmarks/body/hand/classify/saliency: Apple sim has no inference context - checks accept the error (done)",
+    "[b: optical flow field all zero on x86Sim visionOS] optical-flow-homographic: Apple computes a moving field (2597 px, mean 6.8, 3.8), x86Sim a 200x160 2C0f buffer of zeros"
    ],
-   "note": "rectangles/contours, translational registration recovers the shift, horizon; NN requests complete-or-error like Apple (saliency NSOSStatus -1).",
+   "note": "rectangles/contours, translational registration recovers the shift, horizon; NN requests complete-or-error like Apple (saliency NSOSStatus -1). P11: identity homography for the test pair (Apple too), optical flow computed on Apple's visionOS simulator; x86Sim FAILs (zero field, open).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
+   "r15": true,
    "rejudged": true,
    "status": "covered"
   },

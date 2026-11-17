@@ -2,7 +2,7 @@
 
 Goal: every public framework of each platform SDK (manifest-<plat>.json = the Xcode 27.2 simulator SDK framework list, incl. sdks/XRSimulator-xcode.sdk for visionOS) has functional checks exercising its main public API with real assertions, matching Apple's simulator (the bar, not hardware). Machine-readable: `coverage-gaps.json` (`{platform: {framework: {status, existing_checks, gaps, package, rejudged, used_inside?, apple_sim_na?, apple_sim_na_done?, api_unavailable?, sdk_availability?, note?}}}`).
 
-Refreshed 2026-11-18 (r14 round: 2 x86Sim bugs fixed (AlarmKit prompt; iOS document picker empty since the 2026-11-16 Darling merge: getfsstat lost its mount names), Accelerate LAPACK check; r13 round: AppClip covered, AlarmKit Apple-sim N/A done, 1 x86Sim bug found (AlarmKit prompt); r12 round: 2 x86Sim bugs fixed, 22 platform entries moved: 11 to covered, 11 to Apple-sim N/A done; before it the thin/trivial round moved 23; first pass: commit 4dfb0f4, 2026-11-15). Inputs: 765 distinct framework check ids in checks/*.swift (was 381; +384 from P1..P8, the gaps/FSEvents/FoundationModels rounds and More2 on all platforms); which ids run on which platform and their x86Sim + Apple-reference results = every sdkcov result under ~/scratch since 2026-11-15 (results.txt / sdkcov-N.err of the comb2, P-round, gaps, fse, fm and *-ref-* runs: ios 618, tvos 389, watchos 280, xros 500 ids). Every framework whose check set changed was re-judged from the check bodies (`rejudged: true`); the rest keep their first-pass judgement. Libraries (usr/lib) are out of scope.
+Refreshed 2026-11-18 (r15 round: 19 P11 checks for [a] gaps of covered frameworks on all four platforms, 1 x86Sim bug fixed (ShazamKit library: shazamd), 1 found (visionOS optical flow), the visionOS audio mismatches were a boot without audio (= Apple with X86SIM_AUDIO=1), LAPACK on all four; r14 round: 2 x86Sim bugs fixed (AlarmKit prompt; iOS document picker empty since the 2026-11-16 Darling merge: getfsstat lost its mount names), Accelerate LAPACK check; r13 round: AppClip covered, AlarmKit Apple-sim N/A done, 1 x86Sim bug found (AlarmKit prompt); r12 round: 2 x86Sim bugs fixed, 22 platform entries moved: 11 to covered, 11 to Apple-sim N/A done; before it the thin/trivial round moved 23; first pass: commit 4dfb0f4, 2026-11-15). Inputs: 765 distinct framework check ids in checks/*.swift (was 381; +384 from P1..P8, the gaps/FSEvents/FoundationModels rounds and More2 on all platforms); which ids run on which platform and their x86Sim + Apple-reference results = every sdkcov result under ~/scratch since 2026-11-15 (results.txt / sdkcov-N.err of the comb2, P-round, gaps, fse, fm and *-ref-* runs: ios 618, tvos 389, watchos 280, xros 500 ids). Every framework whose check set changed was re-judged from the check bodies (`rejudged: true`); the rest keep their first-pass judgement. Libraries (usr/lib) are out of scope.
 
 Status: **covered** = real assertions on the main API and its main areas; **thin** = real checks but main areas untested; **trivial** = only existence / availability / authorization status / construction, or values reported but not asserted; **none** = no check on that platform; **apple-sim-na** = the main API cannot work in Apple's simulator (hardware, entitlement, missing service): the check must assert the simulator answer (*done* when such an asserting check passes on Apple, *open* otherwise); **api-unavailable** = the SDK marks the whole public API unavailable on that platform (Swift `@available(<os>, unavailable)` / `API_UNAVAILABLE(<os>)` on every declaration; visionOS inherits iOS unavailability): only loading is possible, the load check covers it; **excluded** = headers-only / re-export-only / not in the runtime.
 
@@ -61,6 +61,7 @@ Open x86Sim bugs / missing pieces:
 - **VideoSubscriberAccount** (`access-status-user-accounts`, P9 assertion): Apple's VSUserAccountManager update / query fail NSCocoaErrorDomain 4097 (videosubscriptionsd exists and its connection is interrupted); x86 fails 4099 "lookup error 3" (no com.apple.VideoSubscriberAccount.videosubscriptionsd job): x86 FAILs the new assertion until the job is there.
 - **MarketplaceKit** (`distributor-requirements`, P9 assertion): x86 answers AppDistributor.current at once ("error Unknown") and eligibilityRegion nil; Apple never answers for a simctl-installed app in 15 s, now asserted: x86 FAILs until it stops answering.
 - **PushKit VoIP token**: x86 has no apsd APNs-sandbox courier, so never a token; Apple's fresh devices get none (watchOS, visionOS, one iOS run) or an 80-byte one within 5 s (another iOS run, 2026-11-16): `voip-credentials` accepts both (no token and none cached, or a cached token).
+- **Vision optical flow on visionOS** (`Vision.optical-flow-homographic`, r15): Apple's visionOS simulator computes a moving flow field for the shifted-square pair (2597 px, mean 6.8, 3.8); x86Sim returns the 200x160 TwoComponent32Float buffer all zero (no mtlvk refusal logged; GPU kernel vs CPU path not yet isolated). iOS / tvOS: com.apple.Vision 9 on both.
 - **NearbyInteraction own-token updates**: Apple reports 2 nearby objects, x86Sim's nisimhost 1 on watchOS (2 on iOS); >= 1 asserted.
 
 Unasserted value differences (both PASS; decide whether to assert):
@@ -77,7 +78,7 @@ Stale x86 results (the failing run predates the fix or the check change; rerun):
 
 Runs missing (checks only Apple ran): tvOS 18; watchOS 31; visionOS 16 (tvOS: the P4 data checks; watchOS: P7 + a few P2; visionOS: P3). P9 round (2026-11-16): every new or changed check (p9 entries in coverage-gaps.json) passed on Apple's simulator only; the x86Sim runs are pending (device work paused). P10 round (2026-11-16): the p10 checks passed on Apple (all four) and on x86Sim iOS (App Clip: Apple only); tvOS / watchOS / visionOS x86 runs pending.
 
-Fixed since the first pass (now = Apple): guest signal handlers (`libSystem.B.signals-sigaction-mask-itimer` PASS), MultipeerConnectivity two-peer (iOS/tvOS), NearbyInteraction discovery token (host/nisimhost), visionOS location (managedassetsd), visionOS ARKit addAnchor error text (stub ARKitCore bundle), MetricKit finishExtendedLaunchMeasurement 4 (simshim signpost id), Bonjour on device, TLS-to-loopback race, guest thread stack size. Host config (not x86Sim): ufw on the build host drops inbound multicast, so NWConnectionGroup loopback receive cannot be asserted on x86.
+Fixed since the first pass (now = Apple): guest signal handlers (`libSystem.B.signals-sigaction-mask-itimer` PASS), MultipeerConnectivity two-peer (iOS/tvOS), NearbyInteraction discovery token (host/nisimhost), visionOS location (managedassetsd), visionOS ARKit addAnchor error text (stub ARKitCore bundle), MetricKit finishExtendedLaunchMeasurement 4 (simshim signpost id), Bonjour on device, TLS-to-loopback race, guest thread stack size, ShazamKit library (r15: shazamd on demand; addItems answered 301 at once), visionOS realtime audio / PHASE / MediaToolbox tap / immersive-space audio (r15: the gaps/vfull4 mismatches came from a boot without X86SIM_AUDIO=1; with it all six = Apple). Host config (not x86Sim): ufw on the build host drops inbound multicast, so NWConnectionGroup loopback receive cannot be asserted on x86.
 
 ## api-unavailable (whole public API marked unavailable in the SDK)
 
@@ -119,7 +120,7 @@ Evidence from the Xcode 27.2 simulator SDK swiftinterface / headers (scan: ~/scr
 Partly available (not api-unavailable; the gap names what is left):
 
 - Translation on tvOS (covered): only AttributeScopes.TranslationAttributes (skipsTranslation) is available; TranslationSession/LanguageAvailability are @available(..., unavailable)
-- QuartzCore on watchOS (covered): only CATransform3D functions and CACurrentMediaTime are available (every CA class API_UNAVAILABLE(watchos))
+- QuartzCore on watchOS (covered): only CACurrentMediaTime is available (every CA class and the CATransform3D functions API_UNAVAILABLE(watchos))
 - Translation on watchOS (covered): only AttributeScopes.TranslationAttributes (skipsTranslation) is available; TranslationSession/LanguageAvailability are @available(..., unavailable)
 - BrowserEngineCore on visionOS (trivial): only BEMemory (be_memory_inline_jit_restrict_*) is available; be_kevent and BEAudioSession are API_UNAVAILABLE(visionos)
 - Translation on visionOS (covered): only AttributeScopes.TranslationAttributes (skipsTranslation) is available; TranslationSession/LanguageAvailability are @available(..., unavailable)
@@ -269,8 +270,8 @@ Remaining gaps here are optional depth.
 | framework | platforms | secondary gaps |
 |---|---|---|
 | ARKit | V | [c] assert the simulator provider answers (world true; planes/scene/hands/images/room false) in data-providers (today reported, not asserted); [c] assert WorldTrackingProvider.addAnchor -> addWorldAnchorFailed (both simulators; today reported, not asserted) |
-| AVFAudio | ITWV | [a] AVAudioRecorder / AVAudioEngine.inputNode capture (sim mic input): assert record + file length; [a] AVAudioSession interruption / route-change notifications, setPreferredSampleRate / setPreferredIOBufferDuration; [a] AVAudioSinkNode in a manual-render engine; W: [a] port source-node-time-pitch-offline / sequencer-sampler-offline where the units exist on watchOS |
-| AVFoundation | ITWV | [a] AVContentKeySession (clear key) / AVAssetDownloadURLSession offline HLS; [a] chapter metadata: timed-metadata-chapters reports chapters (empty) - assert chapterMetadataGroups from a chaptered m4a/mov; [a] AVPlayerItem failed/stall notifications (AVPlayerItemPlaybackStalled, failedToPlayToEndTime); [a] AVAssetExportSession fileLengthLimit / metadata write-through on export |
+| AVFAudio | ITWV | [a] AVAudioRecorder / AVAudioEngine.inputNode capture (sim mic input): assert record + file length; I: [a] AVAudioSession interruption / route-change notifications; T: [a] AVAudioSession interruption / route-change notifications; W: [a] AVAudioSession interruption / route-change notifications (setPreferredSampleRate / IOBufferDuration are unavailable on watchOS); W: [a] port source-node-time-pitch-offline / sequencer-sampler-offline where the units exist on watchOS; V: [a] AVAudioSession interruption / route-change notifications |
+| AVFoundation | ITWV | [a] AVContentKeySession (clear key) / AVAssetDownloadURLSession offline HLS; [a] chapter metadata: timed-metadata-chapters reports chapters (empty) - assert chapterMetadataGroups from a chaptered m4a/mov; [a] AVPlayerItemPlaybackStalled / failedToPlayToEndTime notifications; [a] AVAssetExportSession fileLengthLimit / metadata write-through on export |
 | AVKit | ITWV | I: [a] AVPlayerViewControllerDelegate full-screen enter/exit transitions; T: [a] AVPlayerViewControllerDelegate full-screen enter/exit transitions; T: [a] AVPictureInPictureController.isPictureInPictureSupported + sample-buffer content source (iOS/visionOS check only); V: [a] AVPlayerViewControllerDelegate full-screen enter/exit transitions |
 | AVRouting | ITV | I: [a] DeviceDiscoveryExtension appex to drive AVCustomRoutingController route events (today asserts empty routes + no delegate events); V: [a] DeviceDiscoveryExtension appex to drive AVCustomRoutingController route events (today asserts empty routes + no delegate events) |
 | Accelerate | ITWV | [a] BNNS Graph compile/execute |
@@ -296,16 +297,15 @@ Remaining gaps here are optional depth.
 | CoreAudio | ITWV | [a] property listener actually firing on a default-device / sample-rate change |
 | CoreAudioKit | IV | [a] CABTMIDILocalPeripheralViewController / CAInterAppAudio views: Apple-sim N/A (no BT), assert view loads |
 | CoreData | ITWV | T: [a] x86 run of the P4 CoreData checks (ref only so far) |
-| CoreGraphics | ITWV | [a] CGPDFDocument parsing/scanning (CGPDFScanner), CGImageSource-less JPEG via CGDataProvider, shading/patterns |
+| CoreGraphics | ITWV | [a] CGShading with a CGFunction, CGPattern |
 | CoreHaptics | ITV | [a] engine: Apple-sim N/A (pattern API covered); AHAP file parse |
-| CoreImage | ITV | [a] CIRAWFilter / CIImage from HEIF/RAW, CIImageProcessorKernel, custom CIKernel (Metal) at runtime; [a] CIDetector face/text (Vision-backed: verify on Apple sim) |
+| CoreImage | ITV | [a] CIRAWFilter / CIImage from HEIF/RAW, CIKernel from a compiled Metal library; [a] CIDetector face/text (Vision-backed: verify on Apple sim) |
 | CoreLocation | ITWV | I: [c] CLMonitor events: Apple's simulator delivers none for a simulated location (reported, not asserted); I: [a] startUpdatingLocation stream / significant-change / CLVisit monitoring start-stop; I: [a] beacon ranging (CLBeaconIdentityConstraint) -> no beacons |
 | CoreLocationUI | IW | [a] LocationButton tap -> one-time authorization (input) |
 | CoreMIDI | ITWV | I: [c] virtual-loopback SKIPs - assert the simulator answer of MIDISourceCreate/MIDIDestinationCreate (error code) instead of skipping; I: [c] MIDICIDiscoveryManager.discover gives no answer in 8 s (reported, not asserted) - assert the simulator answer; V: [c] virtual-loopback SKIPs - assert the simulator answer of MIDISourceCreate/MIDIDestinationCreate (error code) instead of skipping; V: [c] MIDICIDiscoveryManager.discover gives no answer in 8 s (reported, not asserted) - assert the simulator answer |
 | CoreML | ITWV | [a] MLState stateful models (makeState, prediction(from:using:)); W: [a] port model-asset-batch-async-compute-plan without the compile step (MLModelAsset(specification:), batch/async) |
 | CoreServices | ITWV | I: [a] get a ref-mac.sh result for fsevents-stream-file-events (no Apple result in the table); [b: fseventsd stand-in lacks IgnoreSelf/MarkSelf] FSEvents IgnoreSelf / MarkSelf flags; T: [a] run fsevents-stream-file-events (only an iOS x86 result exists); W: [a] run fsevents-stream-file-events (only an iOS x86 result exists); V: [a] run fsevents-stream-file-events (only an iOS x86 result exists) |
 | CoreSpotlight | IV | [a] CSUserQuery: assert responses / error (user-query reports only) |
-| CoreTransferable | ITWV | [a] FileRepresentation / DataRepresentation import/export |
 | CreateMLComponents | ITWV | [a] estimator/transformer pipeline composition (appending) + write/read of a fitted pipeline |
 | CryptoTokenKit | ITWV | [a] TKTokenKeychainContents (needs a token extension) |
 | EventKitUI | IV | [a] EKEventEditViewController save/cancel through editViewDelegate |
@@ -316,15 +316,14 @@ Remaining gaps here are optional depth.
 | GLKit | IT | [a] GLKView/GLKBaseEffect draw (iOS/tvOS) |
 | GSS | IV | [a] Kerberos auth needs a KDC (not available) |
 | GameController | ITV | [a] input-gamepad: await a real button press (SDKCOV_INPUT_WAIT, run.sh input mode); [a] GCKeyboard / GCMouse input handlers (controllers-keyboard-mouse only reports counts) |
-| GameplayKit | ITV | [a] GKObstacleGraph pathfinding around polygon obstacles, GKScene loaded from an .sks file |
+| GameplayKit | ITV | [a] GKScene loaded from an .sks file |
 | HealthKit | IWV | [a] authorized round trip: grant Health access (run.sh / ref-mac.sh) so save/query/statistics/delete run authorized (only the refusal path HK 4/5 is asserted today); I: [c] clinical records / HKMedication: assert supportsHealthRecords() == false (reported today) |
 | HealthKitUI | IWV | W: [a] trigger change -> healthDataAccessRequest result (needs the Health sheet answered unattended) |
-| HomeKit | ITWV | [c] HMHome rooms/accessories/action sets: Apple's simulator refuses addHome (HMErrorDomain 2040 / no answer); [a] HMEventTrigger / HMSignificantTimeEvent / HMCalendarEvent construction and predicates (no home needed) |
+| HomeKit | ITWV | [c] HMHome rooms/accessories/action sets: Apple's simulator refuses addHome (HMErrorDomain 2040 / no answer) |
 | IOSurface | ITV | [a] IOSurface sharing to Metal texture + CVPixelBuffer (partly via CoreVideo check) |
 | ImmersiveMediaSupport | IV | [a] ImmersiveMediaRemotePreviewSender / VenueDescriptor |
 | Intents | ITWV | [a] in-app intent handling (application(_:handlerFor:) / INExtension) for INSendMessageIntent; I: [a] INFocusStatusCenter: assert authorization status / requestAuthorization answer (check only reports); [a] assert INInteraction delete answers (tvOS: 1900 on both); W: [a] INFocusStatusCenter: assert authorization status / requestAuthorization answer (check only reports); V: [a] INFocusStatusCenter: assert authorization status / requestAuthorization answer (check only reports) |
 | IntentsUI | ITV | I: [a] INUIAddVoiceShortcutViewController / INUIEditVoiceShortcutViewController presentation |
-| JavaScriptCore | ITV | [a] JSExport ObjC class bridging, JSVirtualMachine across contexts |
 | LinkPresentation | ITWV | [a] LPMetadataProvider remote video / iconProvider vs imageProvider split, cancel() |
 | LiveCommunicationKit | IWV | [a] ConversationManager.reportNewIncomingConversation + actions |
 | LocalAuthentication | ITWV | I: [a] evaluatePolicy with simulated enrolled biometry (input-biometric needs run.sh input mode); V: [a] evaluatePolicy with simulated enrolled biometry (input-biometric needs run.sh input mode) |
@@ -334,34 +333,33 @@ Remaining gaps here are optional depth.
 | MediaPlayer | ITWV | I: [a] MPMediaQuery on an authorized library (auth 0 on the sim: grant media-library TCC so songs/albums queries run); T: [a] MPMediaQuery on an authorized library (auth 0 on the sim: grant media-library TCC so songs/albums queries run); V: [a] MPMediaQuery on an authorized library (auth 0 on the sim: grant media-library TCC so songs/albums queries run); V: [a] add NSAppleMusicUsageDescription so the queue player / library path runs (today skipped) |
 | MediaToolbox | ITV | [a] MTAudioProcessingTap is the main API - fine; MTRegisterProfessionalVideoWorkflowFormatReaders |
 | Messages | I | [a] MSMessagesAppViewController (needs iMessage extension) |
-| Metal | ITV | [a] MTLParallelRenderCommandEncoder, stencil test, texture views / swizzle, MTLFence across encoders |
+| Metal | ITV | [a] MTLParallelRenderCommandEncoder, stencil test |
 | MetalKit | ITV | [a] MTKMesh from MDLAsset with custom vertex descriptor; T: [a] port mtkview-draw-loop-on-screen (iOS-only); V: [a] port mtkview-draw-loop-on-screen (iOS-only) |
-| MetalPerformanceShaders | ITV | [a] MPSImageConversion / threshold / median, MPSMatrixDecompositionCholesky / LU solve |
-| ModelIO | ITV | [a] MDLMaterial / MDLScatteringFunction, MDLLight light probes, ambient occlusion baking |
+| MetalPerformanceShaders | ITV | [a] MPSImageConversion, MPSMatrixDecompositionLU / MPSMatrixSolveLU |
+| ModelIO | ITV | [a] MDLLightProbe irradiance |
 | MusicUnderstanding | ITWV | [a] assert rhythm beat count / bpm ~120 (reported only; loudness is asserted) |
 | NaturalLanguage | ITWV | [a] NLModel from a compiled text classifier (MLModel) via NLModel(contentsOf:) |
 | NearbyInteraction | IW | [a] two-peer run between two devices (Apple: two simulator windows; x86: nisimhost) |
 | Network | ITWV | [b: build-host ufw drops inbound multicast] NWConnectionGroup loopback receive (check only asserts group ready + send) |
 | NetworkExtension | ITWV | V: [a] NEHotspotConfigurationManager.apply -> sim error, if available |
-| OSLog | ITWV | [a] OSLogStore position filtering, signpost entries (OSLogEntrySignpost) |
+| OSLog | ITWV | [c] OSLogEntrySignpost: the simulator's process store returns no signposts (0 on Apple and x86Sim); a position by date does not filter older entries (Apple too) |
 | PDFKit | ITV | [a] PDFView text selection (PDFSelection, currentSelection) and find highlighting on screen; [a] outline does not survive write on Apple's simulator too (counted, not asserted); T: [c] assert PDFView init raises (UIEditMenuInteraction unavailable) instead of SKIP |
-| PHASE | ITV | I: [a] port visionOS spatial-sound-event-playback (engine-only today); [a] PHASEOccluder/material, ambient mixer; T: [a] port visionOS spatial-sound-event-playback (engine-only today) |
+| PHASE | ITV | [a] PHASEOccluder/material, ambient mixer |
 | PassKit | IWV | I: [c] PKIdentityAuthorizationController needs the in-app identity entitlement (Apple ends the app); [a] PKAddPassesViewController with a signed test .pkpass fixture |
 | PencilKit | IV | [a] PKCanvasView drawing via touch input |
 | PermissionKit | IV | V: [run] x86 result missing |
 | Photos | ITV | [a] PHCachingImageManager / PHLivePhoto request; [c] asset delete (PHAssetChangeRequest.deleteAssets prompts: assert simulator answer) |
 | PhotosUI | ITWV | [a] iOS presents picker; tvOS/watchOS/visionOS only build views - assert selection via PhotosPickerItem loadTransferable; [a] PHPickerViewController delegate result handling |
-| QuartzCore | ITWV | [a] CAGradientLayer / CATextLayer rendered pixels, CADisplayLink frame cadence; W: [a] CATransform3D math through the runtime |
+| QuartzCore | ITWV | I: [a] CADisplayLink frame cadence; T: [a] CADisplayLink frame cadence; V: [a] CADisplayLink frame cadence |
 | QuickLook | IV | [a] QLPreviewingController preview extension (appex); [a] QLPreviewController editing (QLPreviewItemEditingMode, didSaveEditedCopy) |
-| QuickLookThumbnailing | IV | [a] thumbnails for PDF/movie/text types |
+| QuickLookThumbnailing | IV | [a] movie thumbnails |
 | RealityFoundation | ITV | V: [a] no RealityFoundation check id (re-exported by RealityKit; exercised in RealityKit checks) |
 | RealityKit | ITV | [a] ShaderGraphMaterial, VideoMaterial; I: [a] ARView in nonAR camera mode render |
 | RelevanceKit | ITWV | [a] WidgetRelevance answered by the widget extension (relevance(), WidgetCenter.invalidateRelevance) |
 | SafariServices | IV | [a] SFAuthenticationSession deprecated; SSReadingList add (iOS) |
-| SceneKit | ITWV | [a] SCNParticleSystem, light shadows, SCNAudioSource |
+| SceneKit | ITWV | I: [a] SCNAudioSource; T: [a] SCNAudioSource; W: [a] SCNParticleSystem, light shadows, SCNAudioSource; V: [a] SCNAudioSource |
 | ScreenTime | I | [a] STWebpageController hosting a page: urlIsBlocked / suppressUsageRecording behaviour; [a] STScreenTimeConfigurationObserver |
 | Security | ITWV | I: [a] SecAddSharedWebCredential / SecRequestSharedWebCredential -> sim error; [a] SecAccessControl .biometryAny item read with enrolled biometry (needs run.sh input mode) |
-| ShazamKit | ITWV | [a] SHLibrary.default items add/read |
 | SoundAnalysis | ITWV | [a] SNClassifySoundRequest(mlModel:) with a custom sound classifier |
 | SpriteKit | ITWV | W: [a] SKShader / tile map / atlas / emitter (only scene-physics-actions runs there) |
 | StoreKit | ITWV | [c] purchases need a .storekit configuration (SKTestSession is Xcode-only); [a] AppStore.requestReview / SKStoreReviewController; T: [a] x86 run of P4 StoreKit checks (ref only); x86 tvOS storefront none vs Apple USA |
@@ -375,7 +373,7 @@ Remaining gaps here are optional depth.
 | USDKit | ITV | [a] _USDKit_RealityKit: convert a USD stage to RealityKit entities |
 | UserNotifications | ITWV | I: [a] communication notifications (INSendMessageIntent update); T: [c] badge delivery needs authorization whose alert never dismisses unattended (add refusal asserted); W: [a] UNNotificationServiceExtension mutating a delivered push (simctl push equivalent); W: [a] communication notifications (INSendMessageIntent update); V: [a] UNNotificationServiceExtension mutating a delivered push (simctl push equivalent); V: [a] communication notifications (INSendMessageIntent update) |
 | VideoToolbox | ITV | [a] VTCompressionSession multi-pass, ProRes encode (verify on Apple sim); [c] VTFrameProcessor (frame-rate conversion / super-resolution) isSupported answer |
-| Vision | ITWV | [a] VNGenerateOpticalFlowRequest / homographic registration; [c] faces/landmarks/body/hand/classify/saliency: Apple sim has no inference context - checks accept the error (done); W: [a] port translational-registration-horizon |
+| Vision | ITWV | [c] faces/landmarks/body/hand/classify/saliency: Apple sim has no inference context - checks accept the error (done); V: [b: optical flow field all zero on x86Sim visionOS] optical-flow-homographic: Apple computes a moving field (2597 px, mean 6.8, 3.8), x86Sim a 200x160 2C0f buffer of zeros |
 | VisionEntitlementServices | V | [a] assert licenseStatus valid (Apple's answer) and AppComputeCategory status (reported today) |
 | VisionKit | I | [a] ImageAnalysisInteraction text selection / subject lifting asserted (hasActiveTextSelection only reported) |
 | WebKit | IV | [a] IndexedDB / service workers; [a] WKWebExtension (iOS 18.4+); [a] WKFindInteraction UI (find bar), not just WKWebView.find |
