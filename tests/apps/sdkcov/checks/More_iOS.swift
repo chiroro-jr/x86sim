@@ -1095,7 +1095,11 @@ extension Registry {
             try await onMain {
                 let p = ABPeoplePickerNavigationController(); p.loadViewIfNeeded()
                 let n = ABNewPersonViewController(); n.loadViewIfNeeded()
-                return "picker \(type(of: p.topViewController.map { $0 } as Any)), new-person view \(n.isViewLoaded)"
+                // deprecated: the picker hosts Contacts' remote picker; before it is presented it has no top controller (Apple's
+                // simulator: nil), the new-person controller loads its view
+                let top = p.topViewController.map { "\(type(of: $0))" } ?? "nil"
+                try expect(top == "nil" && n.isViewLoaded, "picker top \(top), new-person view \(n.isViewLoaded)")
+                return "picker top \(top), new-person view loaded"
             }
         })
         c.append(check("AssetsLibrary", "authorization-status") {
@@ -1106,6 +1110,10 @@ extension Registry {
             let sel = NSSelectorFromString("authorizationStatus")
             let st = unsafeBitCast(class_getMethodImplementation(object_getClass(cls), sel), to: F.self)(cls, sel)
             let lib = cls.init()
+            // (enumerateGroupsWithTypes: is not called: on Apple's iOS 27.2 simulator it raises in Photos,
+            // -[PLManagedObjectContext setIsBackingALAssetsLibrary:] unrecognized selector, and the app aborts)
+            // 3 (authorized): run.sh / ref-mac.sh grant the app Photos read-write access
+            try expect(st == 3, "authorizationStatus \(st) (Apple's simulator: 3, Photos granted)")
             return "ALAssetsLibrary status \(st), library \(type(of: lib))"
         })
         c.append(check("ClassKit", "main-app-context") {
@@ -1114,8 +1122,18 @@ extension Registry {
             return "context \(ctx.identifier) type \(ctx.type.rawValue)"
         })
         c.append(check("NotificationCenter", "widget-controller") {
+            // deprecated Today widgets: the controller call and a widget view controller's update outside an extension
             NCWidgetController().setHasContent(true, forWidgetWithBundleIdentifier: "com.x86sim.test.sdkcov.widget")
-            return "setHasContent accepted"
+            final class W: UIViewController, NCWidgetProviding {
+                func widgetPerformUpdate(completionHandler: @escaping (NCUpdateResult) -> Void) { completionHandler(.newData) }
+            }
+            let r = await onMain { () -> String in
+                let w = W(); var got = "none"
+                w.widgetPerformUpdate { got = "\($0.rawValue)" }
+                return "update \(got), context \(w.extensionContext == nil ? "nil" : "set"), modes \(NCWidgetDisplayMode.compact.rawValue)/\(NCWidgetDisplayMode.expanded.rawValue)"
+            }
+            try expect(r == "update 0, context nil, modes 0/1", r)
+            return "setHasContent accepted; \(r)"
         })
         c.append(check("SensorKit", "reader-authorization") {
             let r = SRSensorReader(sensor: .ambientLightSensor)
@@ -1145,9 +1163,13 @@ extension Registry {
             // Twitter has no Swift module (Objective-C only, deprecated): through the runtime
             guard dlopen("/System/Library/Frameworks/Twitter.framework/Twitter", RTLD_NOW) != nil,
                   let cls = NSClassFromString("TWTweetComposeViewController") as? NSObject.Type else { throw Fail("no TWTweetComposeViewController") }
-            let can = cls.perform(NSSelectorFromString("canSendTweet")) != nil
-            let vc = await onMain { (cls.init() as? UIViewController)?.title ?? "vc" }
-            return "canSendTweet \(can), compose controller \(vc)"
+            typealias B = @convention(c) (AnyClass, Selector) -> Bool
+            let csel = NSSelectorFromString("canSendTweet")
+            let can = unsafeBitCast(class_getMethodImplementation(object_getClass(cls), csel), to: B.self)(cls, csel)
+            let vc = await onMain { cls.init() as? UIViewController }
+            // Apple's simulator: no Twitter account, canSendTweet false; the compose controller still builds
+            try expect(!can && vc != nil, "canSendTweet \(can), compose controller \(String(describing: vc))")
+            return "canSendTweet \(can), compose controller \(type(of: vc!))"
         })
         c.append(check("DeclaredAgeRange", "eligibility", timeout: 20) {
             // Apple's simulator never answers this (the check hung there too): a SKIP when no answer comes
