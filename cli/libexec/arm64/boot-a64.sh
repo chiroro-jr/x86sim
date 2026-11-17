@@ -754,7 +754,11 @@ fi
 # from [NSBundle bundleWithPath:@"/System/Library/Frameworks/CoreSpotlight.framework"]. Without it every CoreSpotlight string was nil (PHOTO_TOKEN) and
 # Spotlight crashed on the first typed letter ("attempt to insert nil object" in -[_CSSuggestionToken init...]). The
 # booted runtime's own copy (its real path) is linked in the prefix's upper layer at every boot.
-for fw in CoreSpotlight; do
+# _ManagedAppDistribution_SwiftUI (visionOS) likewise takes its strings from [NSBundle bundleWithURL:/System/Library/
+# Frameworks/_ManagedAppDistribution_SwiftUI.framework]: without it ManagedContentView's not-installed offer button had no
+# accessibility label (Apple's visionOS 27.2 simulator: "Redownload").
+for fw in CoreSpotlight _ManagedAppDistribution_SwiftUI; do
+	[ -d "$X86SIM_RUNTIME/System/Library/Frameworks/$fw.framework" ] || continue
 	mkdir -p "$DPREFIX/System/Library/Frameworks"
 	ln -sfn "/Volumes/SystemRoot$(realpath "$X86SIM_RUNTIME")/System/Library/Frameworks/$fw.framework" \
 		"$DPREFIX/System/Library/Frameworks/$fw.framework"
