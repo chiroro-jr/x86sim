@@ -77,7 +77,11 @@ extension Registry {
             let shown = try await p4OnScreen(SuggestedActionsView(message: msg, previousMessages: [prev]).frame(width: 360, height: 200), secs: 1)
             // Apple's iOS simulator: limit 25, generate returns, the view is hosted
             try expect(limit == 25 && g == "generated", "limit \(limit), \(g) (Apple's simulator: 25, generated)")
-            return "limit \(limit), \(g), view \(shown)"
+            // its content through accessibility, next to a label that shows the element tree is read: Apple's 27.2
+            // simulator offers no action (no Apple Intelligence suggestions), only the label is there
+            let ax = try await Task { @MainActor in try await p8AXLabels(VStack { Text("sdkcov actions"); SuggestedActionsView(message: msg, previousMessages: [prev]) }.frame(width: 360, height: 200), secs: 4) { $0.count > 1 } }.value
+            try expect(ax == ["sdkcov actions"], "accessibility elements \(ax) (Apple's simulator: only the label, no action)")
+            return "limit \(limit), \(g), view \(shown); no suggested action on screen"
         })
         #endif
 

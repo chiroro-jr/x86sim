@@ -507,7 +507,11 @@ extension Registry {
                 try await Task.sleep(for: .seconds(1))
                 return p7Subviews(hc.view).count
             }
-            return "limit \(limit), \(gen), view \(views) subviews"
+            // its content through accessibility, next to a label that shows the element tree is read: Apple's 27.2
+            // simulator offers no action (no Apple Intelligence suggestions), only the label is there
+            let ax = try await Task { @MainActor in try await p8AXLabels(VStack { Text("sdkcov actions"); SuggestedActionsView(message: msg, previousMessages: [prev]) }.frame(width: 360, height: 200), secs: 4) { $0.count > 1 } }.value
+            try expect(ax == ["sdkcov actions"], "accessibility elements \(ax) (Apple's simulator: only the label, no action)")
+            return "limit \(limit), \(gen), view \(views) subviews; no suggested action on screen"
         })
         #endif
         // MARK: SensitiveContentAnalysis

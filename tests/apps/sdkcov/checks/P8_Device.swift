@@ -78,6 +78,18 @@ import Accounts
     }
     return out
 }
+/// `v` on screen with the accessibility runtime on: the labels of its elements ("[button]" marks buttons), polled for
+/// `secs` until `done` holds for them
+@MainActor func p8AXLabels<V: View>(_ v: V, secs: Double = 5, until done: ([String]) -> Bool = { !$0.isEmpty }) async throws -> [String] {
+    p8AXOn(); defer { p8AXOn(false) }
+    let hc = UIHostingController(rootView: v)
+    let (w, close) = try p8Show(hc); defer { close() }
+    w.layoutIfNeeded()
+    let end = Date().addingTimeInterval(secs)
+    var l: [String] = []
+    repeat { try await Task.sleep(for: .milliseconds(250)); l = p8AX(hc.view).map { "\($0.0)\($0.1 ? "[button]" : "")" } } while !done(l) && Date() < end
+    return l
+}
 @MainActor func p8Host<V: View>(_ v: V, secs: Double = 1) async throws -> (String, CGSize) {
     let hc = UIHostingController(rootView: v)
     let (w, done) = try p8Show(hc); defer { done() }
