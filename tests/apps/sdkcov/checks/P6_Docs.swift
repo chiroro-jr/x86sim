@@ -373,12 +373,14 @@ extension Registry {
                 }
             }
             #if os(watchOS)
-            let r1 = await onMain { () -> (CGImage?, CGImage?) in
-                let a = ImageRenderer(content: V(detect: false)); a.scale = 1
-                let b = ImageRenderer(content: V(detect: true)); b.scale = 1
-                return (a.cgImage, b.cgImage)
+            // ImageRenderer draws once, before the asynchronous detection: the Text goes on screen (Runner.overlay) and
+            // the window is read back as the screen shows it
+            func shot(_ d: Bool) async throws -> CGImage {
+                await onMain { Runner.shared.overlay = AnyView(V(detect: d).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)) }
+                try? await Task.sleep(for: .seconds(3))   // detection runs asynchronously
+                return try await onMain { () throws -> CGImage in defer { Runner.shared.overlay = nil }; return try p6WatchWindowShot() }
             }
-            guard let plain = r1.0, let det = r1.1 else { throw Fail("render") }
+            let plain = try await shot(false), det = try await shot(true)
             #else
             func shot(_ d: Bool) async throws -> CGImage {
                 try await p6A { () async throws -> CGImage in
@@ -401,8 +403,12 @@ extension Registry {
             }
             let (ink0, col0) = colored(plain), (ink1, col1) = colored(det)
             try expect(ink0 > 50 && ink1 > 50, "plain text ink \(ink0) coloured \(col0)")
-            #if os(watchOS)   // ImageRenderer draws once, before the asynchronous detection: no styling to see (Apple's too)
-            return "renders; plain: ink \(ink0) coloured \(col0); with dataDetection: ink \(ink1) coloured \(col1)"
+            #if os(watchOS)
+            // watchOS draws detected data in grey, not tinted (Apple's simulator: the black phone number turns grey, dark
+            // pixels in the Text's white box 330 -> 128; the address is grey in both, as a link of the Text's own)
+            let (dark0, grey0) = p6DarkGrey(plain), (dark1, grey1) = p6DarkGrey(det)
+            try expect(dark0 > 100 && Double(dark1) < Double(dark0) * 0.6 && grey1 > grey0, "on screen: dark / grey pixels \(dark0) / \(grey0) -> \(dark1) / \(grey1) with dataDetection (Apple's simulator: 330 / 813 -> 128 / 891, the phone number turns grey)")
+            return "on screen: plain dark / grey \(dark0) / \(grey0); with dataDetection \(dark1) / \(grey1): the phone number drawn as a link"
             #else
             // the detected phone number and address are drawn as tinted links
             try expect(col1 > col0 + 150, "no tinted detections: coloured pixels \(col0) -> \(col1)")
@@ -459,3 +465,34 @@ extension Registry {
         return c
     }
 }
+
+#if os(watchOS)
+/// inside the white box (the bounding box of pure white pixels): pixels drawn dark (text) and grey (links, antialiasing)
+func p6DarkGrey(_ i: CGImage) -> (Int, Int) {
+    let ctx = bitmap(i.width, i.height); ctx.draw(i, in: CGRect(x: 0, y: 0, width: i.width, height: i.height))
+    var x0 = Int.max, y0 = Int.max, x1 = -1, y1 = -1
+    for y in 0..<i.height { for x in 0..<i.width where pixel(ctx, x, y).prefix(3).allSatisfy({ $0 > 250 }) { x0 = min(x0, x); x1 = max(x1, x); y0 = min(y0, y); y1 = max(y1, y) } }
+    guard x1 >= 0 else { return (0, 0) }
+    var dark = 0, grey = 0
+    for y in y0...y1 { for x in x0...x1 { let m = Int(pixel(ctx, x, y).prefix(3).max()!); if m < 90 { dark += 1 } else if m <= 200 { grey += 1 } } }
+    return (dark, grey)
+}
+/// the app's window as the screen shows it, scale 1: UIKit is private on watchOS, so through the runtime
+/// (drawViewHierarchyInRect:afterScreenUpdates: into a context pushed with UIGraphicsPushContext)
+@MainActor func p6WatchWindowShot() throws -> CGImage {
+    guard let app = (NSClassFromString("UIApplication") as? NSObject.Type)?.value(forKey: "sharedApplication") as? NSObject,
+          let w = (app.value(forKey: "keyWindow") as? NSObject) ?? (app.value(forKey: "windows") as? [NSObject])?.first else { throw Fail("no UIApplication window") }
+    guard let b = w.value(forKey: "bounds") as? CGRect, b.width >= 1, b.height >= 1 else { throw Fail("window bounds \(String(describing: w.value(forKey: "bounds")))") }
+    let rtld = UnsafeMutableRawPointer(bitPattern: -2)   // RTLD_DEFAULT
+    guard let push = dlsym(rtld, "UIGraphicsPushContext"), let pop = dlsym(rtld, "UIGraphicsPopContext") else { throw Fail("no UIGraphicsPushContext") }
+    let sel = NSSelectorFromString("drawViewHierarchyInRect:afterScreenUpdates:")
+    guard let imp = class_getMethodImplementation(type(of: w), sel) else { throw Fail("no drawViewHierarchyInRect:") }
+    let ctx = bitmap(Int(b.width), Int(b.height))
+    ctx.translateBy(x: 0, y: b.height); ctx.scaleBy(x: 1, y: -1)   // UIKit's flipped coordinates
+    unsafeBitCast(push, to: (@convention(c) (CGContext) -> Void).self)(ctx)
+    let ok = unsafeBitCast(imp, to: (@convention(c) (AnyObject, Selector, CGRect, Bool) -> Bool).self)(w, sel, b, true)
+    unsafeBitCast(pop, to: (@convention(c) () -> Void).self)()
+    guard ok, let img = ctx.makeImage() else { throw Fail("drawViewHierarchy \(ok)") }
+    return img
+}
+#endif
