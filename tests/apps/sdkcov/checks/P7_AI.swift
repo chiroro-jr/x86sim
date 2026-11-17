@@ -57,6 +57,53 @@ func p7AnimalSchema() throws -> GenerationSchema {
     ])
     return try GenerationSchema(root: animal, dependencies: [kind])
 }
+/// a LanguageModel of the app's own (FoundationModels 27: LanguageModelSession(model:) takes any LanguageModel): no
+/// system model needed, so the session pipeline (prompt -> transcript -> executor -> response) runs on any simulator.
+/// The executor notes what the last prompt entry carried and answers "seen <n> segments"
+final class P7Latest<T>: @unchecked Sendable {
+    private let l = NSLock(); private var v: T?
+    func set(_ x: T) { l.withLock { v = x } }
+    /// take the value set since the last take, waiting up to `secs`
+    func take(_ secs: Double) async -> T? {
+        let end = Date().addingTimeInterval(secs)
+        repeat { if let x = l.withLock({ () -> T? in let x = v; v = nil; return x }) { return x }; try? await Task.sleep(for: .milliseconds(30)) } while Date() < end
+        return nil
+    }
+}
+/// the text an opaque PromptRepresentable carries (a tool's output): sent through a session on P7EchoModel
+func p7PromptText(_ p: some PromptRepresentable) async throws -> String {
+    _ = try await LanguageModelSession(model: P7EchoModel()).respond(to: p.promptRepresentation)
+    return (await P7EchoExecutor.seen.take(5) ?? []).map { $0.hasPrefix("text:") ? String($0.dropFirst(5)) : $0 }.joined(separator: "\n")
+}
+struct P7EchoModel: LanguageModel {
+    typealias Executor = P7EchoExecutor
+    var capabilities: LanguageModelCapabilities { LanguageModelCapabilities([.vision]) }
+    var executorConfiguration: Int { 0 }
+}
+struct P7EchoExecutor: LanguageModelExecutor {
+    typealias Model = P7EchoModel
+    /// per request: the last prompt's segments as "text:<content>" / "image:<label>:<w>x<h>" / other
+    static let seen = P7Latest<[String]>()
+    init(configuration: Int) throws {}
+    nonisolated(nonsending) func respond(to request: LanguageModelExecutorGenerationRequest, model: P7EchoModel, streamingInto channel: LanguageModelExecutorGenerationChannel) async throws {
+        var segs: [String] = []
+        for e in request.transcript.reversed() {
+            guard case .prompt(let p) = e else { continue }
+            for s in p.segments {
+                switch s {
+                case .text(let t): segs.append("text:\(t.content)")
+                case .attachment(let a):
+                    if case .image(let img) = a.content { segs.append("image:\(a.label ?? "-"):\(img.cgImage.width)x\(img.cgImage.height)") }
+                    else { segs.append("attachment:\(a.label ?? "-")") }
+                default: segs.append("other")
+                }
+            }
+            break
+        }
+        P7EchoExecutor.seen.set(segs)
+        await channel.send(.response(action: .appendText("seen \(segs.count) segments", tokenCount: 3)))
+    }
+}
 #if os(iOS) || os(visionOS)
 /// the system model, once it is available (Apple's simulator answers modelNotReady for a while after boot)
 func p7SystemModel(_ secs: Double) async -> (SystemLanguageModel, String) {
@@ -147,24 +194,47 @@ extension Registry {
         })
         #endif
         #if canImport(_FoundationModels_UIKit) && (os(iOS) || os(visionOS))
-        c.append(check("_FoundationModels_UIKit", "uiimage-attachment-prompt") {
-            let ctx = bitmap(32, 32); ctx.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 1, alpha: 1)); ctx.fill(CGRect(x: 0, y: 0, width: 32, height: 32))
+        c.append(check("_FoundationModels_UIKit", "uiimage-attachment-prompt", timeout: 30) {
+            let ctx = bitmap(32, 24); ctx.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 1, alpha: 1)); ctx.fill(CGRect(x: 0, y: 0, width: 32, height: 24))
             let ui = UIImage(cgImage: ctx.makeImage()!)
             let a = Attachment(ui, orientation: .up).label("blue square")
-            let b = Attachment(ctx.makeImage()!)
             let p = Prompt { "What colour is this?"; a }
-            _ = b.promptRepresentation
-            return "prompt with a UIImage attachment: \(String(describing: p).prefix(60))"
+            // the prompt goes through a session on the app's own model: its executor gets the transcript's prompt entry
+            let s = LanguageModelSession(model: P7EchoModel())
+            let r = try await s.respond(to: p)
+            let segs = await P7EchoExecutor.seen.take(5) ?? []
+            try expect(segs == ["text:What colour is this?", "image:blue square:32x24"], "prompt segments \(segs)")
+            try expect(r.content == "seen 2 segments", "response '\(r.content)'")
+            // the session's transcript: the prompt (text + the UIImage attachment) and the response
+            var img = "none"
+            for e in s.transcript { if case .prompt(let tp) = e { for sg in tp.segments { if case .attachment(let at) = sg, case .image(let im) = at.content { img = "\(im.cgImage.width)x\(im.cgImage.height) \(im.orientation.rawValue)" } } } }
+            try expect(img == "32x24 1", "transcript image \(img)")
+            try expect(s.transcript.contains { if case .response = $0 { true } else { false } }, "no response entry in \(s.transcript.count) entries")
+            return "UIImage attachment reached the executor as an image segment (32x24, label), response '\(r.content)', \(s.transcript.count) transcript entries"
         })
         #endif
         #if canImport(_CoreSpotlight_FoundationModels) && (os(iOS) || os(visionOS))
-        c.append(check("_CoreSpotlight_FoundationModels", "spotlight-search-tool") {
-            var cfg = SpotlightSearchTool.Configuration(sources: [.coreSpotlight, .files], guide: .complete)
-            cfg.maximumResponseSize = 2000
+        c.append(check("_CoreSpotlight_FoundationModels", "spotlight-search-tool", timeout: 200) {
+            var cfg = SpotlightSearchTool.Configuration(sources: [.coreSpotlight], guide: .complete)
+            cfg.maximumResponseSize = 4000
             let tool = SpotlightSearchTool(configuration: cfg)
-            try expect(!tool.name.isEmpty && !tool.description.isEmpty, "tool \(tool.name)")
+            try expect(tool.name == "spotlight_search" && !tool.description.isEmpty, "tool \(tool.name)")
             let sch = String(data: try JSONEncoder().encode(tool.parameters), encoding: .utf8) ?? ""
-            return "tool '\(tool.name)', \(cfg.sources.count) sources, parameters \(sch.count) B"
+            try expect(sch.contains("\"FullArguments\"") && sch.contains("SearchArguments"), "parameters schema \(sch.prefix(80))")
+            // call(arguments:) directly, as the session does for a model's tool call: the help query answers without an index
+            let help = try await p7PromptText(try await tool.call(arguments: GeneratedContent(json: #"{"query":{"type":"help","value":{"topic":""}}}"#)))
+            try expect(help.contains("\"availableTopics\"") && help.contains("quickstart"), "help answer \(help.prefix(120))")
+            // a search for an item the app indexed (indexing is asynchronous: retried)
+            let tok = "p7tok\(Int.random(in: 100000...999999))"
+            let a = CSSearchableItemAttributeSet(contentType: .text); a.title = "\(tok) note"; a.contentDescription = "sdkcov p7 spotlight tool"
+            try await CSSearchableIndex.default().indexSearchableItems([CSSearchableItem(uniqueIdentifier: tok, domainIdentifier: "sdkcov-p7", attributeSet: a)])
+            defer { CSSearchableIndex.default().deleteSearchableItems(withDomainIdentifiers: ["sdkcov-p7"]) { _ in } }
+            let args = try GeneratedContent(json: #"{"query":{"type":"search","value":{"root":{"type":"allText","value":{"terms":["\#(tok)"]}},"source":"coreSpotlight","label":"sdkcov"}}}"#)
+            var out = "", tries = 0
+            let until = Date().addingTimeInterval(150)
+            repeat { tries += 1; out = try await p7PromptText(try await tool.call(arguments: args)); if out.contains(tok) { break }; try await Task.sleep(for: .seconds(3)) } while Date() < until
+            try expect(out.contains("\"count\" : 1") && out.contains("\(tok) note"), "search answer after \(tries) calls: \(out.prefix(160))")
+            return "tool '\(tool.name)': help topics, search found the indexed item after \(tries) calls"
         })
         #endif
         #if canImport(ImagePlayground) && (os(iOS) || os(visionOS))
