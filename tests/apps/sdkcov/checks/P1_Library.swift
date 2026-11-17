@@ -298,11 +298,21 @@ extension Registry {
             let search: String = await { do { var r = MusicCatalogSearchRequest(term: "sdkcov", types: [Song.self]); r.limit = 1
                 let res = try await more2Stage("catalog search", 25) { try await r.response() }; return "\(res.songs.count) songs" } catch { return "\(type(of: error)): \(String(describing: error).prefix(80))" } }()
             try expect(!sub.contains("no answer") && !search.contains("no answer"), "account calls hung: subscription \(sub), search \(search)")
+            // Apple's 27.2 simulators (no Apple Music account, not authorized, no developer token): both refused; on watchOS
+            // the subscription asks for the Apple Music privacy acknowledgement first
+            #if os(watchOS)
+            let wantSub = "error .privacyAcknowledgementRequired"
+            #else
+            let wantSub = "error .permissionDenied"
+            #endif
+            try expect(sub == wantSub && search.hasSuffix(": .permissionDenied"), "subscription \(sub), search \(search) (Apple's simulator: subscription \(wantSub), search .permissionDenied)")
             var player = "no app player"
             #if !os(watchOS)
             let ap = ApplicationMusicPlayer.shared
             ap.queue = ApplicationMusicPlayer.Queue(for: [song])
             ap.state.repeatMode = MusicPlayer.RepeatMode.none
+            // the queue of a catalog song without an account stays empty and the player stopped (Apple's simulator too)
+            try expect("\(ap.state.playbackStatus)" == "stopped" && ap.queue.entries.isEmpty && ap.state.repeatMode == MusicPlayer.RepeatMode.none, "app player \(ap.state.playbackStatus), queue \(ap.queue.entries.count) (Apple's simulator: stopped, 0)")
             player = "app player \(ap.state.playbackStatus), queue \(ap.queue.entries.count) entries"
             #endif
             return "auth \(auth); subscription \(sub); search \(search); \(player)"
