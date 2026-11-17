@@ -11,7 +11,8 @@
 # app with BAAppGroupID and no downloader extension). checks/P3_Extensions.swift drives them.
 # P10 (checks/P10_Extensions.swift), iOS: notification content + service extensions, a File Provider UI action, an SMS
 # message filter and a call / message reporting (classification) UI in PlugIns/; a translation provider, an app
-# migration, a Home, an accessory transport and a device discovery extension in Extensions/ (Apple's ExtensionKit points).
+# migration, a Home, an accessory transport, an accessory data provider (AccessoryNotifications' notification
+# forwarding) and a device discovery extension in Extensions/ (Apple's ExtensionKit points).
 # visionOS: the notification content, File Provider UI action and reporting UI extensions (installd takes them there).
 # iOS also carries an App Clip, AppClips/sdkcovClip.app (ext/Clip.swift, bundle id com.x86sim.test.sdkcov.Clip): simctl /
 # x86sim install of the app does not install it; run.sh and ref-mac.sh install it after the app.
@@ -83,7 +84,7 @@ for p in ${*:-ios tvos watchos xros}; do
 	# activates an ASAccessorySession (no activated event; deviceaccessd "GetDevices failed ... ENOENT") and the app dies
 	# (SIGSEGV in AccessorySetupKit) when it invalidates the session, so func:AccessorySetupKit.session-activate keeps it
 	ios) sdk=iphonesimulator; tgt=arm64-apple-ios27.0-simulator; plat=iPhoneSimulator; fam='<integer>1</integer><integer>2</integer>'; multi='<true/>'
-		exts='widget fileprovider extkit downloader ncontent nservice fpaction msgfilter classify translator migration home transport discovery clip'
+		exts='widget fileprovider extkit downloader ncontent nservice fpaction msgfilter classify translator migration home transport dataprovider discovery clip'
 		extra='<key>UISupportedInterfaceOrientations~ipad</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationPortraitUpsideDown</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
 <key>NSSupportsLiveActivities</key><true/>
 <key>NSHealthUpdateUsageDescription</key><string>sdkcov checks HealthKit writes</string>
@@ -176,6 +177,10 @@ PY
 		# the developer entitlements the extension points require (installd refuses the app without them)
 		transport) plist_bundle "$G/gen/transport.plist" $BID.transport sdkcovTransport 'XPC!' "$(exext com.apple.accessory-transport-extension)"
 			ents_ext "$G/gen/transport.entitlements" $BID.transport '<key>com.apple.developer.accessory-transport-extension</key><true/>' ;;
+		# the accessory data provider's capability (AccessoryNotifications' NotificationsForwarding) as Xcode's exutil
+		# generate-appextension-plist writes it from the extension's @AppExtensionPoint.Bind
+		dataprovider) plist_bundle "$G/gen/dataprovider.plist" $BID.dataprovider sdkcovDataProvider 'XPC!' '<key>EXAppExtensionAttributes</key><dict><key>EXCapabilities</key><array><string>AccessoryNotifications.NotificationsForwarding</string></array><key>EXExtensionPointIdentifier</key><string>com.apple.accessory-data-provider</string></dict>'
+			ents_ext "$G/gen/dataprovider.entitlements" $BID.dataprovider '<key>com.apple.developer.accessory-data-provider</key><true/>' ;;
 		discovery) plist_bundle "$G/gen/discovery.plist" $BID.discovery sdkcovDiscovery 'XPC!' "$(exext com.apple.discovery-extension)"
 			ents_ext "$G/gen/discovery.entitlements" $BID.discovery '<key>com.apple.developer.media-device-discovery-extension</key><true/>' ;;
 		# the App Clip: an app (AppClips/) whose parent is the sdkcov app
@@ -237,6 +242,7 @@ PL
 			migration) ext Migration Extensions Migration.swift migration ;;
 			home) ext Home Extensions HomeExt.swift home ;;
 			transport) ext Transport Extensions Transport.swift transport ;;
+			dataprovider) ext DataProvider Extensions DataProvider.swift dataprovider ;;
 			discovery) ext Discovery Extensions Discovery.swift discovery ;;
 			clip) X=\$APP/AppClips/sdkcovClip.app; mkdir -p \$X
 				nice xcrun -sdk $sdk swiftc -target $tgt -Onone -parse-as-library -module-name sdkcov \

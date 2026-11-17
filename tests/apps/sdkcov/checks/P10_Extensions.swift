@@ -4,10 +4,10 @@
 //   extension runs for a mutable remote notification (simctl push / x86sim push, sent by inputs.sh push while the check
 //   waits: SDKCOV_INPUT_WAIT). The others run only from system UI (an expanded notification, the Files app's action
 //   menu, Messages / Phone).
-// - ExtensionKit points (Extensions/): translation provider, app migration, Home, accessory transport, device
-//   discovery. Registered as well; the app may not watch Apple's points (AppExtensionPoint.Monitor: "Host is not
-//   entitled", com.apple.extensionKit.errorDomain 16 on Apple's simulator) and AppMigrationTester cannot start the
-//   migration extension from an app (RunningBoard refuses the launch).
+// - ExtensionKit points (Extensions/): translation provider, app migration, Home, accessory transport, accessory data
+//   provider (AccessoryNotifications forwarding), device discovery. Registered as well; the app may not watch Apple's
+//   points (AppExtensionPoint.Monitor: "Host is not entitled", com.apple.extensionKit.errorDomain 16 on Apple's
+//   simulator) and AppMigrationTester cannot start the migration extension from an app (RunningBoard refuses the launch).
 import Foundation
 import ObjectiveC
 import Synchronization
@@ -23,10 +23,13 @@ import UserNotifications
 #if canImport(AppMigrationKit) && os(iOS)
 import AppMigrationKit
 #endif
+#if canImport(AccessoryNotifications) && os(iOS)
+import AccessoryNotifications
+#endif
 
 /// LaunchServices' record of one of the app's extensions (LSApplicationExtensionRecord; no PlugInKit discovery, no launch):
 /// its extension point and its Info.plist NSExtension dictionary
-struct P10Record { let point: String; let nsExtension: [String: Any] }
+struct P10Record { let point: String; let nsExtension: [String: Any]; let raw: NSObject }
 func p10Record(_ id: String) throws -> P10Record {
     guard let cls = NSClassFromString("LSApplicationExtensionRecord") else { throw Fail("no LSApplicationExtensionRecord") }
     let sel = NSSelectorFromString("initWithBundleIdentifier:error:")
@@ -51,7 +54,7 @@ func p10Record(_ id: String) throws -> P10Record {
             }
         }
     }) { throw Fail("\(id) record raised \(ex[0]): \(ex[1])") }
-    return P10Record(point: point, nsExtension: ns)
+    return P10Record(point: point, nsExtension: ns, raw: r)
 }
 #if canImport(ExtensionFoundation)
 /// a monitor on one of Apple's extension points: what the app gets (Apple's simulator: extensionKit 16, not entitled)
@@ -210,6 +213,30 @@ extension Registry {
         c.append(check("DeviceDiscoveryExtension", "extension-registered", timeout: 30) {
             try await p10AppleExtensionPoint("discovery", "com.apple.discovery-extension")
         })
+        #if canImport(AccessoryNotifications)
+        // AccessoryNotifications' notification forwarding: an accessory data provider extension with the
+        // NotificationsForwarding capability (ext/DataProvider.swift). It runs only for an accessory paired through
+        // AccessorySetupKit whose forwarding the user allowed: none in a simulator
+        c.append(check("AccessoryNotifications", "forwarding-extension-registered", timeout: 30) {
+            let since = Date()
+            let r = try p10Record("com.x86sim.test.sdkcov.dataprovider")
+            var caps: [String] = []
+            if let ex = SDKCovCatch({
+                if let info = r.raw.value(forKey: "infoDictionary") as? NSObject {
+                    let s1 = NSSelectorFromString("objectForKey:ofClass:")
+                    let a = info.responds(to: s1) ? info.perform(s1, with: "EXAppExtensionAttributes", with: NSDictionary.self)?.takeUnretainedValue() as? [String: Any] : nil
+                    caps = a?["EXCapabilities"] as? [String] ?? []
+                }
+            }) { throw Fail("record raised \(ex[0]): \(ex[1])") }
+            try expect(caps == ["AccessoryNotifications.NotificationsForwarding"] && NotificationsForwarding.featureID == "AccessoryNotifications.NotificationsForwarding",
+                       "capabilities \(caps), featureID \(NotificationsForwarding.featureID)")
+            let ans = try await p10AppleExtensionPoint("dataprovider", "com.apple.accessory-data-provider")
+            try await Task.sleep(for: .seconds(2))
+            let marks = p3Marks("dataprovider-launch", since: since)
+            try expect(marks.isEmpty, "the data provider ran: \(marks)")
+            return "\(ans); capability \(caps[0]); not launched (no paired accessory)"
+        })
+        #endif
         #endif
         #if canImport(AppMigrationKit)
         c.append(check("AppMigrationKit", "extension-tester", timeout: 60) {
