@@ -38,7 +38,7 @@ simshim)
 	build a64sh "$X/host/simshim/arm64$SUF/compat/libsimshim.dylib" "
 		cc() { $CC -O1 -Wall -Wno-unused-variable -Wno-deprecated-declarations \"\$@\"; } &&
 		cc -c -o simshim.o simshim.c && cc -c -DSIMSHIM_OSLOG -o oslog.o oslogdiag.m &&
-		cc -dynamiclib -framework IOKit -framework CoreFoundation -lobjc -lsqlite3 -o libsimshim.dylib simshim.o oslog.o" ;;
+		cc -dynamiclib -framework IOKit -framework CoreFoundation -lobjc -lsqlite3 -Wl,-U,_BSPathExistsOnSystemPartition -o libsimshim.dylib simshim.o oslog.o" ;;
 simaudio)
 	# Speed 27: the audio devices (CoreAudio HAL stand-in, host/simaudio) for arm64 processes:
 	# flat namespace + dynamic lookup, CoreAudio references weak (inert in processes without CoreAudio)

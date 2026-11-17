@@ -274,6 +274,17 @@ static shim_signpost_id_t shim_os_signpost_id_generate(void* log)
 }
 DYLD_INTERPOSE(shim_os_signpost_id_generate, os_signpost_id_generate)
 
+// BaseBoard's BSPathExistsOnSystemPartition(path): [path stringByStandardizingPath] hasPrefix BSSystemRootDirectory()
+// (IPHONE_SIMULATOR_ROOT). On a Mac the runtime is a cryptex mounted under /private/var/run/com.apple.security.cryptexd/
+// mnt/..., and standardizing drops the /private, so no path is ever "on the system partition" in Apple's simulator.
+// Here the root has no /private and every runtime binary was: FrontBoard's FBServiceClientAuthenticator then let any
+// system daemon through its "system partition" credential (e.g. SpringBoard's CFUserNotification server took
+// mobiletimerd's AlarmKit prompt that Apple's refuses, FBServiceClientAuthenticatorErrorDomain 13). Answer as Apple's.
+// (BaseBoard is referenced weakly and looked up at run time: -Wl,-U in mac-build-arm64-shims.sh.)
+extern bool BSPathExistsOnSystemPartition(const void* path) __attribute__((weak_import));
+static bool shim_BSPathExistsOnSystemPartition(const void* path) { (void) path; return false; }
+DYLD_INTERPOSE(shim_BSPathExistsOnSystemPartition, BSPathExistsOnSystemPartition)
+
 // Diagnostics: log failing sqlite3_open_v2 calls (path, result, message, errno)
 static int shim_sqlite3_open_v2(const char* filename, sqlite3** db, int flags, const char* vfs)
 {
