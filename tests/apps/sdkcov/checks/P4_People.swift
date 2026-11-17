@@ -122,7 +122,20 @@ extension Registry {
             try store.enumerateContacts(with: CNContactFetchRequest(keysToFetch: [CNContactGivenNameKey as CNKeyDescriptor])) { _, _ in n += 1 }
             let none = try store.unifiedContacts(matching: CNContact.predicateForContacts(matchingName: "zzz-sdkcov-none"), keysToFetch: [CNContactGivenNameKey as CNKeyDescriptor])
             try expect(none.isEmpty, "unexpected match")
-            return "\(cont.count) containers, \(n) contacts"
+            // the default container answers, and fetching by container / identifiers agrees with the enumeration
+            let def = store.defaultContainerIdentifier()
+            try expect(!cont.isEmpty && cont.contains { $0.identifier == def }, "containers \(cont.map(\.identifier)), default \(def)")
+            let keys: [CNKeyDescriptor] = [CNContactGivenNameKey as CNKeyDescriptor, CNContactFamilyNameKey as CNKeyDescriptor, CNContactIdentifierKey as CNKeyDescriptor]
+            let inDef = try store.unifiedContacts(matching: CNContact.predicateForContactsInContainer(withIdentifier: def), keysToFetch: keys)
+            var byId = 0
+            if let first = inDef.first {
+                byId = try store.unifiedContacts(matching: CNContact.predicateForContacts(withIdentifiers: [first.identifier]), keysToFetch: keys).count
+                try expect(byId == 1, "by identifier: \(byId)")
+                let named = try store.unifiedContacts(matching: CNContact.predicateForContacts(matchingName: first.familyName.isEmpty ? first.givenName : first.familyName), keysToFetch: keys)
+                try expect(named.contains { $0.identifier == first.identifier }, "by name: \(named.count)")
+            }
+            try expect(inDef.count == n, "default container \(inDef.count) contacts, enumeration \(n)")
+            return "\(cont.count) containers, \(n) contacts (fetch by container / identifier / name agree)"
         })
         #endif
         #endif
@@ -189,7 +202,19 @@ extension Registry {
             let cals = store.calendars(for: .event)
             let pred = store.predicateForEvents(withStart: .now.addingTimeInterval(-86400 * 7), end: .now.addingTimeInterval(86400 * 30), calendars: nil)
             let evs = store.events(matching: pred)
-            return "\(cals.count) calendars, \(store.sources.count) sources, \(evs.count) events in 5 weeks"
+            // every calendar resolves by identifier, has a source and is one of its source's calendars; the predicate's
+            // events lie in its range; a calendar subset answers a subset
+            try expect(!cals.isEmpty && !store.sources.isEmpty, "\(cals.count) calendars, \(store.sources.count) sources")
+            for c in cals {
+                try expect(store.calendar(withIdentifier: c.calendarIdentifier)?.title == c.title, "calendar \(c.title) by identifier")
+                try expect(c.source?.calendars(for: .event).contains { $0.calendarIdentifier == c.calendarIdentifier } == true, "calendar \(c.title) not in its source")
+            }
+            let lo = Date.now.addingTimeInterval(-86400 * 7), hi = Date.now.addingTimeInterval(86400 * 30)
+            try expect(evs.allSatisfy { $0.endDate >= lo && $0.startDate <= hi }, "events outside the range")
+            let sub = store.events(matching: store.predicateForEvents(withStart: lo, end: hi, calendars: [cals[0]]))
+            try expect(sub.count <= evs.count && sub.allSatisfy { $0.calendar.calendarIdentifier == cals[0].calendarIdentifier }, "subset \(sub.count) of \(evs.count)")
+            if let e = evs.first { try expect(store.event(withIdentifier: e.eventIdentifier)?.title == e.title, "event by identifier") }
+            return "\(cals.count) calendars (\(cals.map(\.title).sorted().joined(separator: ", "))), \(store.sources.count) sources, \(evs.count) events in 5 weeks"
         })
         #endif
         #endif
