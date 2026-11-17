@@ -314,10 +314,10 @@ extension Registry {
             let upd = d.updated.value
             s.invalidate()
             // a session run with its own token: Apple's simulator keeps it running (no invalidation in 10 s) and its
-            // NearbyInteraction service reports nearby objects (2 on the iOS 27.2 simulator)
-            #if os(iOS)
+            // NearbyInteraction service reports nearby objects (2 on the iOS and watchOS 27.2 simulators)
+            do {
             try expect(inv == "no invalidation" && (upd ?? 0) >= 1, "own-token run: \(inv), updates \(String(describing: upd)) (Apple's simulator: no invalidation, nearby objects)")
-            #endif
+            }
             return "capabilities \(flags), discovery token \(tok == nil ? "nil" : "set"), accessory data refused (\(bad)), session: \(inv), first update \(upd.map { "\($0) objects" } ?? "none")"
         })
         #endif
