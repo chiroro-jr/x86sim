@@ -189,16 +189,24 @@ extension Registry {
         c.append(check("AutomatedDeviceEnrollment", "addition-modifier", timeout: 30) {
             // the whole public API: a modifier presenting the enrollment-addition extension UI; with isPresented false it
             // must leave the view alone, presented on an unmanaged simulator it shows (or refuses) the system UI
-            struct V: View { @State var on = false; let flag: P8Box<String>
-                var body: some View { Text("sdkcov ADE").automatedDeviceEnrollmentAddition(isPresented: $on).onAppear { flag.set("appeared") } } }
-            let flag = P8Box<String>()
-            let hc = await onMain { UIHostingController(rootView: V(flag: flag)) }
+            final class M: ObservableObject { @Published var on = false }
+            struct V: View { @ObservedObject var m: M; let flag: P8Box<String>
+                var body: some View { Text("sdkcov ADE").automatedDeviceEnrollmentAddition(isPresented: $m.on).onAppear { flag.set("appeared") } } }
+            let flag = P8Box<String>(), m = await onMain { M() }
+            let hc = await onMain { UIHostingController(rootView: V(m: m, flag: flag)) }
             let done = try await onMain { try p8Show(hc).1 }
             defer { Task { @MainActor in done() } }
             try expect(await flag.wait(5) == "appeared", "view never appeared")
             let presented = await onMain { hc.presentedViewController.map { "\(type(of: $0))" } ?? "none" }
             try expect(presented == "none", "presented \(presented) with isPresented false")
-            return "modifier hosted, nothing presented while false"
+            // presented on an unmanaged simulator: what comes up (and whether isPresented is reset)
+            await onMain { m.on = true }
+            try await Task.sleep(for: .seconds(5))
+            let shown = await onMain { "\(hc.presentedViewController.map { "\(type(of: $0))" } ?? "none"), isPresented \(m.on)" }
+            await onMain { m.on = false; hc.presentedViewController?.dismiss(animated: false) }
+            // Apple's iOS 27.2 simulator: SwiftUI presents its sheet host (the enrollment UI inside it), isPresented stays true
+            try expect(shown == "PresentationHostingController<AnyView>, isPresented true", "with isPresented true: \(shown) (Apple's simulator: PresentationHostingController<AnyView>, isPresented true)")
+            return "nothing presented while false; presented: \(shown)"
         })
         #endif
 
@@ -334,7 +342,12 @@ extension Registry {
             let d = try JSONEncoder().encode(evs)
             let back = try JSONDecoder().decode([CredentialSessionWindowSceneEvent].self, from: d)
             try expect(back == evs && evs.map(\.description).allSatisfy { !$0.isEmpty }, "events \(back)")
-            return "events \(evs.map(\.description)) via \(d.count) B JSON"
+            // the scene transactions (performTransaction(using:over:), endCardEmulation) need a CredentialSession: the
+            // simulator has no Secure Element, the session does not start (Apple's simulator: featureUnavailable)
+            var s = "-"
+            do { let sess = try await CredentialSession.startSession(); s = "started"; try? await sess.invalidate() } catch { s = "\(error)" }
+            try expect(s == "featureUnavailable", "startSession \(s) (Apple's simulator: featureUnavailable)")
+            return "events \(evs.map(\.description)) via \(d.count) B JSON; scene transactions: no session (\(s))"
         })
         #endif
         #if canImport(_SecureElementCredential_SwiftUI) && os(iOS)
@@ -345,7 +358,11 @@ extension Registry {
                 try await p8Host(Text("sdkcov SE").transactionTask(nil) { _ in ran.set("ran") })
             }.value
             try expect(ran.value == nil, "transaction action ran with a nil configuration")
-            return "\(views), no transaction for a nil configuration"
+            // a real configuration comes from a CredentialSession (configuration()): none starts in the simulator
+            var s = "-"
+            do { let sess = try await CredentialSession.startSession(); s = "started"; _ = try? await sess.configuration(); try? await sess.invalidate() } catch { s = "\(error)" }
+            try expect(s == "featureUnavailable", "startSession \(s) (Apple's simulator: featureUnavailable)")
+            return "\(views), no transaction for a nil configuration; no session for a real one (\(s))"
         })
         #endif
 
