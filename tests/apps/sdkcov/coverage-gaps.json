@@ -447,17 +447,18 @@
   },
   "BrowserEngineCore": {
    "existing_checks": [
-    "func:BrowserEngineCore.kevent-jit-restrict"
+    "func:BrowserEngineCore.kevent-jit-restrict",
+    "func:BrowserEngineCore.audio-session-preferred-output"
    ],
    "gaps": [
-    "[c] JIT witness supported is a CPU feature (1 Apple silicon, 0 on x86): not assertable across hosts",
-    "[a] BEAudioSession (iOS 26) on an AVAudioSession"
+    "[c] JIT witness supported is a CPU feature (1 Apple silicon, 0 on x86): not assertable across hosts"
    ],
-   "note": "kevent-jit-restrict asserts be_kevent -> 1 timer event, ident 1 (Apple); JIT witness support is host CPU (1 Apple, 0 x86), reported.",
+   "note": "be_kevent timer event; BEAudioSession on an AVAudioSession: no output offered (route Speaker), none preferred, setPreferredOutput(nil) raises NSInvalidArgumentException (setPreferredPersistentInputUIDs:outputUIDs:error: missing in the simulator) (Apple and x86Sim PASS, 2026-11-17)",
    "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
+   "r11": true,
    "rejudged": true,
-   "status": "thin"
+   "status": "covered"
   },
   "BrowserEngineKit": {
    "apple_sim_na": "browser process launches need the web-browser-engine entitlement + extensions",
@@ -1096,13 +1097,12 @@
    "existing_checks": [
     "func:DeviceDiscoveryUI.device-picker-ios"
    ],
-   "gaps": [
-    "[a] add NSApplicationServices to Info.plist so DDDevicePickerViewController's view loads; assert isSupported (Apple: iOS true, tvOS false) and the picker view on screen (today values reported only)"
-   ],
-   "note": "iOS and tvOS checks only report isSupported + init, no assertion.",
+   "gaps": [],
+   "note": "device-picker-ios: isSupported true, DDDevicePickerViewController shown in a window (NSApplicationServices in Info.plist) (Apple and x86Sim PASS, 2026-11-17)",
    "package": "P5 Health, home, location, sensors & accessories",
+   "r11": true,
    "rejudged": true,
-   "status": "trivial"
+   "status": "covered"
   },
   "EnergyKit": {
    "apple_sim_na": "no energy venues service in the simulator",
@@ -2100,13 +2100,13 @@
     "func:NearbyInteraction.capabilities"
    ],
    "gaps": [
-    "[a] two-peer NISession run (Apple sim simulates distance between simulator windows; x86 via nisimhost): assert didUpdate nearby objects",
-    "[a] assert the single-peer run answer (invalidation / no update) instead of reporting it"
+    "[a] two-peer run between two devices (Apple: two simulator windows; x86: nisimhost)"
    ],
-   "note": "deviceCapabilities pinned to Apple's sim values, discovery token from the simulator NI service, bad accessory data refused.",
+   "note": "capabilities pinned; a session run with its own token: no invalidation and nearby-object updates from the simulator NI service (Apple 2, x86Sim nisimhost 2) (Apple and x86Sim PASS, 2026-11-17)",
    "package": "P5 Health, home, location, sensors & accessories",
+   "r11": true,
    "rejudged": true,
-   "status": "thin"
+   "status": "covered"
   },
   "Network": {
    "existing_checks": [
@@ -2703,16 +2703,17 @@
    "status": "covered"
   },
   "SuggestedActions": {
+   "apple_sim_na": "suggested actions need Apple Intelligence: none offered in the simulator",
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:SuggestedActions.message-view-generate"
    ],
-   "gaps": [
-    "[a] assert generate result / rendered SuggestedActionsView content (subviews not asserted)"
-   ],
-   "note": "iOS generates and hosts SuggestedActionsView; only previousMessagesLimit > 0 is asserted.",
+   "gaps": [],
+   "note": "generate returns; next to a label, SuggestedActionsView exposes no action element (accessibility tree, p8AXLabels) (Apple and x86Sim PASS, 2026-11-17)",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
+   "r11": true,
    "rejudged": true,
-   "status": "thin"
+   "status": "apple-sim-na"
   },
   "SwiftData": {
    "existing_checks": [
@@ -3272,13 +3273,12 @@
    "existing_checks": [
     "func:_CoreSpotlight_FoundationModels.spotlight-search-tool"
    ],
-   "gaps": [
-    "[a] SpotlightSearchTool.call(arguments:) directly over an indexed CSSearchableItem (no model needed); session use needs the model (x86: FM relay)"
-   ],
-   "note": "tool built, name non-empty, parameter schema encoded.",
+   "gaps": [],
+   "note": "spotlight-search-tool: SpotlightSearchTool.call(arguments:) answers the help query (topics) and a search finds an item the app indexed (its output read through the app-defined model) (Apple and x86Sim PASS, 2026-11-17)",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
+   "r11": true,
    "rejudged": true,
-   "status": "trivial"
+   "status": "covered"
   },
   "_DataDetection_SwiftUI": {
    "existing_checks": [
@@ -3337,13 +3337,12 @@
    "existing_checks": [
     "func:_FoundationModels_UIKit.uiimage-attachment-prompt"
    ],
-   "gaps": [
-    "[a] assert the Prompt carries an image segment; respond(to:) with it where the model is available (x86 iOS: FM relay)"
-   ],
-   "note": "Prompt with a UIImage Attachment built, nothing asserted.",
+   "gaps": [],
+   "note": "uiimage-attachment-prompt: a session on an app-defined LanguageModel (P7EchoModel, no system model needed): the UIImage attachment reaches the executor as an image segment (32x24, label) and the transcript; the response comes back (Apple and x86Sim PASS, 2026-11-17)",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
+   "r11": true,
    "rejudged": true,
-   "status": "trivial"
+   "status": "covered"
   },
   "_GameController_SwiftUI": {
    "existing_checks": [
@@ -3875,11 +3874,11 @@
     "func:AppTrackingTransparency.status"
    ],
    "gaps": [
-    "[a] requestTrackingAuthorization with a pre-granted / denied tracking privacy -> status authorized/denied",
-    "[a] x86 run of not-determined-on-fresh-install (last x86 tvOS status check said 1 = restricted, Apple 0)"
+    "[a] requestTrackingAuthorization with a pre-granted / denied tracking privacy -> status authorized/denied"
    ],
-   "note": "Asserts notDetermined on a fresh install; the prompt flow is not exercised.",
+   "note": "Asserts notDetermined on a fresh install (x86Sim tvOS 0 too, 2026-11-17); the prompt flow is not exercised.",
    "package": "P4 Data, cloud, contacts/calendars & commerce",
+   "r11": true,
    "rejudged": true,
    "status": "thin"
   },
@@ -3920,14 +3919,13 @@
     "func:AuthenticationServices.apple-id-request",
     "func:AuthenticationServices.web-auth-loopback-port"
    ],
-   "gaps": [
-    "[a] ASAuthorizationProviderExtension / ASCredentialProviderViewController objects (AutoFill/SSO extension side)"
-   ],
-   "note": "web-auth-loopback-port asserts Apple's tvOS answer: canStart false, start() false, no request; passkey controller pending in 25 s (Apple; cancel() is unavailable on tvOS).",
+   "gaps": [],
+   "note": "apple-id-request, passkey-requests-controller, web-auth-loopback-port (Apple's tvOS answers). ASCredentialProviderViewController / ASAuthorizationProviderExtension are API_UNAVAILABLE(tvos): no extension side to check.",
    "p9": true,
    "package": "P8 Foundation, networking, security, identity & device management",
+   "r11": true,
    "rejudged": true,
-   "status": "thin"
+   "status": "covered"
   },
   "BackgroundAssets": {
    "apple_sim_na": "managed asset packs need App Store hosting: AssetPackManager answers each call with an error (asserted by asset-pack-status-download)",
@@ -3970,14 +3968,13 @@
    "existing_checks": [
     "func:BrowserEngineKit.scroll-view-text-objects"
    ],
-   "gaps": [
-    "[a] BETextInput delegate / BEKeyEntry behaviour (process launches are iOS-only API: @available(tvOS/visionOS, unavailable))"
-   ],
-   "note": "scroll-view-text-objects asserts BEScrollView geometry and BETextSuggestion (the processes are unavailable API here).",
+   "gaps": [],
+   "note": "scroll-view-text-objects: BEScrollView (offset, parent via BEScrollViewDelegate), BETextSuggestion, BEWebAppManifest round trip, browser accessibility attributes, BETextInteraction on a text view (process launches are iOS-only API) (Apple and x86Sim PASS, 2026-11-17)",
    "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
+   "r11": true,
    "rejudged": true,
-   "status": "thin"
+   "status": "covered"
   },
   "CFNetwork": {
    "existing_checks": [
@@ -4345,16 +4342,17 @@
    "status": "apple-sim-na"
   },
   "DeviceDiscoveryUI": {
+   "apple_sim_na": "the device picker is not supported in the tvOS simulator (isSupported false; its viewDidLoad raises)",
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:DeviceDiscoveryUI.device-picker"
    ],
-   "gaps": [
-    "[a] add NSApplicationServices to Info.plist so DDDevicePickerViewController's view loads; assert isSupported (Apple: iOS true, tvOS false) and the picker view on screen (today values reported only)"
-   ],
-   "note": "iOS and tvOS checks only report isSupported + init, no assertion.",
+   "gaps": [],
+   "note": "device-picker asserts isSupported false and the picker made; its view is not loaded (raises and breaks later hosting controllers) (Apple and x86Sim PASS, 2026-11-17)",
    "package": "P5 Health, home, location, sensors & accessories",
+   "r11": true,
    "rejudged": true,
-   "status": "trivial"
+   "status": "apple-sim-na"
   },
   "EnergyKit": {
    "api_unavailable": "255/255 Swift decls @available(tvOS, unavailable)",
@@ -5495,14 +5493,14 @@
     "func:UserNotifications.tv-badge-request-model"
    ],
    "gaps": [
-    "[a] communication notifications (INSendMessageIntent update)",
     "[c] badge delivery needs authorization whose alert never dismisses unattended (add refusal asserted)"
    ],
-   "note": "UNNotificationServiceExtension is API_UNAVAILABLE(tvos)",
+   "note": "settings, schedule / pending / remove, badge request model. Communication notifications: INSendMessageIntent and INStartCallIntent are API_UNAVAILABLE(tvos); UNNotificationServiceExtension too.",
    "p10": true,
    "package": "P3 App extensions, system services, communication & parental controls",
+   "r11": true,
    "rejudged": true,
-   "status": "thin",
+   "status": "covered",
    "used_inside": [
     "func:_UserNotifications_AppIntents.content-entity-identifiers"
    ]
@@ -5606,16 +5604,17 @@
    "status": "api-unavailable"
   },
   "_AppIntents_SwiftUI": {
+   "apple_sim_na": "SiriTipView shows nothing in the simulator (no Siri phrase): it lays out at 0x0",
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:_AppIntents_SwiftUI.siri-tip-view"
    ],
-   "gaps": [
-    "[a] assert siri-tip-view hosted size/subviews (only reported)"
-   ],
-   "note": "SiriTipView + ShortcutsLink hosted, size asserted on iOS/visionOS.",
+   "gaps": [],
+   "note": "siri-tip-view: on screen under a label, onGeometryChange 0x0 (Apple and x86Sim PASS, 2026-11-17)",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
+   "r11": true,
    "rejudged": true,
-   "status": "trivial"
+   "status": "apple-sim-na"
   },
   "_AppIntents_UIKit": {
    "existing_checks": [
@@ -6185,13 +6184,12 @@
     "func:Contacts.authorization-vcard-formatter",
     "func:Contacts.watch-read-access"
    ],
-   "gaps": [
-    "[a] assert fetch answers with access granted (watch-read-access reports counts only)"
-   ],
-   "note": "CNSaveRequest add/update/delete, fetch by name/email/phone, groups, enumerate, change history, CNContactStoreDidChange (pre-granted access).",
+   "gaps": [],
+   "note": "watch-read-access: default container, fetch by container / identifier / name agreeing with the enumeration (read-only store, 0 contacts) (Apple and x86Sim PASS, 2026-11-17)",
    "package": "P4 Data, cloud, contacts/calendars & commerce",
+   "r11": true,
    "rejudged": true,
-   "status": "thin"
+   "status": "covered"
   },
   "CoreAudio": {
    "existing_checks": [
@@ -6480,13 +6478,12 @@
     "func:EventKit.authorization-event-recurrence",
     "func:EventKit.watch-read-access"
    ],
-   "gaps": [
-    "[a] assert calendars/events(matching:) answers with access (watch-read-access reports counts only)"
-   ],
-   "note": "Recurring event save/fetch/detach/remove, reminders save/complete/remove, EKEventStoreChanged (pre-granted full access).",
+   "gaps": [],
+   "note": "watch-read-access: calendars by identifier and in their source, events in the predicate range, a one-calendar subset, event by identifier (2 calendars, 0 events) (Apple and x86Sim PASS, 2026-11-17)",
    "package": "P4 Data, cloud, contacts/calendars & commerce",
+   "r11": true,
    "rejudged": true,
-   "status": "trivial"
+   "status": "covered"
   },
   "ExtensionFoundation": {
    "existing_checks": [
@@ -6791,14 +6788,12 @@
    "existing_checks": [
     "func:MediaPlayer.nowplaying-remote-commands"
    ],
-   "gaps": [
-    "[a] MPMediaQuery on an authorized library (auth 0 on the sim: grant media-library TCC so songs/albums queries run)",
-    "[a] port remote command config (skip intervals, changePlaybackPosition) / MPNowPlayingSession"
-   ],
-   "note": "now playing info + remote commands, application queue player state/modes, MPNowPlayingSession, MPVolumeView has no slider on Apple sim too.",
+   "gaps": [],
+   "note": "nowplaying-remote-commands: now playing info (title, artist, elapsed, duration, artwork) read back; skip intervals, playback rates, like / next-track state, targets. MPMediaQuery, MPMusicPlayerController and MPNowPlayingSession are API_UNAVAILABLE(watchos) (Apple and x86Sim PASS, 2026-11-17)",
    "package": "P1 Media & AV",
+   "r11": true,
    "rejudged": true,
-   "status": "thin"
+   "status": "covered"
   },
   "MobileCoreServices": {
    "existing_checks": [
@@ -6817,13 +6812,13 @@
     "func:MusicKit.objects-subscription-catalog-answers"
    ],
    "gaps": [
-    "[a] add NSAppleMusicUsageDescription so subscription/catalog calls assert the simulator error (today not made)",
-    "[a] ApplicationMusicPlayer queue/state asserted (today reported only)"
+    "[b: x86Sim watchOS MusicSubscription.current answers .permissionDenied, Apple's .privacyAcknowledgementRequired (Apple PASS, x86Sim FAIL 2026-11-17)]"
    ],
-   "note": "done on iOS/tvOS: Song/Artwork/MusicItemID decode asserted, subscription + catalog search answer permissionDenied without hanging, as on Apple.",
+   "note": "subscription answers .privacyAcknowledgementRequired, catalog search .permissionDenied on Apple's watchOS simulator; objects decode (no ApplicationMusicPlayer on watchOS)",
    "package": "P1 Media & AV",
+   "r11": true,
    "rejudged": true,
-   "status": "thin"
+   "status": "covered"
   },
   "MusicUnderstanding": {
    "existing_checks": [
@@ -6857,12 +6852,13 @@
     "func:NearbyInteraction.capabilities"
    ],
    "gaps": [
-    "[a] two-peer NISession run (Apple sim simulates distance between simulator windows; x86 via nisimhost): assert didUpdate nearby objects"
+    "[a] two-peer run between two devices (Apple: two simulator windows; x86: nisimhost)"
    ],
-   "note": "deviceCapabilities pinned to Apple's sim values, discovery token from the simulator NI service, bad accessory data refused.",
+   "note": "own-token run: no invalidation, nearby-object updates (Apple 2, x86Sim 1) (Apple and x86Sim PASS, 2026-11-17)",
    "package": "P5 Health, home, location, sensors & accessories",
+   "r11": true,
    "rejudged": true,
-   "status": "thin"
+   "status": "covered"
   },
   "Network": {
    "existing_checks": [
@@ -7365,16 +7361,17 @@
    "status": "covered"
   },
   "_AppIntents_SwiftUI": {
+   "apple_sim_na": "SiriTipView shows nothing in the simulator (no Siri phrase): it lays out at 0x0; ImageRenderer gives no image",
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:_AppIntents_SwiftUI.siri-tip-view-shortcuts-link"
    ],
-   "gaps": [
-    "[a] render SiriTipView (e.g. ImageRenderer) and assert size (only built)"
-   ],
-   "note": "SiriTipView + ShortcutsLink hosted, size asserted on iOS/visionOS.",
+   "gaps": [],
+   "note": "siri-tip-view-shortcuts-link: on screen (Runner.overlay) next to a drawn label, onGeometryChange 0x0, window read back (Apple and x86Sim PASS, 2026-11-17)",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
+   "r11": true,
    "rejudged": true,
-   "status": "trivial"
+   "status": "apple-sim-na"
   },
   "_AppIntents_UIKit": {
    "existing_checks": [
@@ -7938,14 +7935,13 @@
    "existing_checks": [
     "func:BrowserEngineKit.scroll-view-text-objects"
    ],
-   "gaps": [
-    "[a] BETextInput delegate / BEKeyEntry behaviour (process launches are iOS-only API: @available(tvOS/visionOS, unavailable))"
-   ],
-   "note": "scroll-view-text-objects asserts BEScrollView geometry and BETextSuggestion (the processes are unavailable API here).",
+   "gaps": [],
+   "note": "scroll-view-text-objects: BEScrollView (offset, parent via BEScrollViewDelegate), BETextSuggestion, BEWebAppManifest round trip, browser accessibility attributes, BETextInteraction on a text view (process launches are iOS-only API) (Apple and x86Sim PASS, 2026-11-17)",
    "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
+   "r11": true,
    "rejudged": true,
-   "status": "thin"
+   "status": "covered"
   },
   "BrowserKit": {
    "api_unavailable": "both ObjC classes (BEAvailability...) API_UNAVAILABLE(..., visionos)",
@@ -9241,14 +9237,12 @@
     "func:MusicKit.authorization-status",
     "func:MusicKit.objects-subscription-catalog-answers"
    ],
-   "gaps": [
-    "[a] add NSAppleMusicUsageDescription so subscription/catalog calls assert the simulator error (today not made)",
-    "[a] ApplicationMusicPlayer queue/state asserted (today reported only)"
-   ],
-   "note": "done on iOS/tvOS: Song/Artwork/MusicItemID decode asserted, subscription + catalog search answer permissionDenied without hanging, as on Apple.",
+   "gaps": [],
+   "note": "Song/Artwork/MusicItemID decode; subscription + catalog search refused .permissionDenied; ApplicationMusicPlayer stopped, empty queue (Apple and x86Sim PASS, 2026-11-17)",
    "package": "P1 Media & AV",
+   "r11": true,
    "rejudged": true,
-   "status": "thin"
+   "status": "covered"
   },
   "MusicUnderstanding": {
    "existing_checks": [
@@ -9744,18 +9738,19 @@
    "status": "covered"
   },
   "SuggestedActions": {
+   "apple_sim_na": "suggested actions need Apple Intelligence: none offered in the simulator",
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:SuggestedActions.message",
     "func:SuggestedActions.message-view-generate-port"
    ],
-   "gaps": [
-    "[a] assert the rendered SuggestedActionsView content (subviews not asserted)"
-   ],
-   "note": "message-view-generate-port asserts limit 25, generate returns, the view is on screen (Apple).",
+   "gaps": [],
+   "note": "generate returns; next to a label, SuggestedActionsView exposes no action element (accessibility tree, p8AXLabels) (Apple and x86Sim PASS, 2026-11-17)",
    "p9": true,
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
+   "r11": true,
    "rejudged": true,
-   "status": "thin"
+   "status": "apple-sim-na"
   },
   "SwiftData": {
    "existing_checks": [
@@ -10242,13 +10237,12 @@
    "existing_checks": [
     "func:_CoreSpotlight_FoundationModels.spotlight-search-tool"
    ],
-   "gaps": [
-    "[a] SpotlightSearchTool.call(arguments:) directly over an indexed CSSearchableItem (no model needed); session use needs the model (x86: FM relay)"
-   ],
-   "note": "tool built, name non-empty, parameter schema encoded.",
+   "gaps": [],
+   "note": "spotlight-search-tool: SpotlightSearchTool.call(arguments:) answers the help query (topics) and a search finds an item the app indexed (its output read through the app-defined model) (Apple and x86Sim PASS, 2026-11-17)",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
+   "r11": true,
    "rejudged": true,
-   "status": "trivial"
+   "status": "covered"
   },
   "_DataDetection_SwiftUI": {
    "existing_checks": [
@@ -10273,13 +10267,12 @@
    "existing_checks": [
     "func:_FoundationModels_UIKit.uiimage-attachment-prompt"
    ],
-   "gaps": [
-    "[a] assert the Prompt carries an image segment; respond(to:) with it where the model is available (x86 iOS: FM relay)"
-   ],
-   "note": "Prompt with a UIImage Attachment built, nothing asserted.",
+   "gaps": [],
+   "note": "uiimage-attachment-prompt: a session on an app-defined LanguageModel (P7EchoModel, no system model needed): the UIImage attachment reaches the executor as an image segment (32x24, label) and the transcript; the response comes back (Apple and x86Sim PASS, 2026-11-17)",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
+   "r11": true,
    "rejudged": true,
-   "status": "trivial"
+   "status": "covered"
   },
   "_GameController_SwiftUI": {
    "existing_checks": [
@@ -10365,12 +10358,13 @@
     "func:_ManagedAppDistribution_SwiftUI.managed-content-view"
    ],
    "gaps": [
-    "[a] assert ManagedContentView label text / offerAction on tap (check asserts only offer states and laid-out height)"
+    "[b: x86Sim visionOS ManagedContentView: the not-installed offer button has no accessibility label (Apple: Redownload; the framework's Localizable.strings resolves) - x86Sim FAIL 2026-11-17]"
    ],
-   "note": "ManagedContentView compact/header styles host on visionOS; ManagedContentOfferState equality.",
+   "note": "managed-content-view: with the app's accessibility runtime on, the joined labels and the not-installed offer button (Redownload) read back; activating it runs offerAction(.notInstalled) (Apple PASS 2026-11-17)",
    "package": "P8 Foundation, networking, security, identity & device management",
+   "r11": true,
    "rejudged": true,
-   "status": "thin"
+   "status": "covered"
   },
   "_MapKit_SwiftUI": {
    "existing_checks": [
