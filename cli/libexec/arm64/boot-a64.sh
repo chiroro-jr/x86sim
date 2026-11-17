@@ -374,6 +374,10 @@ TV_UI_SLIM="com.apple.backboardd com.apple.Pineboard com.apple.TextInput.kbd com
 # NSFileProviderErrorDomain -2001) and devicemanagementclient.managedappsd (on demand: ManagedApp's configuration stream
 # yielded nil at once for lack of it; Apple's yields nothing for an unmanaged app). With these ATTrackingManager's
 # status read notDetermined (0) as on Apple's, not restricted (1).
+# itunescloudd (on demand, pressured exit): watchOS MusicKit asks its cloud service status monitor
+# (com.apple.itunescloudd.xpc) for the Apple Music privacy acknowledgement before anything else; without it
+# MusicSubscription.current failed .permissionDenied (ICError -7010, no listener endpoint) where Apple's watchOS 27.2
+# simulator answers .privacyAcknowledgementRequired (P1_Library.swift).
 WATCH_UI="com.apple.installcoordinationd com.apple.backboardd com.apple.Carousel com.apple.sleepd com.apple.TextInput.kbd
 	com.apple.FileCoordination com.apple.usernotificationsd com.apple.assistantd com.apple.campo com.apple.splashboardd
 	com.apple.nanoregistryd com.apple.nanoregistrylaunchd com.apple.nanotimekitd com.apple.carouselecomoded
@@ -382,7 +386,7 @@ WATCH_UI="com.apple.installcoordinationd com.apple.backboardd com.apple.Carousel
 	com.apple.accessibility.axassetsd com.apple.wcd com.apple.locationd com.apple.healthd
 	com.apple.ctkd com.apple.syncdefaultsd com.apple.accountsd com.apple.amsaccountsd com.apple.watchgesturesd com.apple.devicecheckd
 	com.apple.contactsd com.apple.calaccessd com.apple.remindd com.apple.mediaremoted com.apple.gamed
-	com.apple.linkd com.apple.telephonyutilities.callservicesd com.apple.corespotlightd"
+	com.apple.linkd com.apple.telephonyutilities.callservicesd com.apple.corespotlightd com.apple.itunescloudd"
 WATCH_UI_SLIM="com.apple.backboardd com.apple.Carousel com.apple.TextInput.kbd com.apple.FileCoordination
 	com.apple.nanoregistryd com.apple.nanotimekitd"
 # Platforms 2: visionOS. SurfBoard is its SpringBoard; vhmdd (the simulator's virtual head-mounted display,
