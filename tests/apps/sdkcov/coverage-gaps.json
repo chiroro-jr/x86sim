@@ -114,16 +114,17 @@
    "status": "covered"
   },
   "AccessoryLiveActivities": {
+   "apple_sim_na": "forwarding needs an AccessorySetupKit-paired accessory",
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:AccessoryLiveActivities.feature-results"
    ],
-   "gaps": [
-    "[c] Live Activity forwarding to an accessory needs a paired AccessorySetupKit accessory: assert the simulator answer of the forwarding authorization request"
-   ],
-   "note": "feature-results only asserts the feature id and AccessoryAuthorizationResult cases are non-empty.",
+   "gaps": [],
+   "note": "feature-results: authorization(forAccessory:) of an unpaired accessory refused, BSServiceConnectionErrorDomain 3 (Apple and x86Sim PASS, 2026-11-17)",
    "package": "P3 App extensions, system services, communication & parental controls",
+   "r12": true,
    "rejudged": true,
-   "status": "trivial"
+   "status": "apple-sim-na"
   },
   "AccessoryNotifications": {
    "apple_sim_na": "notification forwarding needs an accessory paired through AccessorySetupKit whose forwarding the user allowed: none in the simulator",
@@ -244,12 +245,12 @@
    "existing_checks": [
     "func:AddressBookUI.people-picker-view"
    ],
-   "gaps": [
-    "[a] deprecated: keep"
-   ],
+   "gaps": [],
+   "note": "deprecated: picker without a top controller before presentation, new-person view loads (Apple and x86Sim PASS, 2026-11-17)",
    "package": "P4 Data, cloud, contacts/calendars & commerce",
-   "rejudged": false,
-   "status": "trivial"
+   "r12": true,
+   "rejudged": true,
+   "status": "covered"
   },
   "AlarmKit": {
    "existing_checks": [
@@ -324,26 +325,26 @@
   "AppTrackingTransparency": {
    "existing_checks": [
     "func:AppTrackingTransparency.not-determined-on-fresh-install",
-    "func:AppTrackingTransparency.status"
+    "func:AppTrackingTransparency.status",
+    "func:AppTrackingTransparency.input-tracking-granted"
    ],
-   "gaps": [
-    "[a] requestTrackingAuthorization with a pre-granted / denied tracking privacy -> status authorized/denied"
-   ],
-   "note": "Asserts notDetermined on a fresh install; the prompt flow is not exercised.",
+   "gaps": [],
+   "note": "not-determined-on-fresh-install; input-tracking-granted (inputs.sh tracking / ref-mac.sh TRACKING=1): the host writes the app's kTCCServiceUserTracking row, requestTrackingAuthorization answers authorized without a prompt, IDFA all-zero; the row is removed afterwards (Apple and x86Sim PASS, 2026-11-17)",
    "package": "P4 Data, cloud, contacts/calendars & commerce",
+   "r12": true,
    "rejudged": true,
-   "status": "thin"
+   "status": "covered"
   },
   "AssetsLibrary": {
    "existing_checks": [
     "func:AssetsLibrary.authorization-status"
    ],
-   "gaps": [
-    "[a] deprecated (unavailable to Swift): keep runtime authorizationStatus call"
-   ],
+   "gaps": [],
+   "note": "deprecated (unavailable to Swift): authorizationStatus 3 with Photos granted through the runtime; enumerateGroups aborts the app on Apple's simulator (Photos unrecognized selector), not called (Apple and x86Sim PASS, 2026-11-17)",
    "package": "P1 Media & AV",
-   "rejudged": false,
-   "status": "trivial"
+   "r12": true,
+   "rejudged": true,
+   "status": "covered"
   },
   "AudioToolbox": {
    "existing_checks": [
@@ -397,13 +398,12 @@
    "existing_checks": [
     "func:AutomatedDeviceEnrollment.addition-modifier"
    ],
-   "gaps": [
-    "[a] isPresented true on an unmanaged device: assert the system UI or refusal Apple shows (ref-mac.sh first)"
-   ],
-   "note": "The only API, .automatedDeviceEnrollmentAddition, is hosted and presents nothing while false.",
+   "gaps": [],
+   "note": "addition-modifier: nothing presented while false; with isPresented true SwiftUI presents its sheet host (PresentationHostingController) on an unmanaged simulator (Apple and x86Sim PASS, 2026-11-17)",
    "package": "P8 Foundation, networking, security, identity & device management",
+   "r12": true,
    "rejudged": true,
-   "status": "thin"
+   "status": "covered"
   },
   "AutomaticAssessmentConfiguration": {
    "existing_checks": [
@@ -1757,16 +1757,17 @@
    "status": "apple-sim-na"
   },
   "ManagedSettingsUI": {
+   "apple_sim_na": "shields are drawn only for apps a Family Controls-authorized store shields (none in the simulator)",
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:ManagedSettingsUI.shield-configuration"
    ],
-   "gaps": [
-    "[c] shield rendering needs a ShieldConfiguration extension + Family Controls authorization: assert the simulator answer"
-   ],
-   "note": "shield-configuration asserts ShieldConfiguration property values only.",
+   "gaps": [],
+   "note": "shield-configuration: configuration fields, the data source default for an Application (no title / button / icon), Family Controls notDetermined (Apple and x86Sim PASS, 2026-11-17)",
    "package": "P3 App extensions, system services, communication & parental controls",
+   "r12": true,
    "rejudged": true,
-   "status": "trivial"
+   "status": "apple-sim-na"
   },
   "MapKit": {
    "existing_checks": [
@@ -2148,12 +2149,12 @@
    "existing_checks": [
     "func:NotificationCenter.widget-controller"
    ],
-   "gaps": [
-    "[a] deprecated (Today widgets): NCWidgetProviding - keep minimal"
-   ],
+   "gaps": [],
+   "note": "deprecated Today widgets: setHasContent, NCWidgetProviding update newData outside an extension (no context), display modes (Apple and x86Sim PASS, 2026-11-17)",
    "package": "P3 App extensions, system services, communication & parental controls",
-   "rejudged": false,
-   "status": "trivial"
+   "r12": true,
+   "rejudged": true,
+   "status": "covered"
   },
   "NowPlaying": {
    "existing_checks": [
@@ -2898,12 +2899,12 @@
    "existing_checks": [
     "func:Twitter.compose-can-send"
    ],
-   "gaps": [
-    "[a] deprecated (no Swift module): keep runtime call"
-   ],
+   "gaps": [],
+   "note": "deprecated: canSendTweet false, SLComposeViewController built (Apple and x86Sim PASS, 2026-11-17)",
    "package": "P8 Foundation, networking, security, identity & device management",
-   "rejudged": false,
-   "status": "trivial"
+   "r12": true,
+   "rejudged": true,
+   "status": "covered"
   },
   "UIKit": {
    "existing_checks": [
@@ -3291,16 +3292,17 @@
    "status": "covered"
   },
   "_DeviceActivity_SwiftUI": {
+   "apple_sim_na": "report content needs a DeviceActivityReport extension + Family Controls authorization",
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:_DeviceActivity_SwiftUI.report-view-hosted"
    ],
-   "gaps": [
-    "[c] report content needs a DeviceActivityReport extension + authorization: assert the simulator answer"
-   ],
-   "note": "report-view-hosted only asserts the hosting view has a width.",
+   "gaps": [],
+   "note": "report-view-hosted: the hosted report is the ExtensionKit host with an EXPlaceholderView (Apple and x86Sim PASS, 2026-11-17)",
    "package": "P3 App extensions, system services, communication & parental controls",
+   "r12": true,
    "rejudged": true,
-   "status": "trivial"
+   "status": "apple-sim-na"
   },
   "_DeviceDiscoveryUI_SwiftUI": {
    "existing_checks": [
@@ -3590,28 +3592,30 @@
    "status": "covered"
   },
   "_SecureElementCredential_SwiftUI": {
+   "apple_sim_na": "no Secure Element / NFC: CredentialSession.startSession answers featureUnavailable",
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:_SecureElementCredential_SwiftUI.transaction-task-modifier"
    ],
-   "gaps": [
-    "[c] transactionTask with a real configuration needs a credential session (assert the simulator answer)"
-   ],
-   "note": ".transactionTask(nil) hosts without running the action.",
+   "gaps": [],
+   "note": "overlay entry points checked without a session; startSession featureUnavailable asserted (Apple and x86Sim PASS, 2026-11-17)",
    "package": "P8 Foundation, networking, security, identity & device management",
+   "r12": true,
    "rejudged": true,
-   "status": "trivial"
+   "status": "apple-sim-na"
   },
   "_SecureElementCredential_UIKit": {
+   "apple_sim_na": "no Secure Element / NFC: CredentialSession.startSession answers featureUnavailable",
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:_SecureElementCredential_UIKit.window-scene-events"
    ],
-   "gaps": [
-    "[c] scene connection-options credential events need an NFC presentment (assert the simulator answer)"
-   ],
-   "note": "Only CredentialSessionWindowSceneEvent Codable round trip and descriptions.",
+   "gaps": [],
+   "note": "overlay entry points checked without a session; startSession featureUnavailable asserted (Apple and x86Sim PASS, 2026-11-17)",
    "package": "P8 Foundation, networking, security, identity & device management",
+   "r12": true,
    "rejudged": true,
-   "status": "trivial"
+   "status": "apple-sim-na"
   },
   "_SharedWithYou_AppIntents": {
    "existing_checks": [],
@@ -3871,16 +3875,16 @@
   "AppTrackingTransparency": {
    "existing_checks": [
     "func:AppTrackingTransparency.not-determined-on-fresh-install",
-    "func:AppTrackingTransparency.status"
+    "func:AppTrackingTransparency.status",
+    "func:AppTrackingTransparency.input-tracking-granted"
    ],
-   "gaps": [
-    "[a] requestTrackingAuthorization with a pre-granted / denied tracking privacy -> status authorized/denied"
-   ],
-   "note": "Asserts notDetermined on a fresh install (x86Sim tvOS 0 too, 2026-11-17); the prompt flow is not exercised.",
+   "gaps": [],
+   "note": "not-determined-on-fresh-install; input-tracking-granted (inputs.sh tracking / ref-mac.sh TRACKING=1): the host writes the app's kTCCServiceUserTracking row, requestTrackingAuthorization answers authorized without a prompt, IDFA all-zero; the row is removed afterwards (Apple and x86Sim PASS, 2026-11-17)",
    "package": "P4 Data, cloud, contacts/calendars & commerce",
    "r11": true,
+   "r12": true,
    "rejudged": true,
-   "status": "thin"
+   "status": "covered"
   },
   "AudioToolbox": {
    "existing_checks": [
@@ -6486,16 +6490,17 @@
    "status": "covered"
   },
   "ExtensionFoundation": {
+   "apple_sim_na": "watchOS installs no app extension on ExtensionKit points; Apple's points refuse an app monitor (host not entitled)",
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:ExtensionFoundation.apple-extension-point-monitor"
    ],
-   "gaps": [
-    "[a] monitor an Apple extension point with an app extension (today only the unknown-point error)"
-   ],
-   "note": "iOS: app-defined point resolves the in-app appex; tvOS/visionOS: monitor finds the BA downloader; AppExtensionProcess exercised via ExtensionKit checks.",
+   "gaps": [],
+   "note": "apple-extension-point-monitor: unknown point -10814, monitor on com.apple.appintents-extension refused (extensionKit 16) (Apple and x86Sim PASS, 2026-11-17)",
    "package": "P3 App extensions, system services, communication & parental controls",
+   "r12": true,
    "rejudged": true,
-   "status": "thin"
+   "status": "apple-sim-na"
   },
   "ExtensionKit": {
    "apple_sim_na": "tvOS/watchOS/visionOS installd refuse an app extension on a non-Apple extension point (Apple's simulator too)",
@@ -6811,12 +6816,11 @@
     "func:MusicKit.authorization-status",
     "func:MusicKit.objects-subscription-catalog-answers"
    ],
-   "gaps": [
-    "[b: x86Sim watchOS MusicSubscription.current answers .permissionDenied, Apple's .privacyAcknowledgementRequired (Apple PASS, x86Sim FAIL 2026-11-17)]"
-   ],
-   "note": "subscription answers .privacyAcknowledgementRequired, catalog search .permissionDenied on Apple's watchOS simulator; objects decode (no ApplicationMusicPlayer on watchOS)",
+   "gaps": [],
+   "note": "subscription .privacyAcknowledgementRequired (x86Sim: itunescloudd on demand since 2026-11-17), catalog search .permissionDenied; objects decode (Apple and x86Sim PASS, 2026-11-17)",
    "package": "P1 Media & AV",
    "r11": true,
+   "r12": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -7650,13 +7654,12 @@
    "existing_checks": [
     "func:_WorkoutKit_SwiftUI.workout-preview-modifier-watch"
    ],
-   "gaps": [
-    "[a] present the preview (isPresented true) and assert it shows"
-   ],
-   "note": "iOS workoutPreview presents WorkoutHostingRemoteViewController; watchOS only hosts the modifier.",
+   "gaps": [],
+   "note": "workout-preview-modifier-watch: isPresented true presents WorkoutHostingRemoteViewController, false dismisses it (Apple and x86Sim PASS, 2026-11-17)",
    "package": "P5 Health, home, location, sensors & accessories",
+   "r12": true,
    "rejudged": true,
-   "status": "thin"
+   "status": "covered"
   }
  },
  "xros": {
@@ -7818,15 +7821,15 @@
   "AppTrackingTransparency": {
    "existing_checks": [
     "func:AppTrackingTransparency.not-determined-on-fresh-install",
-    "func:AppTrackingTransparency.status"
+    "func:AppTrackingTransparency.status",
+    "func:AppTrackingTransparency.input-tracking-granted"
    ],
-   "gaps": [
-    "[a] requestTrackingAuthorization with a pre-granted / denied tracking privacy -> status authorized/denied"
-   ],
-   "note": "Asserts notDetermined on a fresh install; the prompt flow is not exercised.",
+   "gaps": [],
+   "note": "not-determined-on-fresh-install; input-tracking-granted (inputs.sh tracking / ref-mac.sh TRACKING=1): the host writes the app's kTCCServiceUserTracking row, requestTrackingAuthorization answers authorized without a prompt, IDFA all-zero; the row is removed afterwards (Apple and x86Sim PASS, 2026-11-17)",
    "package": "P4 Data, cloud, contacts/calendars & commerce",
+   "r12": true,
    "rejudged": true,
-   "status": "thin"
+   "status": "covered"
   },
   "AudioToolbox": {
    "existing_checks": [
@@ -8429,16 +8432,18 @@
    "status": "apple-sim-na"
   },
   "DeviceDiscoveryExtension": {
+   "apple_sim_na": "visionOS installs no ExtensionKit app extension: no DDDiscoverySession host",
+   "apple_sim_na_done": true,
    "existing_checks": [
-    "func:DeviceDiscoveryExtension.device-event-types"
+    "func:DeviceDiscoveryExtension.device-event-types",
+    "func:DeviceDiscoveryExtension.discovery-point-xros"
    ],
-   "gaps": [
-    "[a] DDDiscoverySession inside a DeviceDiscoveryExtension appex (appex installs only on iOS)"
-   ],
-   "note": "DDDevice / DDDeviceEvent model asserted (iOS, visionOS).",
+   "gaps": [],
+   "note": "device-event-types + discovery-point-xros: com.apple.discovery-extension monitor refused (extensionKit 16) (Apple and x86Sim PASS, 2026-11-17)",
    "package": "P5 Health, home, location, sensors & accessories",
+   "r12": true,
    "rejudged": true,
-   "status": "thin"
+   "status": "apple-sim-na"
   },
   "EnergyKit": {
    "api_unavailable": "255/255 Swift decls @available(visionOS, unavailable)",
@@ -10275,17 +10280,18 @@
    "status": "covered"
   },
   "_GameController_SwiftUI": {
+   "apple_sim_na": "GCVirtualController is API_UNAVAILABLE(visionos) and Apple's visionOS simulator delivers no game controller input to apps",
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:_GameController_SwiftUI.handles-game-controller-events-modifier"
    ],
-   "gaps": [
-    "[c] GCVirtualController is API_UNAVAILABLE(visionos): no injectable gamepad"
-   ],
-   "note": "Only asserts the view with the modifier appears.",
+   "gaps": [],
+   "note": "handles-game-controller-events-modifier: the modified view on screen; GameController.input-gamepad SKIPs on Apple visionOS (no delivery)",
    "p10": true,
    "package": "P2 Graphics, 3D, AR & games",
+   "r12": true,
    "rejudged": true,
-   "status": "trivial"
+   "status": "apple-sim-na"
   },
   "_GeoToolbox_AppIntents": {
    "existing_checks": [
@@ -10357,12 +10363,11 @@
    "existing_checks": [
     "func:_ManagedAppDistribution_SwiftUI.managed-content-view"
    ],
-   "gaps": [
-    "[b: x86Sim visionOS ManagedContentView: the not-installed offer button has no accessibility label (Apple: Redownload; the framework's Localizable.strings resolves) - x86Sim FAIL 2026-11-17]"
-   ],
-   "note": "managed-content-view: with the app's accessibility runtime on, the joined labels and the not-installed offer button (Redownload) read back; activating it runs offerAction(.notInstalled) (Apple PASS 2026-11-17)",
+   "gaps": [],
+   "note": "managed-content-view: joined labels, the not-installed offer button (Redownload) and its action read through accessibility (x86Sim: boot-a64 links the framework at its host path since 2026-11-17) (Apple and x86Sim PASS, 2026-11-17)",
    "package": "P8 Foundation, networking, security, identity & device management",
    "r11": true,
+   "r12": true,
    "rejudged": true,
    "status": "covered"
   },

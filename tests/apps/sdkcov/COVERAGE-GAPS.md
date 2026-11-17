@@ -2,7 +2,7 @@
 
 Goal: every public framework of each platform SDK (manifest-<plat>.json = the Xcode 27.2 simulator SDK framework list, incl. sdks/XRSimulator-xcode.sdk for visionOS) has functional checks exercising its main public API with real assertions, matching Apple's simulator (the bar, not hardware). Machine-readable: `coverage-gaps.json` (`{platform: {framework: {status, existing_checks, gaps, package, rejudged, used_inside?, apple_sim_na?, apple_sim_na_done?, api_unavailable?, sdk_availability?, note?}}}`).
 
-Refreshed 2026-11-17 (thin/trivial round after the fin round: 23 platform entries moved: 18 to covered, 5 to Apple-sim N/A done; first pass: commit 4dfb0f4, 2026-11-15). Inputs: 729 distinct framework check ids in checks/*.swift (was 381; +348 from P1..P8, the gaps/FSEvents/FoundationModels rounds and More2 on all platforms); which ids run on which platform and their x86Sim + Apple-reference results = every sdkcov result under ~/scratch since 2026-11-15 (results.txt / sdkcov-N.err of the comb2, P-round, gaps, fse, fm and *-ref-* runs: ios 618, tvos 389, watchos 280, xros 500 ids). Every framework whose check set changed was re-judged from the check bodies (`rejudged: true`); the rest keep their first-pass judgement. Libraries (usr/lib) are out of scope.
+Refreshed 2026-11-17 (r12 round: 2 x86Sim bugs fixed, 22 platform entries moved: 11 to covered, 11 to Apple-sim N/A done; before it the thin/trivial round moved 23; first pass: commit 4dfb0f4, 2026-11-15). Inputs: 729 distinct framework check ids in checks/*.swift (was 381; +348 from P1..P8, the gaps/FSEvents/FoundationModels rounds and More2 on all platforms); which ids run on which platform and their x86Sim + Apple-reference results = every sdkcov result under ~/scratch since 2026-11-15 (results.txt / sdkcov-N.err of the comb2, P-round, gaps, fse, fm and *-ref-* runs: ios 618, tvos 389, watchos 280, xros 500 ids). Every framework whose check set changed was re-judged from the check bodies (`rejudged: true`); the rest keep their first-pass judgement. Libraries (usr/lib) are out of scope.
 
 Status: **covered** = real assertions on the main API and its main areas; **thin** = real checks but main areas untested; **trivial** = only existence / availability / authorization status / construction, or values reported but not asserted; **none** = no check on that platform; **apple-sim-na** = the main API cannot work in Apple's simulator (hardware, entitlement, missing service): the check must assert the simulator answer (*done* when such an asserting check passes on Apple, *open* otherwise); **api-unavailable** = the SDK marks the whole public API unavailable on that platform (Swift `@available(<os>, unavailable)` / `API_UNAVAILABLE(<os>)` on every declaration; visionOS inherits iOS unavailability): only loading is possible, the load check covers it; **excluded** = headers-only / re-export-only / not in the runtime.
 
@@ -12,10 +12,10 @@ Gap tags: **[a]** doable as a check; **[b: ...]** blocked by an x86Sim bug (name
 
 | platform | frameworks | covered | thin | trivial | none | apple-sim-na (done / open) | api-unavailable | excluded |
 |---|---|---|---|---|---|---|---|---|
-| iOS/iPadOS | 285 | 192 | 9 | 9 | 0 | 68 (68 / 0) | 0 | 7 |
-| tvOS | 167 | 132 | 1 | 0 | 0 | 18 (18 / 0) | 10 | 6 |
-| watchOS | 140 | 110 | 2 | 0 | 0 | 14 (14 / 0) | 11 | 3 |
-| visionOS | 230 | 169 | 7 | 2 | 0 | 36 (36 / 0) | 9 | 7 |
+| iOS/iPadOS | 285 | 198 | 7 | 0 | 0 | 73 (73 / 0) | 0 | 7 |
+| tvOS | 167 | 133 | 0 | 0 | 0 | 18 (18 / 0) | 10 | 6 |
+| watchOS | 140 | 111 | 0 | 0 | 0 | 15 (15 / 0) | 11 | 3 |
+| visionOS | 230 | 170 | 5 | 1 | 0 | 38 (38 / 0) | 9 | 7 |
 
 First pass (2026-11-15) for comparison:
 
@@ -32,44 +32,24 @@ Not counted (Swift runtime modules, not SDK frameworks, all covered): Swift, Dis
 
 Entries = framework [platforms] with status thin / trivial / none / apple-sim-na *open*. Full gap text in the tables below.
 
-### P1 Media & AV
-
-Done 2026-11-17: MediaPlayer watchOS now-playing info + remote-command configuration asserted (MPMediaQuery / MPNowPlayingSession are API_UNAVAILABLE(watchos)), MusicKit account answers + ApplicationMusicPlayer state asserted on all four (watchOS subscription: Apple .privacyAcknowledgementRequired, x86Sim .permissionDenied: open [b]). Left: the deprecated AssetsLibrary runtime call.
-
-- **trivial**: AssetsLibrary [I]
-
-### P2 Graphics, 3D, AR & games
-
-_GameController_SwiftUI iOS done in P10 (GCVirtualController press reaches GameController); visionOS has no GCVirtualController. GameSave .error state asserted and SceneKit watchOS ported (P9); OpenGLES on visionOS is api-unavailable.
-
-- **trivial**: _GameController_SwiftUI [V]
-
 ### P3 App extensions, system services, communication & parental controls
 
-P10 added the extensions (ext/, build.sh). 2026-11-17: BrowserEngineCore BEAudioSession (iOS), BrowserEngineKit tvOS/visionOS objects (scroll view parent, manifest, accessibility, text interaction), UserNotifications tvOS re-judged (communication intents are API_UNAVAILABLE(tvos)). Left: AlarmKit schedule flow (system prompt), App Clip activation (_XCAppClipURL), AccessoryLiveActivities, MetricKit signposts in the log, ExtensionFoundation watchOS on an Apple point, WidgetKit visionOS timelines (needs a placed widget).
+2026-11-17 r12: ManagedSettingsUI default shield, DeviceActivity report placeholder, AccessoryLiveActivities unpaired refusal (Apple-sim N/A done), ExtensionFoundation watchOS Apple-point refusal, NotificationCenter widget update. Left: AlarmKit schedule flow (system prompt), App Clip activation (_XCAppClipURL), system-UI-only extensions (FileProviderUI, UserNotificationsUI: Apple's fresh-device notification delivery is unreliable, 2003), WidgetKit visionOS timelines (needs a placed widget), BrowserEngineCore visionOS (C-only BEMemory).
 
-- **thin**: AlarmKit [I], AppClip [I], ExtensionFoundation [W], FileProviderUI [IV], UserNotificationsUI [IV], WidgetKit [V]
-- **trivial**: AccessoryLiveActivities [I], BrowserEngineCore [V], ManagedSettingsUI [I], NotificationCenter [I], _DeviceActivity_SwiftUI [I]
+- **thin**: AlarmKit [I], AppClip [I], FileProviderUI [IV], UserNotificationsUI [IV], WidgetKit [V]
+- **trivial**: BrowserEngineCore [V]
 
 ### P4 Data, cloud, contacts/calendars & commerce
 
-Done 2026-11-17: watchOS Contacts/EventKit read answers asserted. Left: ATT request flow after a pre-grant/deny (a pre-grant would break not-determined-on-fresh-install: needs its own device state), deprecated AddressBookUI.
+Done 2026-11-17: ATT request flow on iOS/tvOS/visionOS via inputs.sh tracking (host-written TCC row, removed after: fresh-install check intact), AddressBookUI answers. Left: _MarketplaceKit_UIKit (ActionButton blocks on Apple).
 
-- **thin**: AppTrackingTransparency [ITV], _MarketplaceKit_UIKit [I]
-- **trivial**: AddressBookUI [I]
-
-### P5 Health, home, location, sensors & accessories
-
-Done 2026-11-17: NearbyInteraction own-token run (no invalidation, nearby-object updates) on iOS/watchOS, DeviceDiscoveryUI picker on screen (iOS) and the tvOS refusal. Left: NearbyInteraction two-peer run (optional depth), DeviceDiscoveryExtension on visionOS, _WorkoutKit_SwiftUI presented on watchOS.
-
-- **thin**: DeviceDiscoveryExtension [V], _WorkoutKit_SwiftUI [W]
+- **thin**: _MarketplaceKit_UIKit [I]
 
 ### P8 Foundation, networking, security, identity & device management
 
-Done 2026-11-17: _ManagedAppDistribution_SwiftUI labels + offer action through the accessibility tree (x86Sim: offer button label missing, open [b]), AuthenticationServices tvOS re-judged (extension side API_UNAVAILABLE(tvos)). Left: _SecureElementCredential overlays answers, AutomatedDeviceEnrollment presented UI (ref-mac.sh first), deprecated Twitter.
+Done 2026-11-17: _ManagedAppDistribution_SwiftUI accessibility (x86Sim Redownload label fixed: framework linked at its host path), AutomatedDeviceEnrollment presentation, _SecureElementCredential overlays (no session: featureUnavailable), Twitter. Left: ClassKitUI assigned documents, IdentityLookupUI reporting UI (system UI).
 
-- **thin**: AutomatedDeviceEnrollment [I], ClassKitUI [IV], IdentityLookupUI [IV]
-- **trivial**: Twitter [I], _SecureElementCredential_SwiftUI [I], _SecureElementCredential_UIKit [I]
+- **thin**: ClassKitUI [IV], IdentityLookupUI [IV]
 
 ## Remaining x86Sim-only differences (vs Apple's 27.2 simulator)
 
@@ -81,8 +61,6 @@ Open x86Sim bugs / missing pieces:
 - **VideoSubscriberAccount** (`access-status-user-accounts`, P9 assertion): Apple's VSUserAccountManager update / query fail NSCocoaErrorDomain 4097 (videosubscriptionsd exists and its connection is interrupted); x86 fails 4099 "lookup error 3" (no com.apple.VideoSubscriberAccount.videosubscriptionsd job): x86 FAILs the new assertion until the job is there.
 - **MarketplaceKit** (`distributor-requirements`, P9 assertion): x86 answers AppDistributor.current at once ("error Unknown") and eligibilityRegion nil; Apple never answers for a simctl-installed app in 15 s, now asserted: x86 FAILs until it stops answering.
 - **PushKit VoIP token**: x86 has no apsd APNs-sandbox courier, so never a token; Apple's fresh devices get none (watchOS, visionOS, one iOS run) or an 80-byte one within 5 s (another iOS run, 2026-11-16): `voip-credentials` accepts both (no token and none cached, or a cached token).
-- **MusicKit watchOS subscription** (`objects-subscription-catalog-answers`, 2026-11-17): MusicSubscription.current answers .permissionDenied on x86Sim, .privacyAcknowledgementRequired on Apple's watchOS simulator (iOS/visionOS: .permissionDenied on both); x86 FAILs the assertion. Cause not found.
-- **ManagedContentView offer button label** (visionOS `managed-content-view`, 2026-11-17): through the accessibility tree Apple's not-installed offer button is labelled Redownload; x86Sim's has no label (the framework's Localizable.strings resolves through Bundle; the symbol loads): x86 FAILs.
 - **NearbyInteraction own-token updates**: Apple reports 2 nearby objects, x86Sim's nisimhost 1 on watchOS (2 on iOS); >= 1 asserted.
 
 Unasserted value differences (both PASS; decide whether to assert):
@@ -156,39 +134,24 @@ Most are ports: the framework is checked on another platform; usually widen the 
 | framework | platforms | existing checks | gaps / check ideas | package |
 |---|---|---|---|---|
 
-## Trivial checks only (11 frameworks)
+## Trivial checks only (1 frameworks)
 
 | framework | platforms | existing checks | gaps / check ideas | package |
 |---|---|---|---|---|
-| AccessoryLiveActivities | I | feature-results | [c] Live Activity forwarding to an accessory needs a paired AccessorySetupKit accessory: assert the simulator answer of the forwarding authorization request | P3 |
-| AddressBookUI | I | people-picker-view | [a] deprecated: keep | P4 |
-| AssetsLibrary | I | authorization-status | [a] deprecated (unavailable to Swift): keep runtime authorizationStatus call | P1 |
 | BrowserEngineCore | V | bememory-symbols | [c] BEMemory is C-only inline asm (__SWIFT_UNAVAILABLE): from Swift only the exported _impl / _supported symbols; be_kevent / BEAudioSession are unavailable on visionOS | P3 |
-| ManagedSettingsUI | I | shield-configuration | [c] shield rendering needs a ShieldConfiguration extension + Family Controls authorization: assert the simulator answer | P3 |
-| NotificationCenter | I | widget-controller | [a] deprecated (Today widgets): NCWidgetProviding - keep minimal | P3 |
-| Twitter | I | compose-can-send | [a] deprecated (no Swift module): keep runtime call | P8 |
-| _DeviceActivity_SwiftUI | I | report-view-hosted | [c] report content needs a DeviceActivityReport extension + authorization: assert the simulator answer | P3 |
-| _GameController_SwiftUI | V | handles-game-controller-events-modifier | [c] GCVirtualController is API_UNAVAILABLE(visionos): no injectable gamepad | P2 |
-| _SecureElementCredential_SwiftUI | I | transaction-task-modifier | [c] transactionTask with a real configuration needs a credential session (assert the simulator answer) | P8 |
-| _SecureElementCredential_UIKit | I | window-scene-events | [c] scene connection-options credential events need an NFC presentment (assert the simulator answer) | P8 |
 
-## Thin coverage of main areas (13 frameworks)
+## Thin coverage of main areas (8 frameworks)
 
 | framework | platforms | existing checks | gaps / check ideas | package |
 |---|---|---|---|---|
 | AlarmKit | I | authorization-alarms-updates, manager-state | [a] AlarmManager.requestAuthorization + schedule a countdown alarm / cancel (NSAlarmKitUsageDescription; system prompt needs auto-accept) | P3 |
 | AppClip | I | activation-payload, clip-installed-with-parent | [a] launch the clip with _XCAppClipURL (host-driven, as Xcode) and call APActivationPayload.confirmAcquired(in:) | P3 |
-| AppTrackingTransparency | ITV | not-determined-on-fresh-install, status | [a] requestTrackingAuthorization with a pre-granted / denied tracking privacy -> status authorized/denied | P4 |
-| AutomatedDeviceEnrollment | I | addition-modifier | [a] isPresented true on an unmanaged device: assert the system UI or refusal Apple shows (ref-mac.sh first) | P8 |
 | ClassKitUI | IV | assigned-document-views, unassigned-document-views | [c] an assigned document needs a Schoolwork class (none in the simulator): only the unassigned views | P8 |
-| DeviceDiscoveryExtension | V | device-event-types | [a] DDDiscoverySession inside a DeviceDiscoveryExtension appex (appex installs only on iOS) | P5 |
-| ExtensionFoundation | W | apple-extension-point-monitor | [a] monitor an Apple extension point with an app extension (today only the unknown-point error) | P3 |
 | FileProviderUI | IV | action-extension-controller, action-extension-registered | [c] the action extension runs only from the Files app's action menu (system UI) | P3 |
 | IdentityLookupUI | IV | classification-extension-registered, classification-view-controller | [c] the reporting UI runs only from Messages / Phone's report-junk flow (system UI) | P8 |
 | UserNotificationsUI | IV | content-extension-controller, content-extension-registered | [c] the content extension runs only when the user expands a notification of its category (system UI, not unattended) | P3 |
 | WidgetKit | V | center, widget-extension-descriptors, widget-views-render-xros | [a] timelines reach currentConfigurations (0 configured today): assert a kind; [c] ControlCenter is unavailable on visionOS | P3 |
 | _MarketplaceKit_UIKit | I | install-metadata-display-options | [c] ActionButton init blocks the main thread on Apple outside a marketplace app | P4 |
-| _WorkoutKit_SwiftUI | W | workout-preview-modifier-watch | [a] present the preview (isPresented true) and assert it shows | P5 |
 
 ## Apple-sim N/A, open (no asserting check yet) (0 frameworks)
 
@@ -197,13 +160,14 @@ Not to be chased beyond asserting the simulator answer.
 | framework | platforms | existing checks | gaps / check ideas | package |
 |---|---|---|---|---|
 
-## Apple-sim N/A, done (asserting check passes on Apple) (78 frameworks)
+## Apple-sim N/A, done (asserting check passes on Apple) (85 frameworks)
 
 Remaining gaps here are optional depth.
 
 | framework | platforms | existing checks | gaps / check ideas | package |
 |---|---|---|---|---|
 | ARKit | I | configurations, simulator-unsupported-answers | done (iOS: no ARKit tracking in Apple's simulator; visionOS sim supports only WorldTrackingProvider) | P2 |
+| AccessoryLiveActivities | I | feature-results | done (forwarding needs an AccessorySetupKit-paired accessory) | P3 |
 | AccessoryNotifications | I | forwarding-extension-registered, notification-model-codable | done (notification forwarding needs an accessory paired through AccessorySetupKit whose forwarding the user allowed: none in the simulator) | P5 |
 | AccessorySetupKit | I | descriptors-display-items, session-activate | done (ASAccessorySession never activates in Apple's simulator (and traps without NSAccessorySetupKitSupports)) | P5 |
 | AccessoryTransportExtension | I | extension-registered, message-builder | done (only Apple's host (private entitlement) runs a com.apple.accessory-transport-extension extension: the app's monitor is refused (extensionKit 16)) | P5 |
@@ -224,10 +188,11 @@ Remaining gaps here are optional depth.
 | DeclaredAgeRange | I | eligibility, request-age-range | done (isEligibleForAgeFeatures / requestAgeRange never answer in Apple's simulator) | P3 |
 | DeviceActivity | I | center-activities, start-monitoring-schedule | done (startMonitoring needs Family Controls authorization (entitlement; no FamilyControlsAgent in the sim)) | P3 |
 | DeviceCheck | ITWV | support, unsupported-errors | done (DCDevice / App Attest unsupported in Apple's simulator) | P8 |
-| DeviceDiscoveryExtension | I | device-event-types, extension-registered | done (only Apple's host (private entitlement) runs a com.apple.discovery-extension extension: the app's monitor is refused (extensionKit 16)) | P5 |
+| DeviceDiscoveryExtension | IV | device-event-types, discovery-point-xros, extension-registered | done (only Apple's host (private entitlement) runs a com.apple.discovery-extension extension: the app's monitor is refused (extensionKit 16)) | P5 |
 | DeviceDiscoveryUI | T | device-picker | done (the device picker is not supported in the tvOS simulator (isSupported false; its viewDidLoad raises)) | P5 |
 | EnergyKit | I | venues-guidance-answers | done (no energy venues service in the simulator) | P5 |
 | ExposureNotification | I | authorization-status, manager-activate-answer | done (needs Apple's Exposure Notification entitlement (deprecated)) | P5 |
+| ExtensionFoundation | W | apple-extension-point-monitor | done (watchOS installs no app extension on ExtensionKit points; Apple's points refuse an app monitor (host not entitled)) | P3 |
 | ExtensionKit | TWV | app-defined-point-refused | done (tvOS/watchOS/visionOS installd refuse an app extension on a non-Apple extension point (Apple's simulator too)) | P3 |
 | ExternalAccessory | ITV | manager, no-accessories-wifi-browser | done (no MFi accessories) | P5 |
 | FamilyControls | I | authorization-selection, authorization-status | [a] FamilyActivityPicker render (requestAuthorization(for: .individual) -> NSCocoaErrorDomain 4099 (no FamilyControlsAgent in Apple's simulator)) | P3 |
@@ -245,6 +210,7 @@ Remaining gaps here are optional depth.
 | LockedCameraCapture | I | manager-simulator-answers | done (camera capture extension (no cameras in the simulator)) | P1 |
 | ManagedAppDistribution | IV | libraries-unmanaged-device | done (ManagedAppLibrary answers unsupportedPlatform in Apple's simulator) | P8 |
 | ManagedSettings | IT | store-read-write, store-write-read-clear, tv-default-store-effective | done (store writes need Family Controls authorization (unavailable in the sim)) | P3 |
+| ManagedSettingsUI | I | shield-configuration | done (shields are drawn only for apps a Family Controls-authorized store shields (none in the simulator)) | P3 |
 | MarketplaceKit | I | distributor-requirements | [b: AppDistributor answers] x86 answers AppDistributor.current at once ("error Unknown") / eligibilityRegion nil; Apple never answers (now asserted) (marketplace install APIs need an EU marketplace install; AppLibrary/satisfiedByDevice block on Apple) | P4 |
 | MatterSupport | IV | add-device-request-answer | done (system Matter setup flow not available in the simulator) | P5 |
 | MediaIntelligence | ITV | face-group-analyzer | [c] FaceGroupAnalyzer ingest: Vision face networks fail in Apple sim and the framework double-resumes a continuation (abort) - unassertable; only the empty store lifecycle is checkable (face ingest needs Vision espresso inference contexts (absent in Apple sim, aborts)) | P7 |
@@ -279,6 +245,10 @@ Remaining gaps here are optional depth.
 | _AdAttributionKit_StoreKit | I | overlay-configuration-impression | done (AdAttributionKit unsupported in the simulator) | P4 |
 | _AppIntents_SwiftUI | TW | siri-tip-view, siri-tip-view-shortcuts-link | done (SiriTipView shows nothing in the simulator (no Siri phrase): it lays out at 0x0) | P7 |
 | _CoreHaptics_AudioToolbox | V | intended-spatial-experience | done (no haptics engine in the visionOS simulator (CHHapticEngine -4815)) | P1 |
+| _DeviceActivity_SwiftUI | I | report-view-hosted | done (report content needs a DeviceActivityReport extension + Family Controls authorization) | P3 |
+| _GameController_SwiftUI | V | handles-game-controller-events-modifier | done (GCVirtualController is API_UNAVAILABLE(visionos) and Apple's visionOS simulator delivers no game controller input to apps) | P2 |
+| _SecureElementCredential_SwiftUI | I | transaction-task-modifier | done (no Secure Element / NFC: CredentialSession.startSession answers featureUnavailable) | P8 |
+| _SecureElementCredential_UIKit | I | window-scene-events | done (no Secure Element / NFC: CredentialSession.startSession answers featureUnavailable) | P8 |
 | _TabletopKit_GroupActivities | V | coordinate-with-session-symbol | done (SharePlay needs a FaceTime call) | P2 |
 | iAd | I | client-attribution-obsolete | done (iAd obsoleted: ADClient.sharedClient nil) | P4 |
 
@@ -369,7 +339,6 @@ Remaining gaps here are optional depth.
 | MetalKit | ITV | [a] MTKMesh from MDLAsset with custom vertex descriptor; T: [a] port mtkview-draw-loop-on-screen (iOS-only); V: [a] port mtkview-draw-loop-on-screen (iOS-only) |
 | MetalPerformanceShaders | ITV | [a] MPSImageConversion / threshold / median, MPSMatrixDecompositionCholesky / LU solve |
 | ModelIO | ITV | [a] MDLMaterial / MDLScatteringFunction, MDLLight light probes, ambient occlusion baking |
-| MusicKit | WV | W: [b: x86Sim watchOS MusicSubscription.current answers .permissionDenied, Apple's .privacyAcknowledgementRequired (Apple PASS, x86Sim FAIL 2026-11-17)] |
 | MusicUnderstanding | ITWV | [a] assert rhythm beat count / bpm ~120 (reported only; loudness is asserted) |
 | NaturalLanguage | ITWV | [a] NLModel from a compiled text classifier (MLModel) via NLModel(contentsOf:) |
 | NearbyInteraction | IW | [a] two-peer run between two devices (Apple: two simulator windows; x86: nisimhost) |
@@ -414,7 +383,6 @@ Remaining gaps here are optional depth.
 | WidgetKit | IW | [a] timelines reach currentConfigurations (0 configured today): assert a kind; [a] ControlCenter with a placed control; I: [a] render AccessoryWidgetBackground / widget views (port watchOS accessory-background-render) |
 | WorkoutKit | IW | I: [c] WorkoutScheduler.shared authorizationState / scheduledWorkouts never answer on Apple's iPhone simulator (static answers asserted only) |
 | _DeviceDiscoveryUI_SwiftUI | IT | I: [a] pin DevicePicker's label (Apple's answer) instead of accepting label or fallback |
-| _ManagedAppDistribution_SwiftUI | V | [b: x86Sim visionOS ManagedContentView: the not-installed offer button has no accessibility label (Apple: Redownload; the framework's Localizable.strings resolves) - x86Sim FAIL 2026-11-17] |
 | _MusicKit_SwiftUI | ITWV | V: [a] musicSubscriptionOffer attach (iOS only today) |
 | _PassKit_SwiftUI | IWV | I: [a] assert per-button ink (x86: pay box 0% ink, wallet 65%; Apple ref hung 70 s so unconfirmed) |
 | _PhotosUI_SwiftUI | IWV | [a] loadTransferable of a picker-handed item (needs a selection in the out-of-process picker) |
