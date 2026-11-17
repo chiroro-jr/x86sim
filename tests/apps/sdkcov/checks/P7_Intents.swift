@@ -69,6 +69,19 @@ import _FinanceKit_AppIntents
 
 // MARK: helpers
 
+/// pixels that differ between two same-size images (RGBA8 through a bitmap context)
+func p7Changed(_ a: CGImage, _ b: CGImage) -> Int {
+    guard a.width == b.width, a.height == b.height else { return -1 }
+    func px(_ i: CGImage) -> [UInt32] {
+        var d = [UInt32](repeating: 0, count: i.width * i.height)
+        d.withUnsafeMutableBytes { p in
+            let c = CGContext(data: p.baseAddress, width: i.width, height: i.height, bitsPerComponent: 8, bytesPerRow: i.width * 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            c?.draw(i, in: CGRect(x: 0, y: 0, width: i.width, height: i.height))
+        }
+        return d
+    }
+    return zip(px(a), px(b)).filter { $0 != $1 }.count
+}
 final class P7Box<T>: @unchecked Sendable {
     private let l = NSLock(); private var v: T?
     func set(_ x: T) { l.withLock { if v == nil { v = x } } }
@@ -361,11 +374,29 @@ extension Registry {
         #if canImport(_AppIntents_SwiftUI) && !os(tvOS)   // tvOS: More_tvOS.swift
         c.append(check("_AppIntents_SwiftUI", "siri-tip-view-shortcuts-link", timeout: 30) {
             #if os(watchOS)
-            // watchOS: no UIKit hosting; the view values only
-            var visible = true
-            let tip = SiriTipView(intent: P7CountIntent(), isVisible: Binding(get: { visible }, set: { visible = $0 }))
-            _ = tip.body
-            return "SiriTipView built"
+            // watchOS: no UIKit hosting, and ImageRenderer gives no image of a SiriTipView (nil, Apple's too): the tip goes on
+            // screen (Runner.overlay), its laid-out size is read with onGeometryChange and the window is read back
+            let size = P7Box<CGSize>(), label = P7Box<CGSize>()
+            func shot(_ v: AnyView?) async throws -> CGImage {
+                await onMain { Runner.shared.overlay = v }
+                try? await Task.sleep(for: .seconds(2))
+                return try await onMain { () throws -> CGImage in try p6WatchWindowShot() }
+            }
+            defer { Task { @MainActor in Runner.shared.overlay = nil } }
+            let blank = try await shot(AnyView(Color.black.frame(maxWidth: .infinity, maxHeight: .infinity)))
+            let tip = try await shot(AnyView(ZStack(alignment: .top) {
+                Color.black
+                VStack {
+                    Text("sdkcov tip").foregroundStyle(.white).onGeometryChange(for: CGSize.self) { $0.size } action: { label.set($0) }
+                    SiriTipView(intent: P7CountIntent(), isVisible: .constant(true)).onGeometryChange(for: CGSize.self) { $0.size } action: { size.set($0) }
+                }
+            }))
+            let sz = await size.wait(3), lz = await label.wait(1)
+            let diff = p7Changed(blank, tip)
+            // Apple's watchOS 27.2 simulator: the tip lays out at 0x0 (nothing to show: no Siri phrase for the intent on the
+            // watch) while the label next to it draws
+            try expect(sz == .zero && (lz?.width ?? 0) > 10 && diff > 50, "SiriTipView size \(String(describing: sz)), label \(String(describing: lz)), \(diff) pixels changed (Apple's simulator: tip 0x0, label drawn)")
+            return "SiriTipView on screen lays out at 0x0 next to a drawn label (\(diff) pixels), as Apple's watchOS simulator"
             #else
             return try await p7Main { () async throws -> String in
                 let v = VStack {
