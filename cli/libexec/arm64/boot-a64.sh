@@ -267,6 +267,9 @@ MIN="com.apple.cfprefsd.xpc.daemon com.apple.cfprefsd.xpc.daemon.system com.appl
 # (applicationRegistered) or a client wakes it, it exits 0 at once and launchd starts it again every ~10 s (~0.15 s CPU
 # each), as in Apple's iOS 27.2 simulator (runs 3 after an install, 15 three minutes later). videosubscriptionsd starts
 # at an install too and stays (Apple's as well).
+# shazamd (iOS, watchOS, visionOS; on demand, sdkcov P11): ShazamKit's library service (com.apple.shazamd). Without it
+# SHLibrary.default.addItems failed at once (com.apple.ShazamKit.ShazamLibrary 301), where Apple's 27.2 simulators
+# never answer it for a simctl-installed app.
 UI="com.apple.installcoordinationd com.apple.mobiletimerd com.apple.backboardd com.apple.SpringBoard com.apple.sleepd com.apple.TextInput.kbd com.apple.FileCoordination
 	com.apple.usernotificationsd com.apple.InputUI com.apple.assistantd com.apple.assetsd com.apple.geod com.apple.navd com.apple.Maps.mapssyncd
 	com.apple.campo com.apple.FileProvider com.apple.DesktopServicesHelper com.apple.PosterBoard com.apple.financed
@@ -285,7 +288,7 @@ UI="com.apple.installcoordinationd com.apple.mobiletimerd com.apple.backboardd c
 	com.apple.homed
 	com.apple.linkd com.apple.mediaanalysisd com.apple.mediaanalysisd.service com.apple.translationd
 	com.apple.telephonyutilities.callservicesd com.apple.UsageTrackingAgent com.apple.ScreenTimeAgent
-	com.apple.videosubscriptionsd com.apple.managedappdistributiond"
+	com.apple.videosubscriptionsd com.apple.managedappdistributiond com.apple.shazamd"
 UI_SLIM="com.apple.backboardd com.apple.SpringBoard com.apple.TextInput.kbd com.apple.FileCoordination com.apple.InputUI
 	com.apple.assistantd"
 FULLUI="com.apple.chronod"
@@ -386,7 +389,7 @@ WATCH_UI="com.apple.installcoordinationd com.apple.backboardd com.apple.Carousel
 	com.apple.accessibility.axassetsd com.apple.wcd com.apple.locationd com.apple.healthd
 	com.apple.ctkd com.apple.syncdefaultsd com.apple.accountsd com.apple.amsaccountsd com.apple.watchgesturesd com.apple.devicecheckd
 	com.apple.contactsd com.apple.calaccessd com.apple.remindd com.apple.mediaremoted com.apple.gamed
-	com.apple.linkd com.apple.telephonyutilities.callservicesd com.apple.corespotlightd com.apple.itunescloudd"
+	com.apple.linkd com.apple.telephonyutilities.callservicesd com.apple.corespotlightd com.apple.itunescloudd com.apple.shazamd"
 WATCH_UI_SLIM="com.apple.backboardd com.apple.Carousel com.apple.TextInput.kbd com.apple.FileCoordination
 	com.apple.nanoregistryd com.apple.nanotimekitd"
 # Platforms 2: visionOS. SurfBoard is its SpringBoard; vhmdd (the simulator's virtual head-mounted display,
@@ -420,7 +423,7 @@ XR_UI="com.apple.installcoordinationd com.apple.backboardd com.apple.SurfBoard c
 	com.apple.contactsd com.apple.calaccessd com.apple.remindd com.apple.assetsd com.apple.mediaremoted
 	com.apple.gamed com.apple.gamesaved
 	com.apple.linkd com.apple.mediaanalysisd com.apple.mediaanalysisd.service com.apple.siriactionsd
-	com.apple.managedassetsd com.apple.eligibilityd com.apple.telephonyutilities.callservicesd com.apple.videosubscriptionsd"
+	com.apple.managedassetsd com.apple.eligibilityd com.apple.telephonyutilities.callservicesd com.apple.videosubscriptionsd com.apple.shazamd"
 XR_UI_SLIM="com.apple.backboardd com.apple.SurfBoard com.apple.vhmdd com.apple.wakeboardd com.apple.RealityEnvironment com.apple.TextInput.kbd
 	com.apple.FileCoordination"
 # No fpsim2host on tvOS / watchOS: their FileProvider has no FPSimulatorSupportInterface (no Files app), so it exited 1
