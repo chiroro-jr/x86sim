@@ -136,7 +136,9 @@ extension P5BTDelegate: CBPeripheralManagerDelegate {
 #if canImport(NearbyInteraction)
 final class P5NIDelegate: NSObject, NISessionDelegate, @unchecked Sendable {
     let invalidated = P5Box<String>()
+    let updated = P5Box<Int>()
     func session(_ s: NISession, didInvalidateWith error: Error) { invalidated.set(p5Err(error)) }
+    func session(_ s: NISession, didUpdate nearbyObjects: [NINearbyObject]) { updated.set(nearbyObjects.count) }
 }
 #endif
 #if canImport(CoreNFC) && os(iOS)
@@ -309,8 +311,14 @@ extension Registry {
             try expect(tok != nil, "no discovery token (Apple's simulator: one, from com.apple.CoreSimulator.NearbyInteraction)")
             if let tok { s.run(NINearbyPeerConfiguration(peerToken: tok)) }
             let inv = await d.invalidated.wait(tok == nil ? 3 : 10) ?? "no invalidation"
+            let upd = d.updated.value
             s.invalidate()
-            return "capabilities \(flags), discovery token \(tok == nil ? "nil" : "set"), accessory data refused (\(bad)), session: \(inv)"
+            // a session run with its own token: Apple's simulator keeps it running (no invalidation in 10 s) and its
+            // NearbyInteraction service reports nearby objects (2 on the iOS 27.2 simulator)
+            #if os(iOS)
+            try expect(inv == "no invalidation" && (upd ?? 0) >= 1, "own-token run: \(inv), updates \(String(describing: upd)) (Apple's simulator: no invalidation, nearby objects)")
+            #endif
+            return "capabilities \(flags), discovery token \(tok == nil ? "nil" : "set"), accessory data refused (\(bad)), session: \(inv), first update \(upd.map { "\($0) objects" } ?? "none")"
         })
         #endif
 
@@ -526,12 +534,19 @@ extension Registry {
         // MARK: DeviceDiscoveryUI on iOS (ported from tvOS)
         #if canImport(DeviceDiscoveryUI) && os(iOS)
         c.append(check("DeviceDiscoveryUI", "device-picker-ios", timeout: 30) {
-            try await onMain { () throws -> String in
-                // the picker's view needs NSApplicationServices in Info.plist (DeviceDiscoveryUI aborts without it): not loaded
+            // the picker's view needs NSApplicationServices in Info.plist (build.sh: Browses sdkcov; DeviceDiscoveryUI
+            // aborts the app without it): the picker is shown in a window of its own
+            try await p7Main { () async throws -> String in
+                try expect(Bundle.main.object(forInfoDictionaryKey: "NSApplicationServices") != nil, "no NSApplicationServices in Info.plist")
                 let desc = NWBrowser.Descriptor.applicationService(name: "sdkcov")
                 let ok = DDDevicePickerViewController.isSupported(desc, using: .applicationService)
-                let p = DDDevicePickerViewController(browseDescriptor: desc, parameters: .applicationService)
-                return "supported \(ok), picker \(p != nil), NSApplicationServices \(Bundle.main.object(forInfoDictionaryKey: "NSApplicationServices") != nil)"
+                try expect(ok, "isSupported false (Apple's iOS simulator: true)")
+                guard let p = DDDevicePickerViewController(browseDescriptor: desc, parameters: .applicationService) else { throw Fail("no picker") }
+                let (w, close) = try p5Show(p); defer { close() }
+                try await Task.sleep(for: .seconds(1))
+                let views = p5Subviews(p.view).count
+                try expect(p.view.window === w && views > 1, "picker view: window \(p.view.window != nil), \(views) views")
+                return "supported, picker on screen with \(views) views"
             }
         })
         #endif
