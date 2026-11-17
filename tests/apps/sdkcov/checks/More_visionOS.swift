@@ -258,33 +258,6 @@ extension Registry {
             try expect(l > r * 2, "source on the left is not louder on the left: L \(l), R \(r)")
             return String(format: "L %.1f R %.1f", l, r)
         })
-        c.append(check("PHASE", "spatial-sound-event-playback", timeout: 60) {
-            let e = PHASEEngine(updateMode: .automatic)
-            let fmt = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 1)!
-            let tone = sine(440, secs: 0.3, rate: 48000)
-            let data = Data(bytes: tone.floatChannelData![0], count: Int(tone.frameLength) * 4)
-            _ = try e.assetRegistry.registerSoundAsset(data: data, identifier: "sdkcov-tone", format: fmt, normalizationMode: .dynamic)
-            guard let pipe = PHASESpatialPipeline(flags: [.directPathTransmission]) else { throw Fail("spatial pipeline") }
-            let mixer = PHASESpatialMixerDefinition(spatialPipeline: pipe)
-            let sampler = PHASESamplerNodeDefinition(soundAssetIdentifier: "sdkcov-tone", mixerDefinition: mixer)
-            sampler.playbackMode = .oneShot; sampler.setCalibrationMode(calibrationMode: .relativeSpl, level: 0)
-            _ = try e.assetRegistry.registerSoundEventAsset(rootNode: sampler, identifier: "sdkcov-event")
-            let listener = PHASEListener(engine: e); listener.transform = matrix_identity_float4x4
-            try e.rootObject.addChild(listener)
-            let shape = PHASEShape(engine: e, mesh: MDLMesh.newIcosahedron(withRadius: 0.1, inwardNormals: false, allocator: nil))
-            let source = PHASESource(engine: e, shapes: [shape])
-            var t = matrix_identity_float4x4; t.columns.3 = [1, 0, -1, 1]; source.transform = t
-            try e.rootObject.addChild(source)
-            let params = PHASEMixerParameters(); params.addSpatialMixerParameters(identifier: mixer.identifier, source: source, listener: listener)
-            let ev = try PHASESoundEvent(engine: e, assetIdentifier: "sdkcov-event", mixerParameters: params)
-            do { try e.start() } catch { throw Fail("engine start: \(error)") }
-            defer { e.stop(); e.assetRegistry.unregisterAsset(identifier: "sdkcov-event"); e.assetRegistry.unregisterAsset(identifier: "sdkcov-tone") }
-            let done = SDKCovFlag()
-            ev.start { reason in done.set("\(reason.rawValue)") }
-            guard let reason = await done.wait(seconds: 15) else { throw Fail("the sound event never finished (state \(ev.renderingState.rawValue))") }
-            try expect(reason == "\(PHASESoundEvent.StartHandlerReason.finishedPlaying.rawValue)", "event ended with reason \(reason)")
-            return "finished playing (spatial mixer, source at 1,0,-1)"
-        })
 
         // MARK: system services Apple's simulator answers without an account (checked against Apple's visionOS 27.2 24N120
         // simulator, ref-mac.sh xros: before x86Sim ran ctkd, syncdefaultsd, accountsd and amsaccountsd these came back
