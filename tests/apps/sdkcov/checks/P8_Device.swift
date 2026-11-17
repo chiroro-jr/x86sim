@@ -60,6 +60,24 @@ import Accounts
 
 /// a hosted SwiftUI view's laid-out size and appearance
 #if !os(watchOS) && !os(tvOS)
+/// the accessibility elements under `o` (SwiftUI builds them on demand): (label, is a button, element)
+/// turn on the app's accessibility runtime (as XCTest / Accessibility Inspector do): SwiftUI then keeps an element tree
+@MainActor func p8AXOn(_ on: Bool = true) {
+    guard let h = dlopen("/usr/lib/libAccessibility.dylib", RTLD_NOW), let f = dlsym(h, "_AXSApplicationAccessibilitySetEnabled") else { return }
+    unsafeBitCast(f, to: (@convention(c) (Bool) -> Void).self)(on)
+}
+@MainActor func p8AX(_ o: NSObject, depth: Int = 0) -> [(String, Bool, NSObject)] {
+    guard depth < 12 else { return [] }
+    var out: [(String, Bool, NSObject)] = []
+    var kids: [NSObject] = (o.accessibilityElements as? [NSObject]) ?? []
+    if kids.isEmpty { let n = o.accessibilityElementCount(); if n > 0 && n != NSNotFound { kids = (0..<n).compactMap { o.accessibilityElement(at: $0) as? NSObject } } }
+    if let v = o as? UIView { kids += v.subviews }
+    for k in kids {
+        if k.isAccessibilityElement || k.accessibilityLabel != nil { out.append((k.accessibilityLabel ?? "", k.accessibilityTraits.contains(.button), k)) }
+        out += p8AX(k, depth: depth + 1)
+    }
+    return out
+}
 @MainActor func p8Host<V: View>(_ v: V, secs: Double = 1) async throws -> (String, CGSize) {
     let hc = UIHostingController(rootView: v)
     let (w, done) = try p8Show(hc); defer { done() }
@@ -127,16 +145,32 @@ extension Registry {
             let tapped = P8Box<String>()
             let states: [ManagedContentOfferState] = [.neverInstalled, .notInstalled, .installed, .noninteractive, .installing(progress: 0.5), .custom(title: "Open")]
             try expect(Set(states).count == 6 && ManagedContentOfferState.installing(progress: 0.5) == .installing(progress: 0.5), "offer states")
-            let (views, size) = try await Task { @MainActor () async throws -> (String, CGSize) in
-                try await p8Host(VStack {
+            let (views, size, ax) = try await Task { @MainActor () async throws -> (Int, CGSize, [String]) in
+                p8AXOn(); defer { p8AXOn(false) }
+                let hc = UIHostingController(rootView: VStack {
                     ManagedContentView(primaryLabel: "sdkcov", secondaryLabel: "x86Sim", offerState: .notInstalled, offerAction: { s in tapped.set("\(s)") }) { Image(systemName: "app") }
                         .managedContentStyle(.compact)
                     ManagedContentView(primaryLabel: "sdkcov 2", offerState: .installing(progress: 0.3), offerAction: { _ in }) { Image(systemName: "app") }
                         .managedContentStyle(.header)
                 }.frame(width: 400))
+                let (w, done) = try p8Show(hc); defer { done() }
+                w.layoutIfNeeded()
+                // the element tree fills in asynchronously: polled until the offer button has its label (5 s)
+                var els = p8AX(hc.view)
+                for _ in 0..<25 where !els.contains(where: { $0.1 && !$0.0.isEmpty }) { try await Task.sleep(for: .milliseconds(200)); els = p8AX(hc.view) }
+                // the offer button of the first view: activating it runs offerAction with its offer state
+                let buttons = els.filter { $0.1 }
+                if let b = buttons.first { _ = b.2.accessibilityActivate() }
+                try await Task.sleep(for: .milliseconds(500))
+                return (p8Subviews(hc.view).count, hc.sizeThatFits(in: CGSize(width: 400, height: 1000)), els.map { "\($0.0)\($0.1 ? "[button]" : "")" })
             }.value
+            let tap = await tapped.wait(2)
+            // Apple's visionOS 27.2 simulator: the labels joined ("sdkcov, x86Sim"), the not-installed offer button titled
+            // Redownload, the second view's label and its (progress) button; activating the first button calls offerAction
             try expect(size.height > 20, "laid-out height \(size)")
-            return "\(views), size \(Int(size.width))x\(Int(size.height))"
+            try expect(ax == ["sdkcov, x86Sim", "Redownload[button]", "sdkcov 2", "[button]"], "accessibility elements \(ax) (Apple's simulator: sdkcov, x86Sim / Redownload button / sdkcov 2 / button)")
+            try expect(tap?.contains("notInstalled") == true, "offerAction on activating the button: \(tap ?? "not called")")
+            return "\(views) views, \(Int(size.width))x\(Int(size.height)); labels and the Redownload offer button read back, its activation ran offerAction(.notInstalled)"
         })
         #endif
         #if canImport(AutomatedDeviceEnrollment) && os(iOS)
