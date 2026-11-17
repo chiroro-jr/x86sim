@@ -230,12 +230,34 @@ extension Registry {
         #endif
         #if canImport(_WorkoutKit_SwiftUI) && os(watchOS)
         c.append(check("_WorkoutKit_SwiftUI", "workout-preview-modifier-watch", timeout: 30) {
-            let shown = P5Box<String>()
+            final class M: ObservableObject { @Published var on = false }
+            struct V: View { @ObservedObject var m: M; let plan: WorkoutPlan; let shown: P5Box<String>
+                var body: some View { Text("sdkcov workout").workoutPreview(plan, isPresented: $m.on).onAppear { shown.set("appeared") } } }
+            let shown = P5Box<String>(), m = await onMain { M() }
             let plan = WorkoutPlan(.goal(SingleGoalWorkout(activity: .running, goal: .time(20, .minutes))))
-            await onMain { Runner.shared.overlay = AnyView(Text("sdkcov workout").workoutPreview(plan, isPresented: .constant(false)).onAppear { shown.set("appeared") }) }
-            defer { Task { @MainActor in Runner.shared.overlay = nil } }
+            await onMain { Runner.shared.overlay = AnyView(V(m: m, plan: plan, shown: shown)) }
+            defer { Task { @MainActor in m.on = false; Runner.shared.overlay = nil } }
             try expect(await shown.wait(10) == "appeared", "view with the modifier never appeared")
-            return "modifier hosted (not presented)"
+            // the windows' presented controllers (watchOS has UIKit's classes underneath SwiftUI; through the runtime)
+            @MainActor func presented() -> String {
+                guard let app = (NSClassFromString("UIApplication") as? NSObject.Type)?.value(forKey: "sharedApplication") as? NSObject,
+                      let ws = app.value(forKey: "windows") as? [NSObject] else { return "no windows" }
+                var out: [String] = []
+                for w in ws { var vc = w.value(forKey: "rootViewController") as? NSObject
+                    while let p = vc?.value(forKey: "presentedViewController") as? NSObject { out.append("\(type(of: p))"); vc = p } }
+                return out.isEmpty ? "none" : out.joined(separator: ">")
+            }
+            let before = await onMain { presented() }
+            await onMain { m.on = true }
+            try await Task.sleep(for: .seconds(4))
+            let during = await onMain { "\(presented()), isPresented \(m.on)" }
+            await onMain { m.on = false }
+            try await Task.sleep(for: .seconds(2))
+            let after = await onMain { presented() }
+            // Apple's watchOS 27.2 simulator: WorkoutKit's remote preview controller while true, gone after
+            try expect(before == "none" && during == "WorkoutHostingRemoteViewController, isPresented true" && after == "none",
+                       "before \(before); during \(during); after \(after) (Apple's simulator: none / WorkoutHostingRemoteViewController, isPresented true / none)")
+            return "preview presented (\(during)), dismissed when false"
         })
         #endif
         return c
