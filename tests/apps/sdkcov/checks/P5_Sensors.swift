@@ -7,6 +7,9 @@ import SwiftUI
 import Synchronization
 import UniformTypeIdentifiers
 import Network
+#if canImport(ExtensionFoundation)
+import ExtensionFoundation
+#endif
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -528,6 +531,21 @@ extension Registry {
             try expect(ev.eventType == .deviceFound && ev.device.identifier == "sdkcov-1", "event")
             _ = ep
             return "\(d.description.prefix(80))"
+        })
+        #endif
+
+        #if canImport(DeviceDiscoveryExtension) && canImport(ExtensionFoundation) && os(visionOS)
+        c.append(check("DeviceDiscoveryExtension", "discovery-point-xros", timeout: 30) {
+            // DDDiscoverySession lives in a com.apple.discovery-extension ExtensionKit extension: visionOS installs no app
+            // extension there (installd: ExtensionKit appex only on iOS). What an app sees of the point on Apple's simulator
+            var ans = "resolved"
+            do {
+                let m = try await AppExtensionPoint.Monitor(appExtensionPoint: try AppExtensionPoint(identifier: "com.apple.discovery-extension"))
+                ans = "monitor, identities \(m.identities.map(\.bundleIdentifier))"
+            } catch { ans = p5Err(error) }
+            // Apple's visionOS 27.2 simulator: the monitor is refused, host not entitled (as on iOS, p10AppleExtensionPoint)
+            try expect(ans == "com.apple.extensionKit.errorDomain 16", "com.apple.discovery-extension: \(ans) (Apple's simulator: com.apple.extensionKit.errorDomain 16)")
+            return "com.apple.discovery-extension: \(ans)"
         })
         #endif
 
