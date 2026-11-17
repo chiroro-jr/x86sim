@@ -15,6 +15,12 @@ import GameController
 #if canImport(LocalAuthentication)
 import LocalAuthentication
 #endif
+#if canImport(AppTrackingTransparency)
+import AppTrackingTransparency
+#endif
+#if canImport(AdSupport)
+import AdSupport
+#endif
 
 private var inputWait: Double { Double(ProcessInfo.processInfo.environment["SDKCOV_INPUT_WAIT"] ?? "") ?? 0 }
 
@@ -174,6 +180,31 @@ extension Registry {
             let ok = await inUntil(wait) { presses.withLock { $0 } > 0 }
             try expect(ok, "button A never pressed in \(Int(wait)) s (controllers \(list))")
             return "controllers \(list), button A pressed \(presses.withLock { $0 })x"
+        })
+        #endif
+        #if canImport(AppTrackingTransparency) && !os(watchOS)
+        c.append(check("AppTrackingTransparency", "input-tracking-granted", timeout: 120) {
+            // the request flow with the answer given ahead: the host writes the app's kTCCServiceUserTracking row
+            // (inputs.sh tracking here, ref-mac.sh TRACKING=1 on the Mac) and removes it afterwards, so
+            // not-determined-on-fresh-install stays true for the normal run. requestTrackingAuthorization then answers
+            // from the row without a prompt
+            let wait = inputWait
+            let st0 = ATTrackingManager.trackingAuthorizationStatus
+            guard wait > 0 else { return "status \(st0.rawValue) (SDKCOV_INPUT_WAIT unset: no tracking grant awaited)" }
+            let granted = await inUntil(wait) { ATTrackingManager.trackingAuthorizationStatus == .authorized }
+            try expect(granted, "tracking status \(ATTrackingManager.trackingAuthorizationStatus.rawValue) after \(Int(wait)) s (the host grant never arrived)")
+            // the app must be active for the request to answer (it returns notDetermined at once otherwise)
+            _ = await inUntil(20) { UIApplication.shared.applicationState == .active }
+            let st = await ATTrackingManager.requestTrackingAuthorization()
+            #if canImport(AdSupport)
+            let idfa = ASIdentifierManager.shared().advertisingIdentifier.uuidString
+            #else
+            let idfa = "-"
+            #endif
+            // Apple's iOS 27.2 simulator: authorized, and still the all-zero IDFA (no advertising identifier in a simulator)
+            try expect(st == .authorized && (idfa == "-" || idfa == "00000000-0000-0000-0000-000000000000"),
+                       "requestTrackingAuthorization answered \(st.rawValue), IDFA \(idfa) with tracking granted (Apple's simulator: 3, authorized; all-zero IDFA)")
+            return "granted by the host; requestTrackingAuthorization answered authorized, IDFA \(idfa)"
         })
         #endif
         return c

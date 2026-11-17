@@ -3,7 +3,7 @@
 # --only) with SDKCOV_INPUT_WAIT set, while this script sends its input every few seconds through the x86sim CLI
 # (host/simhid), as Apple's simulator would (DeviceHub's Shake / Rotate / Face ID menus, a game controller).
 # Usage: tests/apps/sdkcov/inputs.sh <device> [--no-build] [shake|orientation|biometric|gamepad|memwarn|push|pointer|keyboard|
-# drag ...]   (default: all the device's platform has; pointer / keyboard / drag: iPad, checks/More_iPadOS.swift)
+# drag tracking ...]   (default: all the device's platform has; pointer / keyboard / drag: iPad, checks/More_iPadOS.swift)
 # On Apple's simulator the same inputs are: notifyutil -p com.apple.UIKit.SimulatorShake (simctl spawn), devicectl
 # device orientation set, notifyutil -s com.apple.BiometricKit.enrollmentChanged 1 + devicectl device simulate
 # biometrics --success, an Indigo game controller message (SimulatorKit IndigoHIDMessageForGameControllerEvent) and
@@ -23,8 +23,8 @@ build=; want=
 for a in "$@"; do case $a in --no-build) build=--no-build ;; *) want="$want $a" ;; esac; done
 rt=$(cat "$X86SIM_DEVICE/runtime" 2>/dev/null); plat=${rt%%-*}
 case $plat in
-	ios) all="shake orientation biometric gamepad memwarn push"
-		case $(cat "$X86SIM_DEVICE/model" 2>/dev/null) in iPad*) all="$all pointer keyboard drag" ;; esac ;; xros) all="shake biometric gamepad memwarn" ;; tvos) all="gamepad memwarn" ;;
+	ios) all="shake orientation biometric gamepad memwarn push tracking"
+		case $(cat "$X86SIM_DEVICE/model" 2>/dev/null) in iPad*) all="$all pointer keyboard drag" ;; esac ;; xros) all="shake biometric gamepad memwarn tracking" ;; tvos) all="gamepad memwarn tracking" ;;
 	*) echo "inputs: no input checks for $plat" >&2; exit 0 ;;
 esac
 xs() { "$X86SIM_ROOT/cli/x86sim" "$@"; }
@@ -39,6 +39,12 @@ for k in ${want:-$all}; do
 		gamepad) id=func:GameController.input-gamepad; send() { xs gamepad press a; } ; undo() { :; } ;;
 		memwarn) id=func:UIKit.input-memory-warning; send() { xs memwarn; } ; undo() { :; } ;;
 		push) id=func:UserNotifications.service-extension-push; send() { echo '{"aps":{"alert":{"title":"sdkcov push","body":"p10"},"mutable-content":1}}' | xs push com.x86sim.test.sdkcov -; } ; undo() { :; } ;;
+		# App Tracking Transparency answered ahead: the app's kTCCServiceUserTracking row allowed (as the prompt's Allow
+		# writes it; ref-mac.sh TRACKING=1 on the Mac), removed afterwards so a later run starts not determined again
+		tracking) id=func:AppTrackingTransparency.input-tracking-granted; send() { sqlite3 "$X86SIM_DEVICE/data/Library/TCC/TCC.db" "insert or replace into access
+			(service, client, client_type, auth_value, auth_reason, auth_version, flags) values
+			('kTCCServiceUserTracking', 'com.x86sim.test.sdkcov', 0, 2, 2, 1, 0)"; } ; undo() { sqlite3 "$X86SIM_DEVICE/data/Library/TCC/TCC.db" \
+			"delete from access where service = 'kTCCServiceUserTracking' and client = 'com.x86sim.test.sdkcov'"; } ;;
 		# iPad: the pointer-capture mouse over the check's full-window view; ⌘K on the hardware keyboard (attached at
 		# the first key); a long press on the drag source (0.25, 0.5 of the screen) moved onto the drop target (0.75, 0.5)
 		pointer) id=func:UIKit.ipad-pointer-hover; send() { xs pointer at 0.5 0.5; xs pointer move 30 20; xs pointer move -30 -20; } ; undo() { xs pointer remove; } ;;

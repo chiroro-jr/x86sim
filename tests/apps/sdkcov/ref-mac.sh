@@ -4,6 +4,8 @@
 # A temporary simulator device (sdkcov-ref-<platform>) is created, used and deleted; other devices are not touched.
 # Usage: tests/apps/sdkcov/ref-mac.sh [ios|ipad|tvos|watchos|xros] [--no-build] [--only ID[,ID...]]   (default ios)
 #   ipad     the iOS app on an iPad (iPad Air 11-inch (M3), as x86Sim's cov-ipad) instead of an iPhone 17 Pro
+# Env TRACKING=1 (with --only func:AppTrackingTransparency.input-tracking-granted): the app's tracking answered Allow
+#   ahead (its kTCCServiceUserTracking row) and SDKCOV_INPUT_WAIT=40 in its launch environment, as inputs.sh tracking
 #   --only   one launch running just the checks whose id contains one of these (as run.sh --only); their results
 #            are printed (the app's stderr is OUT/sdkcov-1.err), no report
 # Env: RUNTIME (simctl runtime id, default the Mac's newest of the platform), DEVTYPE (simctl device type id, default
@@ -35,7 +37,7 @@ APP=${SDKCOV_APPS:-$X86SIM_SCRATCH/apps}/sdkcov-$plat.app
 # the whole run happens on the Mac in one ssh session: the app goes over as a tar on stdin, the results come back
 # (the remote script is an argument: stdin carries the app)
 read -r -d '' REMOTE <<'MAC'
-plat=$1 rtname=$2 dtype=$3 rt=$4 secs=$5 only=$6 name=$7
+plat=$1 rtname=$2 dtype=$3 rt=$4 secs=$5 only=$6 name=$7 tracking=${8:-}
 set -u
 W=$(mktemp -d /tmp/sdkcov-ref.XXXXXX); cd "$W"; tar xf - -C "$W"
 exec 3>&1 1>&2
@@ -81,6 +83,10 @@ case $plat in ios|xros) if [ -e "$fp/LegacyEnabledStateHasBeenMigrated" ] &&
 	xcrun simctl spawn "$dev" launchctl kill SIGKILL user/foreground/com.apple.FileProvider >/dev/null 2>&1
 	echo "ref-mac: FileProvider extension state reset (enable migration rerun)"
 fi ;; esac
+# TRACKING=1: App Tracking Transparency allowed ahead (inputs.sh tracking on x86Sim) and the input check told to wait for it
+[ -n "$tracking" ] && { sqlite3 "$HOME/Library/Developer/CoreSimulator/Devices/$dev/data/Library/TCC/TCC.db" "insert or replace into access
+	(service, client, client_type, auth_value, auth_reason, auth_version, flags) values
+	('kTCCServiceUserTracking', 'com.x86sim.test.sdkcov', 0, 2, 2, 1, 0)" || echo "ref-mac: tracking not granted"; export SIMCTL_CHILD_SDKCOV_INPUT_WAIT=40; }
 data=$(xcrun simctl get_app_container "$dev" com.x86sim.test.sdkcov data)
 res=$data/Documents/x86test-results.txt
 t0=$(date +%s); n=0 miss=0
@@ -111,7 +117,7 @@ xcrun simctl io "$dev" screenshot "$W/screen.png" >/dev/null 2>&1
 cd "$W" && tar cf - results.txt coverage.json screen.png sdkcov-*.err 2>/dev/null >&3
 MAC
 tar cf - -C "$(dirname "$APP")" "$(basename "$APP")" |
-	ssh -o BatchMode=yes "$MAC" "bash -c $(printf '%q' "$REMOTE") ref $plat $rtname $dtype '${RUNTIME:-}' ${SECS:-900} '$only' $name" > "$OUT/ref.tar"
+	ssh -o BatchMode=yes "$MAC" "bash -c $(printf '%q' "$REMOTE") ref $plat $rtname $dtype '${RUNTIME:-}' ${SECS:-900} '$only' $name '${TRACKING:-}'" > "$OUT/ref.tar"
 (cd "$OUT" && tar xf ref.tar && rm ref.tar)
 if [ -n "$only" ]; then
 	tr -d '\r' < "$OUT/sdkcov-1.err" | grep "^X86TEST" | grep -v -e " only " -e " done " | cut -d' ' -f3-
