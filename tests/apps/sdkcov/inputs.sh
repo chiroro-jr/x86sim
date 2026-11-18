@@ -83,7 +83,10 @@ for k in ${want:-$all}; do
 		cvmenu) id=func:UIKit.input-collection-context-menu; send() { press 0.2 0.5 1.5; } ; undo() { :; } ;;
 		sdrag) id=func:SwiftUI.input-transferable-drag-drop; send() { stroke 0.5 0.25 0.5 0.75 1.2; } ; undo() { :; } ;;
 		# the notification prompt's Allow tapped (iPhone 17 Pro layout), then a long press on the banner at the top (its middle at 0.10)
-		ncontent) id=func:UserNotificationsUI.input-expand-content-extension; send() { press $ALLOW 0.1; press 0.5 0.10 1.5; } ; undo() { :; } ;;
+		# iPad: nothing (Apple's iPad simulator never shows the prompt; the check asserts the request stays unanswered)
+		ncontent) id=func:UserNotificationsUI.input-expand-content-extension
+			case $(cat "$X86SIM_DEVICE/model" 2>/dev/null) in iPad*) send() { :; } ;; *) send() { press $ALLOW 0.1; press 0.5 0.10 1.5; } ;; esac
+			undo() { :; } ;;
 		*) echo "inputs: unknown check $k" >&2; exit 2 ;;
 	esac
 	# per device: two devices of one platform don't share (and delete) each other's OUT
