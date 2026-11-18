@@ -56,17 +56,18 @@
     "func:AVFoundation.sample-buffer-renderers-synchronizer",
     "func:AVFoundation.asset-load-formats",
     "func:AVFoundation.capture-simulator-answers",
-    "func:AVFoundation.player-item-failed-status"
+    "func:AVFoundation.player-item-failed-status",
+    "func:AVFoundation.export-metadata-file-length-limit"
    ],
    "gaps": [
     "[a] AVContentKeySession (clear key) / AVAssetDownloadURLSession offline HLS",
     "[a] chapter metadata: timed-metadata-chapters reports chapters (empty) - assert chapterMetadataGroups from a chaptered m4a/mov",
-    "[a] AVPlayerItemPlaybackStalled / failedToPlayToEndTime notifications",
-    "[a] AVAssetExportSession fileLengthLimit / metadata write-through on export"
+    "[a] AVPlayerItemPlaybackStalled / failedToPlayToEndTime notifications"
    ],
-   "note": "asset writer/reader/image generator, CI video compositor + export + presets, HLS loopback with WebVTT, resource loader, timed metadata, AVMutableMovie, queue player/looper/seek/rate, sample-buffer renderers+synchronizer, multi-format loads; capture-simulator-answers asserts 0 cameras and input-less session error -11819 as on Apple. P11: an unplayable item fails with AVFoundationErrorDomain -11829 (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "asset writer/reader/image generator, CI video compositor + export + presets, HLS loopback with WebVTT, resource loader, timed metadata, AVMutableMovie, queue player/looper/seek/rate, sample-buffer renderers+synchronizer, multi-format loads; capture-simulator-answers asserts 0 cameras and input-less session error -11819 as on Apple. P11: an unplayable item fails with AVFoundationErrorDomain -11829 (Apple and x86Sim PASS, 2026-11-18). r17: export metadata (title) written through; a passthrough export with fileLengthLimit refused -11838 (Apple the same) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
    "r15": true,
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -113,14 +114,14 @@
   "Accessibility": {
    "existing_checks": [
     "func:Accessibility.chart-descriptor-custom-content",
-    "func:Accessibility.settings-announcement"
+    "func:Accessibility.settings-announcement",
+    "func:Accessibility.braille-table-translate"
    ],
-   "gaps": [
-    "[a] AXBrailleMap / AXBrailleTranslator"
-   ],
-   "note": "r16: a fresh device's AccessibilitySettings (animated images on, the rest off), Announcement / LayoutChanged posted (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "r16: a fresh device's AccessibilitySettings (animated images on, the rest off), Announcement / LayoutChanged posted (Apple and x86Sim PASS, 2026-11-18). r17: AXBrailleTable (185 supported locales, 19 en_US tables on iOS/tvOS/watchOS, 17 on visionOS, default system.eng-xueb_g1, 5 language-agnostic) and AXBrailleTranslator; Apple's simulators translate to an empty string (asserted: a non-empty answer must round-trip). AXBrailleMap has no public initializer (VoiceOver hands one to an accessibilityBrailleMapRenderer with a braille display) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
    "r16": true,
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -368,14 +369,14 @@
     "func:AudioToolbox.auaudiounit-effects-auv3",
     "func:AudioToolbox.musicsequence-smf-player",
     "func:AudioToolbox.system-sound-play",
-    "func:AudioToolbox.audioqueue-input-record"
+    "func:AudioToolbox.audioqueue-input-record",
+    "func:AudioToolbox.remoteio-render-callback"
    ],
-   "gaps": [
-    "[a] AudioComponentInstanceNew RemoteIO with a realtime render callback"
-   ],
-   "note": "AudioQueueOfflineRender, AudioFileStream ADTS parse, AUDelay/AUNBandEQ render + in-process AUv3 (0 registered on visionOS on both), MusicSequence SMF + MusicPlayer, system sound play. r16: an AudioQueue input fills ~1.2 s of 16 kHz with a microphone (x86Sim), start fails -66628 without one (Apple's Mac mini) (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "AudioQueueOfflineRender, AudioFileStream ADTS parse, AUDelay/AUNBandEQ render + in-process AUv3 (0 registered on visionOS on both), MusicSequence SMF + MusicPlayer, system sound play. r16: an AudioQueue input fills ~1.2 s of 16 kHz with a microphone (x86Sim), start fails -66628 without one (Apple's Mac mini) (Apple and x86Sim PASS, 2026-11-18). r17: RemoteIO with a render callback pulled ~93 times / ~48k frames per second (x86Sim with X86SIM_AUDIO=1) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
    "r16": true,
+   "r17": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -523,14 +524,15 @@
     "func:CFNetwork.urlsession-loopback-http",
     "func:CFNetwork.urlsession-https-pinned-loopback",
     "func:CFNetwork.urlsession-redirect-cookies-gzip-auth-chunked",
-    "func:CFNetwork.stream-task-cfhttpmessage"
+    "func:CFNetwork.stream-task-cfhttpmessage",
+    "func:CFNetwork.session-loopback-http-proxy"
    ],
    "gaps": [
-    "[a] HTTP/2 to loopback TLS (results show http/1.1 negotiated)",
-    "[a] URLSessionConfiguration.connectionProxyDictionary through a loopback proxy"
+    "[a] HTTP/2 to loopback TLS (results show http/1.1 negotiated)"
    ],
-   "note": "Loopback HTTP/HTTPS (pinned, untrusted refused -1202), redirects/cookies/gzip/auth/chunked, URLSessionStreamTask echo and CFHTTPMessage build/parse.",
+   "note": "Loopback HTTP/HTTPS (pinned, untrusted refused -1202), redirects/cookies/gzip/auth/chunked, URLSessionStreamTask echo and CFHTTPMessage build/parse. r17: an http request through a loopback HTTP proxy (NWListener) set in connectionProxyDictionary: absolute-URI request line (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P8 Foundation, networking, security, identity & device management",
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -813,16 +815,18 @@
    "existing_checks": [
     "func:CoreImage.filters-context-qr",
     "func:CoreImage.metal-vs-software-filter-chain",
-    "func:CoreImage.color-kernel-processor-kernel"
+    "func:CoreImage.color-kernel-processor-kernel",
+    "func:CoreImage.detector-rectangle-face"
    ],
    "gaps": [
     "[a] CIRAWFilter / CIImage from HEIF/RAW, CIKernel from a compiled Metal library",
-    "[a] CIDetector face/text (Vision-backed: verify on Apple sim)"
+    "[a] CIDetector text features, a face found in a face image"
    ],
-   "note": "P11: CIColorKernel from source, CIImageProcessorKernel CPU buffer path (Apple and x86Sim PASS, 2026-11-18). r16: CoreImage [[stitchable]] kernels (composeImageFilterFunctionsFromModules) compile on x86Sim since the libComposeFilters dlopen fix (Vision optical flow on visionOS).",
+   "note": "P11: CIColorKernel from source, CIImageProcessorKernel CPU buffer path (Apple and x86Sim PASS, 2026-11-18). r16: CoreImage [[stitchable]] kernels (composeImageFilterFunctionsFromModules) compile on x86Sim since the libComposeFilters dlopen fix (Vision optical flow on visionOS). r17: CIDetector rectangle bounds on a drawn rectangle, no face in it (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
    "r15": true,
    "r16": true,
+   "r17": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -837,15 +841,16 @@
     "func:CoreLocation.monitor-circular-conditions",
     "func:CoreLocation.service-session-availability",
     "func:CoreLocation.geocoder-answers",
-    "func:CoreLocation.manager-geometry-simulated-location"
+    "func:CoreLocation.manager-geometry-simulated-location",
+    "func:CoreLocation.beacon-ranging-answer"
    ],
    "gaps": [
     "[c] CLMonitor events: Apple's simulator delivers none for a simulated location (reported, not asserted)",
-    "[a] startUpdatingLocation stream / significant-change / CLVisit monitoring start-stop",
-    "[a] beacon ranging (CLBeaconIdentityConstraint) -> no beacons"
+    "[a] startUpdatingLocation stream / significant-change / CLVisit monitoring start-stop"
    ],
-   "note": "Authorization + requestLocation at the simulated fix, CLLocationUpdate.liveUpdates, CLMonitor add/record/remove (iOS), CLServiceSession diagnostics, headingAvailable false, CLGeocoder reverse/forward all asserted.",
+   "note": "Authorization + requestLocation at the simulated fix, CLLocationUpdate.liveUpdates, CLMonitor add/record/remove (iOS), CLServiceSession diagnostics, headingAvailable false, CLGeocoder reverse/forward all asserted. r17: ranging unavailable, the constraint fails with kCLErrorDomain 17 (rangingUnavailable) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P5 Health, home, location, sensors & accessories",
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -1333,13 +1338,14 @@
   },
   "GLKit": {
    "existing_checks": [
-    "func:GLKit.math"
+    "func:GLKit.math",
+    "func:GLKit.glkview-draw-snapshot"
    ],
-   "gaps": [
-    "[a] GLKView/GLKBaseEffect draw (iOS/tvOS)"
-   ],
+   "gaps": [],
+   "note": "r17: a GLKView with an OpenGL ES 3 context cleared red in its draw callback (snapshot red), GLKBaseEffect prepareToDraw without a GL error (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
-   "rejudged": false,
+   "r17": true,
+   "rejudged": true,
    "status": "covered"
   },
   "GSS": {
@@ -1375,13 +1381,13 @@
    "apple_sim_na_done": true,
    "existing_checks": [
     "func:GameKit.unauthenticated-player-leaderboards-matchmaking",
-    "func:GameKit.local-player-leaderboard-objects"
+    "func:GameKit.local-player-leaderboard-objects",
+    "func:GameKit.load-matches-entries-unauthenticated"
    ],
-   "gaps": [
-    "[a] GKTurnBasedMatch.loadMatches / GKLeaderboard.loadEntries error paths without an account"
-   ],
-   "note": "Asserts unauthenticated answers (iOS/visionOS GKError 6, tvOS sign-in VC, watchOS GKError 3), loads fail with notAuthenticated, access point / matchmaker / Game Center VCs built; done.",
+   "gaps": [],
+   "note": "Asserts unauthenticated answers (iOS/visionOS GKError 6, tvOS sign-in VC, watchOS GKError 3), loads fail with notAuthenticated, access point / matchmaker / Game Center VCs built; done. r17: loadMatches / loadLeaderboards / loadAchievements without an account: GKErrorDomain 6 (notAuthenticated) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
+   "r17": true,
    "rejudged": true,
    "status": "apple-sim-na"
   },
@@ -1522,13 +1528,14 @@
   },
   "IOSurface": {
    "existing_checks": [
-    "func:IOSurface.create-lock-write"
+    "func:IOSurface.create-lock-write",
+    "func:IOSurface.metal-texture-pixelbuffer-share"
    ],
-   "gaps": [
-    "[a] IOSurface sharing to Metal texture + CVPixelBuffer (partly via CoreVideo check)"
-   ],
+   "gaps": [],
+   "note": "r17: one IOSurface as a Metal render target and a CVPixelBuffer: same pixels through the surface and the buffer (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
-   "rejudged": false,
+   "r17": true,
+   "rejudged": true,
    "status": "covered"
   },
   "IdentityDocumentServices": {
@@ -1642,11 +1649,11 @@
    ],
    "gaps": [
     "[a] in-app intent handling (application(_:handlerFor:) / INExtension) for INSendMessageIntent",
-    "[a] INFocusStatusCenter: assert authorization status / requestAuthorization answer (check only reports)",
     "[a] assert INInteraction delete answers (tvOS: 1900 on both)"
    ],
-   "note": "INInteraction secure-coding round trip + donate (ok or 1901 undeclared intents), INShortcut nil for undeclared intent, voice shortcuts + relevant shortcuts.",
+   "note": "INInteraction secure-coding round trip + donate (ok or 1901 undeclared intents), INShortcut nil for undeclared intent, voice shortcuts + relevant shortcuts. r17: focus-status-center asserts not determined / not focused (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -1677,13 +1684,15 @@
   "LinkPresentation": {
    "existing_checks": [
     "func:LinkPresentation.loopback-fetch-og-tags-linkview",
-    "func:LinkPresentation.metadata"
+    "func:LinkPresentation.metadata",
+    "func:LinkPresentation.metadata-fetch-cancel"
    ],
    "gaps": [
-    "[a] LPMetadataProvider remote video / iconProvider vs imageProvider split, cancel()"
+    "[a] LPMetadataProvider remote video / iconProvider vs imageProvider split"
    ],
-   "note": "loopback fetch asserts og:title, og:image size, icon requests and LPLinkView; metadata archive round trip.",
+   "note": "loopback fetch asserts og:title, og:image size, icon requests and LPLinkView; metadata archive round trip. r17: cancel() mid-request to a loopback server that never answers: metadataFetchCancelled (LPErrorDomain 3) or no answer (Apple's iOS simulator once LinkPresentation is warm), never metadata (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -1807,14 +1816,15 @@
     "func:MapKit.overlay-renderers-pixels",
     "func:MapKit.snapshot-pixels",
     "func:MapKit.geometry-local-objects",
-    "func:MapKit.snapshotter"
+    "func:MapKit.snapshotter",
+    "func:MapKit.marker-annotation-views-on-screen"
    ],
    "gaps": [
-    "[a] MKMapView annotation views on screen (MKMarkerAnnotationView pixels)",
     "[a] MKMapItemRequest (place ID) / MKMapItem identifiers"
    ],
-   "note": "MKLocalSearch + completer, directions + ETA, MKGeocodingRequest/MKReverseGeocodingRequest, Look Around scene, overlay renderer pixels, MKMapView conversions, snapshot pixels asserted.",
+   "note": "MKLocalSearch + completer, directions + ETA, MKGeocodingRequest/MKReverseGeocodingRequest, Look Around scene, overlay renderer pixels, MKMapView conversions, snapshot pixels asserted. r17: two MKMarkerAnnotationViews in a map view on screen at their projected points, selection (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P5 Health, home, location, sensors & accessories",
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -1861,13 +1871,13 @@
   "MediaAccessibility": {
    "existing_checks": [
     "func:MediaAccessibility.caption-appearance",
-    "func:MediaAccessibility.caption-style-audible-image-caption"
+    "func:MediaAccessibility.caption-style-audible-image-caption",
+    "func:MediaAccessibility.caption-settings-changed-notification"
    ],
-   "gaps": [
-    "[a] caption appearance settings-changed notification"
-   ],
-   "note": "caption style font/colours/size/edge, audible characteristics, languages; MAImageCaptioning set/read back on a JPEG (not on visionOS).",
+   "gaps": [],
+   "note": "caption style font/colours/size/edge, audible characteristics, languages; MAImageCaptioning set/read back on a JPEG (not on visionOS). r17: MACaptionAppearanceSetDisplayType posts kMACaptionAppearanceSettingsChangedNotification (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -1928,10 +1938,11 @@
     "func:MessageUI.can-send"
    ],
    "gaps": [
-    "[a] MFMailComposeViewController/MFMessageComposeViewController init + present while canSend* is false"
+    "[c] MFMailComposeViewController / MFMessageComposeViewController init while canSend* is false kills the app on Apple's simulator (x86Sim the same, r17): not checkable in-process"
    ],
-   "note": "done: simulator-answers-composers asserts canSendMail/Text/Subject/Attachments false and passes on Apple; old can-send still SKIPs.",
+   "note": "done: simulator-answers-composers asserts canSendMail/Text/Subject/Attachments false and passes on Apple; old can-send still SKIPs. r17: building the compose controllers while canSendMail / canSendText are false ends the process on Apple's simulator as on x86Sim",
    "package": "P6 UI frameworks depth & platform UI",
+   "r17": true,
    "rejudged": true,
    "status": "apple-sim-na"
   },
@@ -1969,27 +1980,28 @@
     "func:Metal.capture-manager-gputrace",
     "func:Metal.shader-logging-logstate",
     "func:Metal.rasterization-rate-map",
-    "func:Metal.texture-view-swizzle-fence"
+    "func:Metal.texture-view-swizzle-fence",
+    "func:Metal.parallel-encoder-stencil"
    ],
-   "gaps": [
-    "[a] MTLParallelRenderCommandEncoder, stencil test"
-   ],
-   "note": "Strong render/compute checks plus asserted Apple-sim answers: feature set, no Metal 4/MTLIO/tensor classes, binary archive not serialized, dynamic libraries refused, no function pointers/raytracing/mesh/tile/ICB, residency set nil, capture refused, log state refused, no rate map. P11: a swizzled texture view read by a kernel, an MTLFence between two compute encoders (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "Strong render/compute checks plus asserted Apple-sim answers: feature set, no Metal 4/MTLIO/tensor classes, binary archive not serialized, dynamic libraries refused, no function pointers/raytracing/mesh/tile/ICB, residency set nil, capture refused, log state refused, no rate map. P11: a swizzled texture view read by a kernel, an MTLFence between two compute encoders (Apple and x86Sim PASS, 2026-11-18). r17: two sub-encoders of a parallel render encoder in creation order, the first marking stencil, the second drawing where stencil == 1 (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
    "r15": true,
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
   "MetalKit": {
    "existing_checks": [
     "func:MetalKit.texture-loader-mesh",
-    "func:MetalKit.mtkview-draw-loop-on-screen"
+    "func:MetalKit.mtkview-draw-loop-on-screen",
+    "func:MetalKit.mesh-asset-custom-vertex-descriptor"
    ],
-   "gaps": [
-    "[a] MTKMesh from MDLAsset with custom vertex descriptor"
-   ],
+   "gaps": [],
+   "note": "r17: MTKMesh.newMeshes(asset:) with a 24-byte position + normal descriptor, MTKMetalVertexDescriptorFromModelIO, vertex data checked (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
-   "rejudged": false,
+   "r17": true,
+   "rejudged": true,
    "status": "covered"
   },
   "MetalPerformancePrimitives": {
@@ -2010,14 +2022,14 @@
     "func:MetalPerformanceShaders.cnn-conv-pool-fullyconnected",
     "func:MetalPerformanceShaders.image-histogram-sobel-lanczos-morphology",
     "func:MetalPerformanceShaders.ndarray-matmul-topk-softmax",
-    "func:MetalPerformanceShaders.threshold-median-cholesky"
+    "func:MetalPerformanceShaders.threshold-median-cholesky",
+    "func:MetalPerformanceShaders.image-conversion-lu-solve"
    ],
-   "gaps": [
-    "[a] MPSImageConversion, MPSMatrixDecompositionLU / MPSMatrixSolveLU"
-   ],
-   "note": "Blur + matmul, CNN conv/pool/fully-connected values, histogram/Sobel/Lanczos/morphology, NDArray matmul, softmax, top-K. P11: MPSImageMedian + MPSImageThresholdBinary on a texture, MPSMatrixDecompositionCholesky (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "Blur + matmul, CNN conv/pool/fully-connected values, histogram/Sobel/Lanczos/morphology, NDArray matmul, softmax, top-K. P11: MPSImageMedian + MPSImageThresholdBinary on a texture, MPSMatrixDecompositionCholesky (Apple and x86Sim PASS, 2026-11-18). r17: MPSImageConversion rgba8 -> rgba32Float, MPSMatrixDecompositionLU + MPSMatrixSolveLU (2x2 system, pivots, status 0) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
    "r15": true,
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -2066,14 +2078,14 @@
     "func:ModelIO.obj-usda-import-roundtrip",
     "func:ModelIO.procedural-textures-noise-sky-normalmap",
     "func:ModelIO.voxels-skeleton-animation-uv-unwrap",
-    "func:ModelIO.material-ambient-occlusion"
+    "func:ModelIO.material-ambient-occlusion",
+    "func:ModelIO.light-probe-irradiance-sh"
    ],
-   "gaps": [
-    "[a] MDLLightProbe irradiance"
-   ],
-   "note": "OBJ import, usda/usdc/obj round trips, noise/sky/normal-map textures, voxels, skeleton/animation, UV unwrap. P11: MDLPhysicallyPlausibleScatteringFunction material properties, light color by temperature, ambient occlusion baked into vertex values (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "OBJ import, usda/usdc/obj round trips, noise/sky/normal-map textures, voxels, skeleton/animation, UV unwrap. P11: MDLPhysicallyPlausibleScatteringFunction material properties, light color by temperature, ambient occlusion baked into vertex values (Apple and x86Sim PASS, 2026-11-18). r17: MDLSkyCubeTexture -> irradiance cube -> MDLLightProbe spherical harmonics level 2 (27 coefficients, same values on both) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
    "r15": true,
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -2108,11 +2120,10 @@
    "existing_checks": [
     "func:MusicUnderstanding.click-track-loudness-rhythm"
    ],
-   "gaps": [
-    "[a] assert rhythm beat count / bpm ~120 (reported only; loudness is asserted)"
-   ],
-   "note": "120 BPM click track loudness (LUFS) and rhythm on all platforms; rhythm ~120 s under translation.",
+   "gaps": [],
+   "note": "120 BPM click track loudness (LUFS) and rhythm on all platforms; rhythm ~120 s under translation. r17: asserts 8 beats ~0.5 s apart, ~120 bpm (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -2240,14 +2251,15 @@
     "func:PDFKit.document-text-render",
     "func:PDFKit.create-annotate-search-roundtrip",
     "func:PDFKit.pdfview-paging-pixels-overlay-thumbnails",
-    "func:PDFKit.encrypt-outline-form-widgets-roundtrip"
+    "func:PDFKit.encrypt-outline-form-widgets-roundtrip",
+    "func:PDFKit.pdfview-selection-find-highlight"
    ],
    "gaps": [
-    "[a] PDFView text selection (PDFSelection, currentSelection) and find highlighting on screen",
     "[a] outline does not survive write on Apple's simulator too (counted, not asserted)"
    ],
-   "note": "document create/annotate/search, PDFView paging pixels + overlay provider + thumbnails (iOS/visionOS), AES encrypt/unlock, form widgets round trip.",
+   "note": "document create/annotate/search, PDFView paging pixels + overlay provider + thumbnails (iOS/visionOS), AES encrypt/unlock, form widgets round trip. r17: findString -> PDFView.currentSelection, highlightedSelections, page selection for a rect and a word, clearSelection (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -2317,14 +2329,16 @@
   "Photos": {
    "existing_checks": [
     "func:Photos.authorization",
-    "func:Photos.library-create-fetch-request"
+    "func:Photos.library-create-fetch-request",
+    "func:Photos.caching-image-manager"
    ],
    "gaps": [
-    "[a] PHCachingImageManager / PHLivePhoto request",
+    "[a] PHLivePhoto request",
     "[c] asset delete (PHAssetChangeRequest.deleteAssets prompts: assert simulator answer)"
    ],
-   "note": "performChanges creates image+video+album+favorite, fetch back, requestImage pixels, PHAssetResourceManager bytes, requestAVAsset, change observer.",
+   "note": "performChanges creates image+video+album+favorite, fetch back, requestImage pixels, PHAssetResourceManager bytes, requestAVAsset, change observer. r17: PHCachingImageManager start/stop caching and a high-quality request answered (adds an image when the library has none) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -2359,14 +2373,14 @@
    "apple_sim_na_done": true,
    "existing_checks": [
     "func:PushKit.voip-credentials",
-    "func:PushKit.registry"
+    "func:PushKit.registry",
+    "func:PushKit.file-provider-push-type"
    ],
-   "gaps": [
-    "[a] pushType .fileProvider"
-   ],
-   "note": "voip-credentials asserts no token and none cached in 10 s on a fresh device (Apple), a token must be cached when one comes.",
+   "gaps": [],
+   "note": "voip-credentials asserts no token and none cached in 10 s on a fresh device (Apple), a token must be cached when one comes. r17: PKPushType.fileProvider: no token on a fresh device, an 80-byte token once apsd reached the APNs sandbox (both accepted, as voip-credentials) (Apple and x86Sim PASS, 2026-11-18).",
    "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
+   "r17": true,
    "rejudged": true,
    "status": "apple-sim-na"
   },
@@ -2388,14 +2402,14 @@
     "func:QuartzCore.metal-layer-drawable-present",
     "func:QuartzCore.replicator-transform-shape-emitter-layers",
     "func:QuartzCore.presentation-values-transaction-completion-tiled",
-    "func:QuartzCore.gradient-text-layer-render"
+    "func:QuartzCore.gradient-text-layer-render",
+    "func:QuartzCore.scene-displaylink-cadence"
    ],
-   "gaps": [
-    "[a] CADisplayLink frame cadence"
-   ],
-   "note": "CAMetalLayer drawables, replicator/transform/shape/emitter layers on screen, presentation() values, transaction completion, tiled layer; watchOS: runtime media clock, timing function control points, CALayer KVC. P11: CAGradientLayer / CATextLayer rendered pixels (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "CAMetalLayer drawables, replicator/transform/shape/emitter layers on screen, presentation() values, transaction completion, tiled layer; watchOS: runtime media clock, timing function control points, CALayer KVC. P11: CAGradientLayer / CATextLayer rendered pixels (Apple and x86Sim PASS, 2026-11-18). r17: UIWindowScene.displayLink (27.0) at 60 Hz (visionOS 30 Hz on both), increasing timestamps, target > timestamp (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
    "r15": true,
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -2416,14 +2430,14 @@
   "QuickLookThumbnailing": {
    "existing_checks": [
     "func:QuickLookThumbnailing.png-thumbnail",
-    "func:QuickLookThumbnailing.thumbnails-pdf-text"
+    "func:QuickLookThumbnailing.thumbnails-pdf-text",
+    "func:QuickLookThumbnailing.movie-thumbnail"
    ],
-   "gaps": [
-    "[a] movie thumbnails"
-   ],
-   "note": "P11: PDF and plain-text thumbnails (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "P11: PDF and plain-text thumbnails (Apple and x86Sim PASS, 2026-11-18). r17: a 64x64 thumbnail of an H.264 .mov (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
    "r15": true,
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -2484,14 +2498,15 @@
    "apple_sim_na_done": true,
    "existing_checks": [
     "func:ReplayKit.capture-answer-picker",
-    "func:ReplayKit.recorder"
+    "func:ReplayKit.recorder",
+    "func:ReplayKit.start-stop-recording-preview"
    ],
    "gaps": [
-    "[a] startRecording/stopRecording -> RPPreviewViewController (or the simulator error)",
     "[a] RPBroadcastActivityViewController.load (assert simulator answer)"
    ],
-   "note": "done for startCapture: answers without hang as on Apple; broadcast picker has a button (iOS).",
+   "note": "done for startCapture: answers without hang as on Apple; broadcast picker has a button (iOS). r17: startRecording answers started, stopRecording never calls back in 10 s and isRecording stays false (Apple's simulators the same) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
+   "r17": true,
    "rejudged": true,
    "status": "apple-sim-na"
   },
@@ -2510,13 +2525,14 @@
   "SafariServices": {
    "existing_checks": [
     "func:SafariServices.safari-present-load",
-    "func:SafariServices.safari-view-controller"
+    "func:SafariServices.safari-view-controller",
+    "func:SafariServices.reading-list-add"
    ],
-   "gaps": [
-    "[a] SFAuthenticationSession deprecated; SSReadingList add (iOS)"
-   ],
+   "gaps": [],
+   "note": "r17: SSReadingList supportsURL (https yes, file no), addItem succeeds (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
-   "rejudged": false,
+   "r17": true,
+   "rejudged": true,
    "status": "covered"
   },
   "SafetyKit": {
@@ -2540,14 +2556,14 @@
     "func:SceneKit.scene-write-source-load-usdz",
     "func:SceneKit.animation-player-morpher-skinner",
     "func:SceneKit.shader-modifier-program-technique",
-    "func:SceneKit.renderer-shadows-particles"
+    "func:SceneKit.renderer-shadows-particles",
+    "func:SceneKit.audio-source-player"
    ],
-   "gaps": [
-    "[a] SCNAudioSource"
-   ],
-   "note": "Offscreen pixels, physics contact + hit tests, .scn/usdz load, animation player/morpher/skinner, shader modifier/SCNProgram/technique; watchOS: scene graph here, physics via _SceneKit_SwiftUI. P11: SCNRenderer snapshots: a shadow-casting light darkens the scene, a particle system is visible (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "Offscreen pixels, physics contact + hit tests, .scn/usdz load, animation player/morpher/skinner, shader modifier/SCNProgram/technique; watchOS: scene graph here, physics via _SceneKit_SwiftUI. P11: SCNRenderer snapshots: a shadow-casting light darkens the scene, a particle system is visible (Apple and x86Sim PASS, 2026-11-18). r17: SCNAudioSource from a WAV loaded, an SCNAudioPlayer on a node (AVAudioPlayerNode), removed (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
    "r15": true,
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -2582,14 +2598,15 @@
     "func:Security.keychain-update-query-persistent-keys",
     "func:Security.pkcs12-certificates-trust-evaluation",
     "func:Security.seckey-algorithms-exchange-interop",
-    "func:Security.access-control-keychain"
+    "func:Security.access-control-keychain",
+    "func:Security.shared-web-credential-add"
    ],
    "gaps": [
-    "[a] SecAddSharedWebCredential / SecRequestSharedWebCredential -> sim error",
     "[a] SecAccessControl .biometryAny item read with enrolled biometry (needs run.sh input mode)"
    ],
-   "note": "Keychain CRUD/persistent refs, RSA/EC/ECIES algorithm matrix, PKCS#12 + trust evaluation, access-control items.",
+   "note": "Keychain CRUD/persistent refs, RSA/EC/ECIES algorithm matrix, PKCS#12 + trust evaluation, access-control items. r17: SecAddSharedWebCredential without an associated domain: NSOSStatusErrorDomain -909 (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P8 Foundation, networking, security, identity & device management",
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -2705,12 +2722,11 @@
     "func:Speech.speech-analyzer-transcribe-file",
     "func:Speech.audio-buffer-request"
    ],
-   "gaps": [
-    "[a] speech-analyzer-transcribe-file: assert AssetInventory status unsupported (not-installed path currently asserts nothing)"
-   ],
-   "note": "done: recognize-synthesized-file asserts fox transcript or kLSRErrorDomain 300; SpeechAnalyzer reports assets unsupported on iOS/tvOS/visionOS like Apple. r16: the buffer path answers kLSRErrorDomain 300 like the URL request (Apple's iOS simulator: no answer within 60 s; both accepted) (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "done: recognize-synthesized-file asserts fox transcript or kLSRErrorDomain 300; SpeechAnalyzer reports assets unsupported on iOS/tvOS/visionOS like Apple. r16: the buffer path answers kLSRErrorDomain 300 like the URL request (Apple's iOS simulator: no answer within 60 s; both accepted) (Apple and x86Sim PASS, 2026-11-18). r17: asserts AssetInventory unsupported and SpeechTranscriber unavailable (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
    "r16": true,
+   "r17": true,
    "rejudged": true,
    "status": "apple-sim-na"
   },
@@ -2740,14 +2756,15 @@
     "func:StoreKit.transactions-entitlements-subscriptions",
     "func:StoreKit.app-transaction-sync-legacy-request",
     "func:StoreKit.adnetwork-external-purchase",
-    "func:StoreKit.products-storefront"
+    "func:StoreKit.products-storefront",
+    "func:StoreKit.request-review-in-scene"
    ],
    "gaps": [
-    "[c] purchases need a .storekit configuration (SKTestSession is Xcode-only)",
-    "[a] AppStore.requestReview / SKStoreReviewController"
+    "[c] purchases need a .storekit configuration (SKTestSession is Xcode-only)"
    ],
-   "note": "Empty entitlements/unfinished/all/updates, subscription status, AppTransaction StoreKitError 1, SKProductsRequest invalid id, SKAN error 10, external purchase false (as Apple).",
+   "note": "Empty entitlements/unfinished/all/updates, subscription status, AppTransaction StoreKitError 1, SKProductsRequest invalid id, SKAN error 10, external purchase false (as Apple). r17: AppStore.requestReview(in:) accepted, no window of the app appears (the prompt is out of process) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P4 Data, cloud, contacts/calendars & commerce",
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -2797,14 +2814,15 @@
     "func:SwiftUI.toolbar-menu-picker-datepicker-popover"
    ],
    "gaps": [
-    "[a] contextMenu",
+    "[a] contextMenu (needs a long-press input: SwiftUI's ContextMenuBridge answers no configuration outside the gesture, Apple's simulator too)",
     "[a] DocumentGroup / FileDocument",
     "[a] drag & drop with Transferable (draggable/dropDestination)",
     "[a] List swipeActions (needs a swipe input)"
    ],
-   "note": "layout/Grid/custom Layout pixels, animation timing, Observation invalidation, lazy stacks/scroll position, NavigationStack path, sheet/cover/alert/dialog, controls+TextField focus, TimelineView, TabView now on all platforms that support them. r16: toolbar item as a trailing bar item, Menu and menu Picker as primary-action UIButtons (3 choices), compact UIDatePicker, a popover (visionOS: sheet) presented and dismissed from the model (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "layout/Grid/custom Layout pixels, animation timing, Observation invalidation, lazy stacks/scroll position, NavigationStack path, sheet/cover/alert/dialog, controls+TextField focus, TimelineView, TabView now on all platforms that support them. r16: toolbar item as a trailing bar item, Menu and menu Picker as primary-action UIButtons (3 choices), compact UIDatePicker, a popover (visionOS: sheet) presented and dismissed from the model (Apple and x86Sim PASS, 2026-11-18). r17: a contextMenu becomes a UIContextMenuInteraction with SwiftUI's ContextMenuBridge delegate, which answers no configuration outside a long-press gesture (Apple too): left for input",
    "package": "P6 UI frameworks depth & platform UI",
    "r16": true,
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -2829,13 +2847,13 @@
   "SystemConfiguration": {
    "existing_checks": [
     "func:SystemConfiguration.reachability",
-    "func:SystemConfiguration.reachability-callbacks"
+    "func:SystemConfiguration.reachability-callbacks",
+    "func:SystemConfiguration.captive-network-info"
    ],
-   "gaps": [
-    "[a] CNCopyCurrentNetworkInfo -> nil without the Wi-Fi info entitlement"
-   ],
-   "note": "SCNetworkReachability flags and callbacks (localhost, default route).",
+   "gaps": [],
+   "note": "SCNetworkReachability flags and callbacks (localhost, default route). r17: no supported interfaces, CNCopyCurrentNetworkInfo(en0) nil without the Wi-Fi info entitlement (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P8 Foundation, networking, security, identity & device management",
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -2999,15 +3017,16 @@
     "func:UIKit.update-link-printing",
     "func:UIKit.views-autolayout-render-symbols",
     "func:UIKit.window-scene-viewcontroller",
-    "func:UIKit.pasteboard-text-input"
+    "func:UIKit.pasteboard-text-input",
+    "func:UIKit.textfield-secure-content-type",
+    "func:UIKit.context-menu-interaction-present"
    ],
    "gaps": [
-    "[a] scene lifecycle (background/foreground, state restoration via NSUserActivity)",
-    "[a] UIContextMenuInteraction (preview + actions)",
-    "[a] UITextField secure entry / autofill (textContentType) behaviour"
+    "[a] scene lifecycle (background/foreground, state restoration via NSUserActivity)"
    ],
-   "note": "P6 adds compositional/diffable pixels, navigation callback order, UITab tab bar, page+search controllers, trait/dark-mode pixels, accessibility rotors, sheet detents, UIMenu/edit menu, UITextInput+find, date/color/font pickers, UIUpdateLink + printing; iPad checks SKIP on the iPhone device.",
+   "note": "P6 adds compositional/diffable pixels, navigation callback order, UITab tab bar, page+search controllers, trait/dark-mode pixels, accessibility rotors, sheet detents, UIMenu/edit menu, UITextInput+find, date/color/font pickers, UIUpdateLink + printing; iPad checks SKIP on the iPhone device. r17: a secure field with the password content type keeps its text and refuses copy / cut (a plain field copies) (Apple and x86Sim PASS, 2026-11-18). r17: a UIContextMenuInteraction presented as a long press ends (UIKit's _presentMenuAtLocation:), delegate config / actions / willDisplay / willEnd, menu labels on screen (iOS; visionOS shows the menu outside the app scene, Apple too) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -3081,14 +3100,15 @@
   "VideoToolbox": {
    "existing_checks": [
     "func:VideoToolbox.h264-hevc-encode-decode",
-    "func:VideoToolbox.pixel-rotation-transfer-processors"
+    "func:VideoToolbox.pixel-rotation-transfer-processors",
+    "func:VideoToolbox.prores-encode-multipass"
    ],
    "gaps": [
-    "[a] VTCompressionSession multi-pass, ProRes encode (verify on Apple sim)",
     "[c] VTFrameProcessor (frame-rate conversion / super-resolution) isSupported answer"
    ],
-   "note": "H.264/HEVC encode+decode, VTPixelRotationSession 90 deg pixels, VTPixelTransferSession BGRA<->420v scaled; hw decode false on both.",
+   "note": "H.264/HEVC encode+decode, VTPixelRotationSession 90 deg pixels, VTPixelTransferSession BGRA<->420v scaled; hw decode false on both. r17: no ProRes 422 encoder in Apple's simulators (kVTCouldNotFindVideoEncoderErr -12908); H.264 takes VTMultiPassStorage and encodes 3 frames (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
+   "r17": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -3161,15 +3181,17 @@
     "func:WebKit.canvas-webgl-wasm-crypto-intl-raf",
     "func:WebKit.navigation-delegate-order-ui-panels",
     "func:WebKit.content-rules-download-find-data-store",
-    "func:WebKit.webview-load-javascript"
+    "func:WebKit.webview-load-javascript",
+    "func:WebKit.indexeddb-put-get",
+    "func:WebKit.find-interaction-navigator"
    ],
    "gaps": [
-    "[a] IndexedDB / service workers",
-    "[a] WKWebExtension (iOS 18.4+)",
-    "[a] WKFindInteraction UI (find bar), not just WKWebView.find"
+    "[a] service workers",
+    "[a] WKWebExtension (iOS 18.4+)"
    ],
-   "note": "content rule list blocking, find, WKDownload, WKWebsiteDataStore records fetch/remove, navigation delegate order, UI panels, JS bridges, custom schemes, cookies.",
+   "note": "content rule list blocking, find, WKDownload, WKWebsiteDataStore records fetch/remove, navigation delegate order, UI panels, JS bridges, custom schemes, cookies. r17: IndexedDB in a page with an https origin: put, get, count (Apple and x86Sim PASS, 2026-11-18). r17: WKWebView's find navigator shown with 3 results, findNext moves the highlight, dismissed (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -3826,17 +3848,18 @@
     "func:AVFoundation.sample-buffer-renderers-synchronizer",
     "func:AVFoundation.asset-load-formats",
     "func:AVFoundation.capture-simulator-answers",
-    "func:AVFoundation.player-item-failed-status"
+    "func:AVFoundation.player-item-failed-status",
+    "func:AVFoundation.export-metadata-file-length-limit"
    ],
    "gaps": [
     "[a] AVContentKeySession (clear key) / AVAssetDownloadURLSession offline HLS",
     "[a] chapter metadata: timed-metadata-chapters reports chapters (empty) - assert chapterMetadataGroups from a chaptered m4a/mov",
-    "[a] AVPlayerItemPlaybackStalled / failedToPlayToEndTime notifications",
-    "[a] AVAssetExportSession fileLengthLimit / metadata write-through on export"
+    "[a] AVPlayerItemPlaybackStalled / failedToPlayToEndTime notifications"
    ],
-   "note": "asset writer/reader/image generator, CI video compositor + export + presets, HLS loopback with WebVTT, resource loader, timed metadata, AVMutableMovie, queue player/looper/seek/rate, sample-buffer renderers+synchronizer, multi-format loads; capture-simulator-answers asserts 0 cameras and input-less session error -11819 as on Apple. P11: an unplayable item fails with AVFoundationErrorDomain -11829 (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "asset writer/reader/image generator, CI video compositor + export + presets, HLS loopback with WebVTT, resource loader, timed metadata, AVMutableMovie, queue player/looper/seek/rate, sample-buffer renderers+synchronizer, multi-format loads; capture-simulator-answers asserts 0 cameras and input-less session error -11819 as on Apple. P11: an unplayable item fails with AVFoundationErrorDomain -11829 (Apple and x86Sim PASS, 2026-11-18). r17: export metadata (title) written through; a passthrough export with fileLengthLimit refused -11838 (Apple the same) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
    "r15": true,
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -3844,14 +3867,15 @@
    "existing_checks": [
     "func:AVKit.player-view-controller",
     "func:AVKit.tv-player-transport-bar-playback",
-    "func:AVKit.tv-content-proposal-display-criteria"
+    "func:AVKit.tv-content-proposal-display-criteria",
+    "func:AVKit.pip-sample-buffer-source"
    ],
    "gaps": [
-    "[a] AVPlayerViewControllerDelegate full-screen enter/exit transitions",
-    "[a] AVPictureInPictureController.isPictureInPictureSupported + sample-buffer content source (iOS/visionOS check only)"
+    "[a] AVPlayerViewControllerDelegate full-screen enter/exit transitions"
    ],
-   "note": "AVPlayerViewController on screen plays (iOS/visionOS), tvOS transport bar + content proposal, watchOS VideoPlayer plays; PiP unsupported/not possible on Apple sim too, route picker has a button.",
+   "note": "AVPlayerViewController on screen plays (iOS/visionOS), tvOS transport bar + content proposal, watchOS VideoPlayer plays; PiP unsupported/not possible on Apple sim too, route picker has a button. r17: tvOS: picture in picture unsupported, a sample-buffer content source not possible (Apple's simulator the same) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -3884,14 +3908,14 @@
   "Accessibility": {
    "existing_checks": [
     "func:Accessibility.chart-descriptor-custom-content",
-    "func:Accessibility.settings-announcement"
+    "func:Accessibility.settings-announcement",
+    "func:Accessibility.braille-table-translate"
    ],
-   "gaps": [
-    "[a] AXBrailleMap / AXBrailleTranslator"
-   ],
-   "note": "r16: a fresh device's AccessibilitySettings (animated images on, the rest off), Announcement / LayoutChanged posted (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "r16: a fresh device's AccessibilitySettings (animated images on, the rest off), Announcement / LayoutChanged posted (Apple and x86Sim PASS, 2026-11-18). r17: AXBrailleTable (185 supported locales, 19 en_US tables on iOS/tvOS/watchOS, 17 on visionOS, default system.eng-xueb_g1, 5 language-agnostic) and AXBrailleTranslator; Apple's simulators translate to an empty string (asserted: a non-empty answer must round-trip). AXBrailleMap has no public initializer (VoiceOver hands one to an accessibilityBrailleMapRenderer with a braille display) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
    "r16": true,
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -3958,14 +3982,14 @@
     "func:AudioToolbox.auaudiounit-effects-auv3",
     "func:AudioToolbox.musicsequence-smf-player",
     "func:AudioToolbox.system-sound-play",
-    "func:AudioToolbox.audioqueue-input-record"
+    "func:AudioToolbox.audioqueue-input-record",
+    "func:AudioToolbox.remoteio-render-callback"
    ],
-   "gaps": [
-    "[a] AudioComponentInstanceNew RemoteIO with a realtime render callback"
-   ],
-   "note": "AudioQueueOfflineRender, AudioFileStream ADTS parse, AUDelay/AUNBandEQ render + in-process AUv3 (0 registered on visionOS on both), MusicSequence SMF + MusicPlayer, system sound play. r16: an AudioQueue input fills ~1.2 s of 16 kHz with a microphone (x86Sim), start fails -66628 without one (Apple's Mac mini) (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "AudioQueueOfflineRender, AudioFileStream ADTS parse, AUDelay/AUNBandEQ render + in-process AUv3 (0 registered on visionOS on both), MusicSequence SMF + MusicPlayer, system sound play. r16: an AudioQueue input fills ~1.2 s of 16 kHz with a microphone (x86Sim), start fails -66628 without one (Apple's Mac mini) (Apple and x86Sim PASS, 2026-11-18). r17: RemoteIO with a render callback pulled ~93 times / ~48k frames per second (x86Sim with X86SIM_AUDIO=1) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
    "r16": true,
+   "r17": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -4050,14 +4074,15 @@
     "func:CFNetwork.urlsession-loopback-http",
     "func:CFNetwork.urlsession-https-pinned-loopback",
     "func:CFNetwork.urlsession-redirect-cookies-gzip-auth-chunked",
-    "func:CFNetwork.stream-task-cfhttpmessage"
+    "func:CFNetwork.stream-task-cfhttpmessage",
+    "func:CFNetwork.session-loopback-http-proxy"
    ],
    "gaps": [
-    "[a] HTTP/2 to loopback TLS (results show http/1.1 negotiated)",
-    "[a] URLSessionConfiguration.connectionProxyDictionary through a loopback proxy"
+    "[a] HTTP/2 to loopback TLS (results show http/1.1 negotiated)"
    ],
-   "note": "Loopback HTTP/HTTPS (pinned, untrusted refused -1202), redirects/cookies/gzip/auth/chunked, URLSessionStreamTask echo and CFHTTPMessage build/parse.",
+   "note": "Loopback HTTP/HTTPS (pinned, untrusted refused -1202), redirects/cookies/gzip/auth/chunked, URLSessionStreamTask echo and CFHTTPMessage build/parse. r17: an http request through a loopback HTTP proxy (NWListener) set in connectionProxyDictionary: absolute-URI request line (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P8 Foundation, networking, security, identity & device management",
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -4168,11 +4193,10 @@
     "func:CoreData.configurations-multiple-stores-async-fetch-child-context",
     "func:CoreData.cloudkit-container-local-mirror"
    ],
-   "gaps": [
-    "[a] x86 run of the P4 CoreData checks (ref only so far)"
-   ],
-   "note": "SQLite CRUD, batch ops + history + FRC, staged migration with custom stage, derived/composite attributes, multi-store configurations, async fetch, child contexts, CloudKit mirror without account (CKError 8 event) as Apple.",
+   "gaps": [],
+   "note": "SQLite CRUD, batch ops + history + FRC, staged migration with custom stage, derived/composite attributes, multi-store configurations, async fetch, child contexts, CloudKit mirror without account (CKError 8 event) as Apple. r17: the P4 CoreData checks run on x86Sim tvOS too",
    "package": "P4 Data, cloud, contacts/calendars & commerce",
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -4217,16 +4241,18 @@
    "existing_checks": [
     "func:CoreImage.filters-context-qr",
     "func:CoreImage.metal-vs-software-filter-chain",
-    "func:CoreImage.color-kernel-processor-kernel"
+    "func:CoreImage.color-kernel-processor-kernel",
+    "func:CoreImage.detector-rectangle-face"
    ],
    "gaps": [
     "[a] CIRAWFilter / CIImage from HEIF/RAW, CIKernel from a compiled Metal library",
-    "[a] CIDetector face/text (Vision-backed: verify on Apple sim)"
+    "[a] CIDetector text features, a face found in a face image"
    ],
-   "note": "P11: CIColorKernel from source, CIImageProcessorKernel CPU buffer path (Apple and x86Sim PASS, 2026-11-18). r16: CoreImage [[stitchable]] kernels (composeImageFilterFunctionsFromModules) compile on x86Sim since the libComposeFilters dlopen fix (Vision optical flow on visionOS).",
+   "note": "P11: CIColorKernel from source, CIImageProcessorKernel CPU buffer path (Apple and x86Sim PASS, 2026-11-18). r16: CoreImage [[stitchable]] kernels (composeImageFilterFunctionsFromModules) compile on x86Sim since the libComposeFilters dlopen fix (Vision optical flow on visionOS). r17: CIDetector rectangle bounds on a drawn rectangle, no face in it (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
    "r15": true,
    "r16": true,
+   "r17": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -4525,13 +4551,14 @@
   },
   "GLKit": {
    "existing_checks": [
-    "func:GLKit.math"
+    "func:GLKit.math",
+    "func:GLKit.glkview-draw-snapshot"
    ],
-   "gaps": [
-    "[a] GLKView/GLKBaseEffect draw (iOS/tvOS)"
-   ],
+   "gaps": [],
+   "note": "r17: a GLKView with an OpenGL ES 3 context cleared red in its draw callback (snapshot red), GLKBaseEffect prepareToDraw without a GL error (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
-   "rejudged": false,
+   "r17": true,
+   "rejudged": true,
    "status": "covered"
   },
   "GameController": {
@@ -4555,13 +4582,13 @@
    "apple_sim_na_done": true,
    "existing_checks": [
     "func:GameKit.unauthenticated-player-leaderboards-matchmaking",
-    "func:GameKit.local-player-leaderboard-objects"
+    "func:GameKit.local-player-leaderboard-objects",
+    "func:GameKit.load-matches-entries-unauthenticated"
    ],
-   "gaps": [
-    "[a] GKTurnBasedMatch.loadMatches / GKLeaderboard.loadEntries error paths without an account"
-   ],
-   "note": "Asserts unauthenticated answers (iOS/visionOS GKError 6, tvOS sign-in VC, watchOS GKError 3), loads fail with notAuthenticated, access point / matchmaker / Game Center VCs built; done.",
+   "gaps": [],
+   "note": "Asserts unauthenticated answers (iOS/visionOS GKError 6, tvOS sign-in VC, watchOS GKError 3), loads fail with notAuthenticated, access point / matchmaker / Game Center VCs built; done. r17: loadMatches / loadLeaderboards / loadAchievements without an account: GKErrorDomain 6 (notAuthenticated) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
+   "r17": true,
    "rejudged": true,
    "status": "apple-sim-na"
   },
@@ -4646,13 +4673,14 @@
   },
   "IOSurface": {
    "existing_checks": [
-    "func:IOSurface.create-lock-write"
+    "func:IOSurface.create-lock-write",
+    "func:IOSurface.metal-texture-pixelbuffer-share"
    ],
-   "gaps": [
-    "[a] IOSurface sharing to Metal texture + CVPixelBuffer (partly via CoreVideo check)"
-   ],
+   "gaps": [],
+   "note": "r17: one IOSurface as a Metal render target and a CVPixelBuffer: same pixels through the surface and the buffer (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
-   "rejudged": false,
+   "r17": true,
+   "rejudged": true,
    "status": "covered"
   },
   "ImageIO": {
@@ -4709,13 +4737,15 @@
   "LinkPresentation": {
    "existing_checks": [
     "func:LinkPresentation.loopback-fetch-og-tags-linkview",
-    "func:LinkPresentation.metadata"
+    "func:LinkPresentation.metadata",
+    "func:LinkPresentation.metadata-fetch-cancel"
    ],
    "gaps": [
-    "[a] LPMetadataProvider remote video / iconProvider vs imageProvider split, cancel()"
+    "[a] LPMetadataProvider remote video / iconProvider vs imageProvider split"
    ],
-   "note": "loopback fetch asserts og:title, og:image size, icon requests and LPLinkView; metadata archive round trip.",
+   "note": "loopback fetch asserts og:title, og:image size, icon requests and LPLinkView; metadata archive round trip. r17: cancel() mid-request to a loopback server that never answers: metadataFetchCancelled (LPErrorDomain 3) or no answer (Apple's iOS simulator once LinkPresentation is warm), never metadata (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -4764,14 +4794,15 @@
     "func:MapKit.overlay-renderers-pixels",
     "func:MapKit.snapshot-pixels",
     "func:MapKit.geometry-local-objects",
-    "func:MapKit.snapshotter"
+    "func:MapKit.snapshotter",
+    "func:MapKit.marker-annotation-views-on-screen"
    ],
    "gaps": [
-    "[a] MKMapView annotation views on screen (MKMarkerAnnotationView pixels)",
     "[a] MKMapItemRequest (place ID) / MKMapItem identifiers"
    ],
-   "note": "MKLocalSearch + completer, directions + ETA, MKGeocodingRequest/MKReverseGeocodingRequest, Look Around scene, overlay renderer pixels, MKMapView conversions, snapshot pixels asserted.",
+   "note": "MKLocalSearch + completer, directions + ETA, MKGeocodingRequest/MKReverseGeocodingRequest, Look Around scene, overlay renderer pixels, MKMapView conversions, snapshot pixels asserted. r17: two MKMarkerAnnotationViews in a map view on screen at their projected points, selection (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P5 Health, home, location, sensors & accessories",
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -4801,13 +4832,13 @@
   "MediaAccessibility": {
    "existing_checks": [
     "func:MediaAccessibility.caption-appearance",
-    "func:MediaAccessibility.caption-style-audible-image-caption"
+    "func:MediaAccessibility.caption-style-audible-image-caption",
+    "func:MediaAccessibility.caption-settings-changed-notification"
    ],
-   "gaps": [
-    "[a] caption appearance settings-changed notification"
-   ],
-   "note": "caption style font/colours/size/edge, audible characteristics, languages; MAImageCaptioning set/read back on a JPEG (not on visionOS).",
+   "gaps": [],
+   "note": "caption style font/colours/size/edge, audible characteristics, languages; MAImageCaptioning set/read back on a JPEG (not on visionOS). r17: MACaptionAppearanceSetDisplayType posts kMACaptionAppearanceSettingsChangedNotification (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -4883,27 +4914,28 @@
     "func:Metal.capture-manager-gputrace",
     "func:Metal.shader-logging-logstate",
     "func:Metal.rasterization-rate-map",
-    "func:Metal.texture-view-swizzle-fence"
+    "func:Metal.texture-view-swizzle-fence",
+    "func:Metal.parallel-encoder-stencil"
    ],
-   "gaps": [
-    "[a] MTLParallelRenderCommandEncoder, stencil test"
-   ],
-   "note": "Strong render/compute checks plus asserted Apple-sim answers: feature set, no Metal 4/MTLIO/tensor classes, binary archive not serialized, dynamic libraries refused, no function pointers/raytracing/mesh/tile/ICB, residency set nil, capture refused, log state refused, no rate map. P11: a swizzled texture view read by a kernel, an MTLFence between two compute encoders (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "Strong render/compute checks plus asserted Apple-sim answers: feature set, no Metal 4/MTLIO/tensor classes, binary archive not serialized, dynamic libraries refused, no function pointers/raytracing/mesh/tile/ICB, residency set nil, capture refused, log state refused, no rate map. P11: a swizzled texture view read by a kernel, an MTLFence between two compute encoders (Apple and x86Sim PASS, 2026-11-18). r17: two sub-encoders of a parallel render encoder in creation order, the first marking stencil, the second drawing where stencil == 1 (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
    "r15": true,
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
   "MetalKit": {
    "existing_checks": [
-    "func:MetalKit.texture-loader-mesh"
+    "func:MetalKit.texture-loader-mesh",
+    "func:MetalKit.mesh-asset-custom-vertex-descriptor",
+    "func:MetalKit.mtkview-draw-loop-on-screen"
    ],
-   "gaps": [
-    "[a] port mtkview-draw-loop-on-screen (iOS-only)",
-    "[a] MTKMesh from MDLAsset with custom vertex descriptor"
-   ],
+   "gaps": [],
+   "note": "r17: MTKMesh.newMeshes(asset:) with a 24-byte position + normal descriptor, MTKMetalVertexDescriptorFromModelIO, vertex data checked (Apple and x86Sim PASS, 2026-11-18). r17: the iOS MTKView draw-loop check ported (tvOS 60 fps, visionOS 30 fps on both, screen pixel red) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
-   "rejudged": false,
+   "r17": true,
+   "rejudged": true,
    "status": "covered"
   },
   "MetalPerformancePrimitives": {
@@ -4924,14 +4956,14 @@
     "func:MetalPerformanceShaders.cnn-conv-pool-fullyconnected",
     "func:MetalPerformanceShaders.image-histogram-sobel-lanczos-morphology",
     "func:MetalPerformanceShaders.ndarray-matmul-topk-softmax",
-    "func:MetalPerformanceShaders.threshold-median-cholesky"
+    "func:MetalPerformanceShaders.threshold-median-cholesky",
+    "func:MetalPerformanceShaders.image-conversion-lu-solve"
    ],
-   "gaps": [
-    "[a] MPSImageConversion, MPSMatrixDecompositionLU / MPSMatrixSolveLU"
-   ],
-   "note": "Blur + matmul, CNN conv/pool/fully-connected values, histogram/Sobel/Lanczos/morphology, NDArray matmul, softmax, top-K. P11: MPSImageMedian + MPSImageThresholdBinary on a texture, MPSMatrixDecompositionCholesky (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "Blur + matmul, CNN conv/pool/fully-connected values, histogram/Sobel/Lanczos/morphology, NDArray matmul, softmax, top-K. P11: MPSImageMedian + MPSImageThresholdBinary on a texture, MPSMatrixDecompositionCholesky (Apple and x86Sim PASS, 2026-11-18). r17: MPSImageConversion rgba8 -> rgba32Float, MPSMatrixDecompositionLU + MPSMatrixSolveLU (2x2 system, pivots, status 0) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
    "r15": true,
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -4961,14 +4993,14 @@
     "func:ModelIO.obj-usda-import-roundtrip",
     "func:ModelIO.procedural-textures-noise-sky-normalmap",
     "func:ModelIO.voxels-skeleton-animation-uv-unwrap",
-    "func:ModelIO.material-ambient-occlusion"
+    "func:ModelIO.material-ambient-occlusion",
+    "func:ModelIO.light-probe-irradiance-sh"
    ],
-   "gaps": [
-    "[a] MDLLightProbe irradiance"
-   ],
-   "note": "OBJ import, usda/usdc/obj round trips, noise/sky/normal-map textures, voxels, skeleton/animation, UV unwrap. P11: MDLPhysicallyPlausibleScatteringFunction material properties, light color by temperature, ambient occlusion baked into vertex values (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "OBJ import, usda/usdc/obj round trips, noise/sky/normal-map textures, voxels, skeleton/animation, UV unwrap. P11: MDLPhysicallyPlausibleScatteringFunction material properties, light color by temperature, ambient occlusion baked into vertex values (Apple and x86Sim PASS, 2026-11-18). r17: MDLSkyCubeTexture -> irradiance cube -> MDLLightProbe spherical harmonics level 2 (27 coefficients, same values on both) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
    "r15": true,
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -5003,11 +5035,10 @@
    "existing_checks": [
     "func:MusicUnderstanding.click-track-loudness-rhythm"
    ],
-   "gaps": [
-    "[a] assert rhythm beat count / bpm ~120 (reported only; loudness is asserted)"
-   ],
-   "note": "120 BPM click track loudness (LUFS) and rhythm on all platforms; rhythm ~120 s under translation.",
+   "gaps": [],
+   "note": "120 BPM click track loudness (LUFS) and rhythm on all platforms; rhythm ~120 s under translation. r17: asserts 8 beats ~0.5 s apart, ~120 bpm (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -5111,12 +5142,13 @@
     "func:PDFKit.encrypt-outline-form-widgets-roundtrip"
    ],
    "gaps": [
-    "[a] PDFView text selection (PDFSelection, currentSelection) and find highlighting on screen",
+    "[c] PDFView(frame:) raises on tvOS (-[UIEditMenuInteraction initWithDelegate:] unrecognized selector, Apple's simulator too, r17)",
     "[c] assert PDFView init raises (UIEditMenuInteraction unavailable) instead of SKIP",
     "[a] outline does not survive write on Apple's simulator too (counted, not asserted)"
    ],
-   "note": "document create/annotate/search, PDFView paging pixels + overlay provider + thumbnails (iOS/visionOS), AES encrypt/unlock, form widgets round trip.",
+   "note": "document create/annotate/search, PDFView paging pixels + overlay provider + thumbnails (iOS/visionOS), AES encrypt/unlock, form widgets round trip. r17: PDFView cannot be built on tvOS (NSInvalidArgumentException from UIEditMenuInteraction on Apple's simulator and x86Sim)",
    "package": "P6 UI frameworks depth & platform UI",
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -5137,14 +5169,16 @@
   "Photos": {
    "existing_checks": [
     "func:Photos.authorization",
-    "func:Photos.library-create-fetch-request"
+    "func:Photos.library-create-fetch-request",
+    "func:Photos.caching-image-manager"
    ],
    "gaps": [
-    "[a] PHCachingImageManager / PHLivePhoto request",
+    "[a] PHLivePhoto request",
     "[c] asset delete (PHAssetChangeRequest.deleteAssets prompts: assert simulator answer)"
    ],
-   "note": "performChanges creates image+video+album+favorite, fetch back, requestImage pixels, PHAssetResourceManager bytes, requestAVAsset, change observer.",
+   "note": "performChanges creates image+video+album+favorite, fetch back, requestImage pixels, PHAssetResourceManager bytes, requestAVAsset, change observer. r17: PHCachingImageManager start/stop caching and a high-quality request answered (adds an image when the library has none) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -5166,14 +5200,14 @@
     "func:QuartzCore.metal-layer-drawable-present",
     "func:QuartzCore.replicator-transform-shape-emitter-layers",
     "func:QuartzCore.presentation-values-transaction-completion-tiled",
-    "func:QuartzCore.gradient-text-layer-render"
+    "func:QuartzCore.gradient-text-layer-render",
+    "func:QuartzCore.scene-displaylink-cadence"
    ],
-   "gaps": [
-    "[a] CADisplayLink frame cadence"
-   ],
-   "note": "CAMetalLayer drawables, replicator/transform/shape/emitter layers on screen, presentation() values, transaction completion, tiled layer; watchOS: runtime media clock, timing function control points, CALayer KVC. P11: CAGradientLayer / CATextLayer rendered pixels (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "CAMetalLayer drawables, replicator/transform/shape/emitter layers on screen, presentation() values, transaction completion, tiled layer; watchOS: runtime media clock, timing function control points, CALayer KVC. P11: CAGradientLayer / CATextLayer rendered pixels (Apple and x86Sim PASS, 2026-11-18). r17: UIWindowScene.displayLink (27.0) at 60 Hz (visionOS 30 Hz on both), increasing timestamps, target > timestamp (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
    "r15": true,
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -5233,13 +5267,13 @@
    "apple_sim_na_done": true,
    "existing_checks": [
     "func:ReplayKit.capture-answer-picker",
-    "func:ReplayKit.recorder"
+    "func:ReplayKit.recorder",
+    "func:ReplayKit.start-stop-recording-preview"
    ],
-   "gaps": [
-    "[a] startRecording/stopRecording -> RPPreviewViewController (or the simulator error)"
-   ],
-   "note": "done for startCapture: answers without hang as on Apple; broadcast picker has a button (iOS).",
+   "gaps": [],
+   "note": "done for startCapture: answers without hang as on Apple; broadcast picker has a button (iOS). r17: startRecording answers started, stopRecording never calls back in 10 s and isRecording stays false (Apple's simulators the same) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
+   "r17": true,
    "rejudged": true,
    "status": "apple-sim-na"
   },
@@ -5251,14 +5285,14 @@
     "func:SceneKit.scene-write-source-load-usdz",
     "func:SceneKit.animation-player-morpher-skinner",
     "func:SceneKit.shader-modifier-program-technique",
-    "func:SceneKit.renderer-shadows-particles"
+    "func:SceneKit.renderer-shadows-particles",
+    "func:SceneKit.audio-source-player"
    ],
-   "gaps": [
-    "[a] SCNAudioSource"
-   ],
-   "note": "Offscreen pixels, physics contact + hit tests, .scn/usdz load, animation player/morpher/skinner, shader modifier/SCNProgram/technique; watchOS: scene graph here, physics via _SceneKit_SwiftUI. P11: SCNRenderer snapshots: a shadow-casting light darkens the scene, a particle system is visible (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "Offscreen pixels, physics contact + hit tests, .scn/usdz load, animation player/morpher/skinner, shader modifier/SCNProgram/technique; watchOS: scene graph here, physics via _SceneKit_SwiftUI. P11: SCNRenderer snapshots: a shadow-casting light darkens the scene, a particle system is visible (Apple and x86Sim PASS, 2026-11-18). r17: SCNAudioSource from a WAV loaded, an SCNAudioPlayer on a node (AVAudioPlayerNode), removed (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
    "r15": true,
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -5344,11 +5378,11 @@
     "func:Speech.speech-analyzer-transcribe-file"
    ],
    "gaps": [
-    "[a] SFSpeechAudioBufferRecognitionRequest (buffer path) asserting the same kLSRErrorDomain 300",
-    "[a] speech-analyzer-transcribe-file: assert AssetInventory status unsupported (not-installed path currently asserts nothing)"
+    "[a] SFSpeechAudioBufferRecognitionRequest (buffer path) asserting the same kLSRErrorDomain 300"
    ],
-   "note": "done: recognize-synthesized-file asserts fox transcript or kLSRErrorDomain 300; SpeechAnalyzer reports assets unsupported on iOS/tvOS/visionOS like Apple.",
+   "note": "done: recognize-synthesized-file asserts fox transcript or kLSRErrorDomain 300; SpeechAnalyzer reports assets unsupported on iOS/tvOS/visionOS like Apple. r17: asserts AssetInventory unsupported and SpeechTranscriber unavailable (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
+   "r17": true,
    "rejudged": true,
    "status": "apple-sim-na"
   },
@@ -5381,11 +5415,11 @@
    ],
    "gaps": [
     "[c] purchases need a .storekit configuration (SKTestSession is Xcode-only)",
-    "[a] AppStore.requestReview / SKStoreReviewController",
-    "[a] x86 run of P4 StoreKit checks (ref only); x86 tvOS storefront none vs Apple USA"
+    "[a] AppStore.requestReview / SKStoreReviewController"
    ],
-   "note": "Empty entitlements/unfinished/all/updates, subscription status, AppTransaction StoreKitError 1, SKProductsRequest invalid id, SKAN error 10, external purchase false (as Apple).",
+   "note": "Empty entitlements/unfinished/all/updates, subscription status, AppTransaction StoreKitError 1, SKProductsRequest invalid id, SKAN error 10, external purchase false (as Apple). r17: the P4 StoreKit checks run on x86Sim tvOS too (storefront USA now, as Apple)",
    "package": "P4 Data, cloud, contacts/calendars & commerce",
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -5398,11 +5432,11 @@
     "func:SwiftData.history-model-actor"
    ],
    "gaps": [
-    "[a] custom DataStore",
-    "[a] x86 run of P4 SwiftData checks (ref only)"
+    "[a] custom DataStore"
    ],
-   "note": "#Unique upsert, inverse/cascade relationships, VersionedSchema migration plan, history + ModelActor.",
+   "note": "#Unique upsert, inverse/cascade relationships, VersionedSchema migration plan, history + ModelActor. r17: the P4 SwiftData checks run on x86Sim tvOS too",
    "package": "P4 Data, cloud, contacts/calendars & commerce",
+   "r17": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -5633,14 +5667,15 @@
   "VideoToolbox": {
    "existing_checks": [
     "func:VideoToolbox.h264-hevc-encode-decode",
-    "func:VideoToolbox.pixel-rotation-transfer-processors"
+    "func:VideoToolbox.pixel-rotation-transfer-processors",
+    "func:VideoToolbox.prores-encode-multipass"
    ],
    "gaps": [
-    "[a] VTCompressionSession multi-pass, ProRes encode (verify on Apple sim)",
     "[c] VTFrameProcessor (frame-rate conversion / super-resolution) isSupported answer"
    ],
-   "note": "H.264/HEVC encode+decode, VTPixelRotationSession 90 deg pixels, VTPixelTransferSession BGRA<->420v scaled; hw decode false on both.",
+   "note": "H.264/HEVC encode+decode, VTPixelRotationSession 90 deg pixels, VTPixelTransferSession BGRA<->420v scaled; hw decode false on both. r17: no ProRes 422 encoder in Apple's simulators (kVTCouldNotFindVideoEncoderErr -12908); H.264 takes VTMultiPassStorage and encodes 3 frames (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
+   "r17": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -6078,14 +6113,14 @@
   "Accessibility": {
    "existing_checks": [
     "func:Accessibility.chart-descriptor-custom-content",
-    "func:Accessibility.settings-announcement"
+    "func:Accessibility.settings-announcement",
+    "func:Accessibility.braille-table-translate"
    ],
-   "gaps": [
-    "[a] AXBrailleMap / AXBrailleTranslator"
-   ],
-   "note": "r16: a fresh device's AccessibilitySettings (animated images on, the rest off), Announcement / LayoutChanged posted (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "r16: a fresh device's AccessibilitySettings (animated images on, the rest off), Announcement / LayoutChanged posted (Apple and x86Sim PASS, 2026-11-18). r17: AXBrailleTable (185 supported locales, 19 en_US tables on iOS/tvOS/watchOS, 17 on visionOS, default system.eng-xueb_g1, 5 language-agnostic) and AXBrailleTranslator; Apple's simulators translate to an empty string (asserted: a non-empty answer must round-trip). AXBrailleMap has no public initializer (VoiceOver hands one to an accessibilityBrailleMapRenderer with a braille display) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
    "r16": true,
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -6188,15 +6223,16 @@
     "func:CFNetwork.urlsession-loopback-http",
     "func:CFNetwork.urlsession-https-pinned-loopback",
     "func:CFNetwork.urlsession-redirect-cookies-gzip-auth-chunked",
-    "func:CFNetwork.stream-task-cfhttpmessage"
+    "func:CFNetwork.stream-task-cfhttpmessage",
+    "func:CFNetwork.session-loopback-http-proxy"
    ],
    "gaps": [
     "[a] HTTP/2 to loopback TLS (results show http/1.1 negotiated)",
-    "[a] URLSessionConfiguration.connectionProxyDictionary through a loopback proxy",
     "[a] CFHTTPMessage (stream-task check skips it there; verify SDK availability)"
    ],
-   "note": "Loopback HTTP/HTTPS (pinned, untrusted refused -1202), redirects/cookies/gzip/auth/chunked, URLSessionStreamTask echo and CFHTTPMessage build/parse.",
+   "note": "Loopback HTTP/HTTPS (pinned, untrusted refused -1202), redirects/cookies/gzip/auth/chunked, URLSessionStreamTask echo and CFHTTPMessage build/parse. r17: an http request through a loopback HTTP proxy (NWListener) set in connectionProxyDictionary: absolute-URI request line (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P8 Foundation, networking, security, identity & device management",
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -6695,13 +6731,13 @@
    "apple_sim_na_done": true,
    "existing_checks": [
     "func:GameKit.unauthenticated-player-leaderboards-matchmaking",
-    "func:GameKit.local-player-leaderboard-objects"
+    "func:GameKit.local-player-leaderboard-objects",
+    "func:GameKit.load-matches-entries-unauthenticated"
    ],
-   "gaps": [
-    "[a] GKTurnBasedMatch.loadMatches / GKLeaderboard.loadEntries error paths without an account"
-   ],
-   "note": "Asserts unauthenticated answers (iOS/visionOS GKError 6, tvOS sign-in VC, watchOS GKError 3), loads fail with notAuthenticated, access point / matchmaker / Game Center VCs built; done.",
+   "gaps": [],
+   "note": "Asserts unauthenticated answers (iOS/visionOS GKError 6, tvOS sign-in VC, watchOS GKError 3), loads fail with notAuthenticated, access point / matchmaker / Game Center VCs built; done. r17: loadMatches / loadLeaderboards / loadAchievements without an account: GKErrorDomain 6 (notAuthenticated) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
+   "r17": true,
    "rejudged": true,
    "status": "apple-sim-na"
   },
@@ -6784,24 +6820,26 @@
    ],
    "gaps": [
     "[a] in-app intent handling (application(_:handlerFor:) / INExtension) for INSendMessageIntent",
-    "[a] INFocusStatusCenter: assert authorization status / requestAuthorization answer (check only reports)",
     "[a] assert INInteraction delete answers (tvOS: 1900 on both)"
    ],
-   "note": "INInteraction secure-coding round trip + donate (ok or 1901 undeclared intents), INShortcut nil for undeclared intent, voice shortcuts + relevant shortcuts.",
+   "note": "INInteraction secure-coding round trip + donate (ok or 1901 undeclared intents), INShortcut nil for undeclared intent, voice shortcuts + relevant shortcuts. r17: focus-status-center asserts not determined / not focused (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
   "LinkPresentation": {
    "existing_checks": [
     "func:LinkPresentation.loopback-fetch-og-tags-linkview",
-    "func:LinkPresentation.metadata"
+    "func:LinkPresentation.metadata",
+    "func:LinkPresentation.metadata-fetch-cancel"
    ],
    "gaps": [
-    "[a] LPMetadataProvider remote video / iconProvider vs imageProvider split, cancel()"
+    "[a] LPMetadataProvider remote video / iconProvider vs imageProvider split"
    ],
-   "note": "loopback fetch asserts og:title, og:image size, icon requests and LPLinkView; metadata archive round trip.",
+   "note": "loopback fetch asserts og:title, og:image size, icon requests and LPLinkView; metadata archive round trip. r17: cancel() mid-request to a loopback server that never answers: metadataFetchCancelled (LPErrorDomain 3) or no answer (Apple's iOS simulator once LinkPresentation is warm), never metadata (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -6938,11 +6976,10 @@
    "existing_checks": [
     "func:MusicUnderstanding.click-track-loudness-rhythm"
    ],
-   "gaps": [
-    "[a] assert rhythm beat count / bpm ~120 (reported only; loudness is asserted)"
-   ],
-   "note": "120 BPM click track loudness (LUFS) and rhythm on all platforms; rhythm ~120 s under translation.",
+   "gaps": [],
+   "note": "120 BPM click track loudness (LUFS) and rhythm on all platforms; rhythm ~120 s under translation. r17: asserts 8 beats ~0.5 s apart, ~120 bpm (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -7065,12 +7102,11 @@
     "func:PushKit.voip-credentials",
     "func:PushKit.registry"
    ],
-   "gaps": [
-    "[a] pushType .fileProvider"
-   ],
-   "note": "voip-credentials asserts no token and none cached in 10 s on a fresh device (Apple), a token must be cached when one comes.",
+   "gaps": [],
+   "note": "voip-credentials asserts no token and none cached in 10 s on a fresh device (Apple), a token must be cached when one comes. r17: PKPushType.fileProvider is unavailable on watchOS (SDK)",
    "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
+   "r17": true,
    "rejudged": true,
    "status": "apple-sim-na"
   },
@@ -7118,14 +7154,16 @@
   "SceneKit": {
    "existing_checks": [
     "func:SceneKit.offscreen-render",
-    "func:SceneKit.watch-scene-file-morpher-skinner"
+    "func:SceneKit.watch-scene-file-morpher-skinner",
+    "func:SceneKit.audio-source-player"
    ],
    "gaps": [
-    "[a] SCNParticleSystem, light shadows, SCNAudioSource"
+    "[a] SCNParticleSystem, light shadows"
    ],
-   "note": "offscreen-render + watch-scene-file-morpher-skinner: .scn keyed-archive round trip, morpher / skinner kept, SCNAction (no SCNScene.write / Core Animation on watchOS).",
+   "note": "offscreen-render + watch-scene-file-morpher-skinner: .scn keyed-archive round trip, morpher / skinner kept, SCNAction (no SCNScene.write / Core Animation on watchOS). r17: SCNAudioSource / SCNAudioPlayer on watchOS too (Apple and x86Sim PASS, 2026-11-18).",
    "p9": true,
    "package": "P2 Graphics, 3D, AR & games",
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -7183,13 +7221,13 @@
   },
   "SpriteKit": {
    "existing_checks": [
-    "func:SpriteKit.scene-physics-actions"
+    "func:SpriteKit.scene-physics-actions",
+    "func:SpriteKit.shader-tilemap-atlas-emitter-model"
    ],
-   "gaps": [
-    "[a] SKShader / tile map / atlas / emitter (only scene-physics-actions runs there)"
-   ],
-   "note": "SKView frame loop, SKShader pixels, atlas, tile map, emitter samples, scene physics/actions.",
+   "gaps": [],
+   "note": "SKView frame loop, SKShader pixels, atlas, tile map, emitter samples, scene physics/actions. r17: watchOS (no SKView): SKShader uniforms, texture atlas, tile map, emitter advanced in a scene, as objects (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -7834,17 +7872,18 @@
     "func:AVFoundation.sample-buffer-renderers-synchronizer",
     "func:AVFoundation.asset-load-formats",
     "func:AVFoundation.capture-simulator-answers",
-    "func:AVFoundation.player-item-failed-status"
+    "func:AVFoundation.player-item-failed-status",
+    "func:AVFoundation.export-metadata-file-length-limit"
    ],
    "gaps": [
     "[a] AVContentKeySession (clear key) / AVAssetDownloadURLSession offline HLS",
     "[a] chapter metadata: timed-metadata-chapters reports chapters (empty) - assert chapterMetadataGroups from a chaptered m4a/mov",
-    "[a] AVPlayerItemPlaybackStalled / failedToPlayToEndTime notifications",
-    "[a] AVAssetExportSession fileLengthLimit / metadata write-through on export"
+    "[a] AVPlayerItemPlaybackStalled / failedToPlayToEndTime notifications"
    ],
-   "note": "asset writer/reader/image generator, CI video compositor + export + presets, HLS loopback with WebVTT, resource loader, timed metadata, AVMutableMovie, queue player/looper/seek/rate, sample-buffer renderers+synchronizer, multi-format loads; capture-simulator-answers asserts 0 cameras and input-less session error -11819 as on Apple. P11: an unplayable item fails with AVFoundationErrorDomain -11829 (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "asset writer/reader/image generator, CI video compositor + export + presets, HLS loopback with WebVTT, resource loader, timed metadata, AVMutableMovie, queue player/looper/seek/rate, sample-buffer renderers+synchronizer, multi-format loads; capture-simulator-answers asserts 0 cameras and input-less session error -11819 as on Apple. P11: an unplayable item fails with AVFoundationErrorDomain -11829 (Apple and x86Sim PASS, 2026-11-18). r17: export metadata (title) written through; a passthrough export with fileLengthLimit refused -11838 (Apple the same) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
    "r15": true,
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -7892,14 +7931,14 @@
   "Accessibility": {
    "existing_checks": [
     "func:Accessibility.chart-descriptor-custom-content",
-    "func:Accessibility.settings-announcement"
+    "func:Accessibility.settings-announcement",
+    "func:Accessibility.braille-table-translate"
    ],
-   "gaps": [
-    "[a] AXBrailleMap / AXBrailleTranslator"
-   ],
-   "note": "r16: a fresh device's AccessibilitySettings (animated images on, the rest off), Announcement / LayoutChanged posted (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "r16: a fresh device's AccessibilitySettings (animated images on, the rest off), Announcement / LayoutChanged posted (Apple and x86Sim PASS, 2026-11-18). r17: AXBrailleTable (185 supported locales, 19 en_US tables on iOS/tvOS/watchOS, 17 on visionOS, default system.eng-xueb_g1, 5 language-agnostic) and AXBrailleTranslator; Apple's simulators translate to an empty string (asserted: a non-empty answer must round-trip). AXBrailleMap has no public initializer (VoiceOver hands one to an accessibilityBrailleMapRenderer with a braille display) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
    "r16": true,
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -7963,14 +8002,14 @@
     "func:AudioToolbox.auaudiounit-effects-auv3",
     "func:AudioToolbox.musicsequence-smf-player",
     "func:AudioToolbox.system-sound-play",
-    "func:AudioToolbox.audioqueue-input-record"
+    "func:AudioToolbox.audioqueue-input-record",
+    "func:AudioToolbox.remoteio-render-callback"
    ],
-   "gaps": [
-    "[a] AudioComponentInstanceNew RemoteIO with a realtime render callback"
-   ],
-   "note": "AudioQueueOfflineRender, AudioFileStream ADTS parse, AUDelay/AUNBandEQ render + in-process AUv3 (0 registered on visionOS on both), MusicSequence SMF + MusicPlayer, system sound play. r16: an AudioQueue input fills ~1.2 s of 16 kHz with a microphone (x86Sim), start fails -66628 without one (Apple's Mac mini) (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "AudioQueueOfflineRender, AudioFileStream ADTS parse, AUDelay/AUNBandEQ render + in-process AUv3 (0 registered on visionOS on both), MusicSequence SMF + MusicPlayer, system sound play. r16: an AudioQueue input fills ~1.2 s of 16 kHz with a microphone (x86Sim), start fails -66628 without one (Apple's Mac mini) (Apple and x86Sim PASS, 2026-11-18). r17: RemoteIO with a render callback pulled ~93 times / ~48k frames per second (x86Sim with X86SIM_AUDIO=1) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
    "r16": true,
+   "r17": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -8086,14 +8125,15 @@
     "func:CFNetwork.urlsession-loopback-http",
     "func:CFNetwork.urlsession-https-pinned-loopback",
     "func:CFNetwork.urlsession-redirect-cookies-gzip-auth-chunked",
-    "func:CFNetwork.stream-task-cfhttpmessage"
+    "func:CFNetwork.stream-task-cfhttpmessage",
+    "func:CFNetwork.session-loopback-http-proxy"
    ],
    "gaps": [
-    "[a] HTTP/2 to loopback TLS (results show http/1.1 negotiated)",
-    "[a] URLSessionConfiguration.connectionProxyDictionary through a loopback proxy"
+    "[a] HTTP/2 to loopback TLS (results show http/1.1 negotiated)"
    ],
-   "note": "Loopback HTTP/HTTPS (pinned, untrusted refused -1202), redirects/cookies/gzip/auth/chunked, URLSessionStreamTask echo and CFHTTPMessage build/parse.",
+   "note": "Loopback HTTP/HTTPS (pinned, untrusted refused -1202), redirects/cookies/gzip/auth/chunked, URLSessionStreamTask echo and CFHTTPMessage build/parse. r17: an http request through a loopback HTTP proxy (NWListener) set in connectionProxyDictionary: absolute-URI request line (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P8 Foundation, networking, security, identity & device management",
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -8345,16 +8385,18 @@
    "existing_checks": [
     "func:CoreImage.filters-context-qr",
     "func:CoreImage.metal-vs-software-filter-chain",
-    "func:CoreImage.color-kernel-processor-kernel"
+    "func:CoreImage.color-kernel-processor-kernel",
+    "func:CoreImage.detector-rectangle-face"
    ],
    "gaps": [
     "[a] CIRAWFilter / CIImage from HEIF/RAW, CIKernel from a compiled Metal library",
-    "[a] CIDetector face/text (Vision-backed: verify on Apple sim)"
+    "[a] CIDetector text features, a face found in a face image"
    ],
-   "note": "P11: CIColorKernel from source, CIImageProcessorKernel CPU buffer path (Apple and x86Sim PASS, 2026-11-18). r16: CoreImage [[stitchable]] kernels (composeImageFilterFunctionsFromModules) compile on x86Sim since the libComposeFilters dlopen fix (Vision optical flow on visionOS).",
+   "note": "P11: CIColorKernel from source, CIImageProcessorKernel CPU buffer path (Apple and x86Sim PASS, 2026-11-18). r16: CoreImage [[stitchable]] kernels (composeImageFilterFunctionsFromModules) compile on x86Sim since the libComposeFilters dlopen fix (Vision optical flow on visionOS). r17: CIDetector rectangle bounds on a drawn rectangle, no face in it (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
    "r15": true,
    "r16": true,
+   "r17": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -8763,13 +8805,13 @@
    "apple_sim_na_done": true,
    "existing_checks": [
     "func:GameKit.unauthenticated-player-leaderboards-matchmaking",
-    "func:GameKit.local-player-leaderboard-objects"
+    "func:GameKit.local-player-leaderboard-objects",
+    "func:GameKit.load-matches-entries-unauthenticated"
    ],
-   "gaps": [
-    "[a] GKTurnBasedMatch.loadMatches / GKLeaderboard.loadEntries error paths without an account"
-   ],
-   "note": "Asserts unauthenticated answers (iOS/visionOS GKError 6, tvOS sign-in VC, watchOS GKError 3), loads fail with notAuthenticated, access point / matchmaker / Game Center VCs built; done.",
+   "gaps": [],
+   "note": "Asserts unauthenticated answers (iOS/visionOS GKError 6, tvOS sign-in VC, watchOS GKError 3), loads fail with notAuthenticated, access point / matchmaker / Game Center VCs built; done. r17: loadMatches / loadLeaderboards / loadAchievements without an account: GKErrorDomain 6 (notAuthenticated) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
+   "r17": true,
    "rejudged": true,
    "status": "apple-sim-na"
   },
@@ -8893,13 +8935,14 @@
   },
   "IOSurface": {
    "existing_checks": [
-    "func:IOSurface.create-lock-write"
+    "func:IOSurface.create-lock-write",
+    "func:IOSurface.metal-texture-pixelbuffer-share"
    ],
-   "gaps": [
-    "[a] IOSurface sharing to Metal texture + CVPixelBuffer (partly via CoreVideo check)"
-   ],
+   "gaps": [],
+   "note": "r17: one IOSurface as a Metal render target and a CVPixelBuffer: same pixels through the surface and the buffer (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
-   "rejudged": false,
+   "r17": true,
+   "rejudged": true,
    "status": "covered"
   },
   "IdentityLookup": {
@@ -8987,11 +9030,11 @@
    ],
    "gaps": [
     "[a] in-app intent handling (application(_:handlerFor:) / INExtension) for INSendMessageIntent",
-    "[a] INFocusStatusCenter: assert authorization status / requestAuthorization answer (check only reports)",
     "[a] assert INInteraction delete answers (tvOS: 1900 on both)"
    ],
-   "note": "INInteraction secure-coding round trip + donate (ok or 1901 undeclared intents), INShortcut nil for undeclared intent, voice shortcuts + relevant shortcuts.",
+   "note": "INInteraction secure-coding round trip + donate (ok or 1901 undeclared intents), INShortcut nil for undeclared intent, voice shortcuts + relevant shortcuts. r17: focus-status-center asserts not determined / not focused (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -9020,13 +9063,15 @@
   "LinkPresentation": {
    "existing_checks": [
     "func:LinkPresentation.loopback-fetch-og-tags-linkview",
-    "func:LinkPresentation.metadata"
+    "func:LinkPresentation.metadata",
+    "func:LinkPresentation.metadata-fetch-cancel"
    ],
    "gaps": [
-    "[a] LPMetadataProvider remote video / iconProvider vs imageProvider split, cancel()"
+    "[a] LPMetadataProvider remote video / iconProvider vs imageProvider split"
    ],
-   "note": "loopback fetch asserts og:title, og:image size, icon requests and LPLinkView; metadata archive round trip.",
+   "note": "loopback fetch asserts og:title, og:image size, icon requests and LPLinkView; metadata archive round trip. r17: cancel() mid-request to a loopback server that never answers: metadataFetchCancelled (LPErrorDomain 3) or no answer (Apple's iOS simulator once LinkPresentation is warm), never metadata (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -9122,14 +9167,15 @@
     "func:MapKit.overlay-renderers-pixels",
     "func:MapKit.snapshot-pixels",
     "func:MapKit.geometry-local-objects",
-    "func:MapKit.snapshotter"
+    "func:MapKit.snapshotter",
+    "func:MapKit.marker-annotation-views-on-screen"
    ],
    "gaps": [
-    "[a] MKMapView annotation views on screen (MKMarkerAnnotationView pixels)",
     "[a] MKMapItemRequest (place ID) / MKMapItem identifiers"
    ],
-   "note": "MKLocalSearch + completer, directions + ETA, MKGeocodingRequest/MKReverseGeocodingRequest, Look Around scene, overlay renderer pixels, MKMapView conversions, snapshot pixels asserted.",
+   "note": "MKLocalSearch + completer, directions + ETA, MKGeocodingRequest/MKReverseGeocodingRequest, Look Around scene, overlay renderer pixels, MKMapView conversions, snapshot pixels asserted. r17: two MKMarkerAnnotationViews in a map view on screen at their projected points, selection (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P5 Health, home, location, sensors & accessories",
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -9161,13 +9207,13 @@
   "MediaAccessibility": {
    "existing_checks": [
     "func:MediaAccessibility.caption-appearance",
-    "func:MediaAccessibility.caption-style-audible-image-caption"
+    "func:MediaAccessibility.caption-style-audible-image-caption",
+    "func:MediaAccessibility.caption-settings-changed-notification"
    ],
-   "gaps": [
-    "[a] caption appearance settings-changed notification"
-   ],
-   "note": "caption style font/colours/size/edge, audible characteristics, languages; MAImageCaptioning set/read back on a JPEG (not on visionOS).",
+   "gaps": [],
+   "note": "caption style font/colours/size/edge, audible characteristics, languages; MAImageCaptioning set/read back on a JPEG (not on visionOS). r17: MACaptionAppearanceSetDisplayType posts kMACaptionAppearanceSettingsChangedNotification (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -9229,10 +9275,11 @@
     "func:MessageUI.can-send"
    ],
    "gaps": [
-    "[a] MFMailComposeViewController/MFMessageComposeViewController init + present while canSend* is false"
+    "[c] MFMailComposeViewController / MFMessageComposeViewController init while canSend* is false kills the app on Apple's simulator (x86Sim the same, r17): not checkable in-process"
    ],
-   "note": "done: simulator-answers-composers asserts canSendMail/Text/Subject/Attachments false and passes on Apple; old can-send still SKIPs.",
+   "note": "done: simulator-answers-composers asserts canSendMail/Text/Subject/Attachments false and passes on Apple; old can-send still SKIPs. r17: building the compose controllers while canSendMail / canSendText are false ends the process on Apple's simulator as on x86Sim",
    "package": "P6 UI frameworks depth & platform UI",
+   "r17": true,
    "rejudged": true,
    "status": "apple-sim-na"
   },
@@ -9259,27 +9306,28 @@
     "func:Metal.capture-manager-gputrace",
     "func:Metal.shader-logging-logstate",
     "func:Metal.rasterization-rate-map",
-    "func:Metal.texture-view-swizzle-fence"
+    "func:Metal.texture-view-swizzle-fence",
+    "func:Metal.parallel-encoder-stencil"
    ],
-   "gaps": [
-    "[a] MTLParallelRenderCommandEncoder, stencil test"
-   ],
-   "note": "Strong render/compute checks plus asserted Apple-sim answers: feature set, no Metal 4/MTLIO/tensor classes, binary archive not serialized, dynamic libraries refused, no function pointers/raytracing/mesh/tile/ICB, residency set nil, capture refused, log state refused, no rate map. P11: a swizzled texture view read by a kernel, an MTLFence between two compute encoders (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "Strong render/compute checks plus asserted Apple-sim answers: feature set, no Metal 4/MTLIO/tensor classes, binary archive not serialized, dynamic libraries refused, no function pointers/raytracing/mesh/tile/ICB, residency set nil, capture refused, log state refused, no rate map. P11: a swizzled texture view read by a kernel, an MTLFence between two compute encoders (Apple and x86Sim PASS, 2026-11-18). r17: two sub-encoders of a parallel render encoder in creation order, the first marking stencil, the second drawing where stencil == 1 (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
    "r15": true,
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
   "MetalKit": {
    "existing_checks": [
-    "func:MetalKit.texture-loader-mesh"
+    "func:MetalKit.texture-loader-mesh",
+    "func:MetalKit.mesh-asset-custom-vertex-descriptor",
+    "func:MetalKit.mtkview-draw-loop-on-screen"
    ],
-   "gaps": [
-    "[a] port mtkview-draw-loop-on-screen (iOS-only)",
-    "[a] MTKMesh from MDLAsset with custom vertex descriptor"
-   ],
+   "gaps": [],
+   "note": "r17: MTKMesh.newMeshes(asset:) with a 24-byte position + normal descriptor, MTKMetalVertexDescriptorFromModelIO, vertex data checked (Apple and x86Sim PASS, 2026-11-18). r17: the iOS MTKView draw-loop check ported (tvOS 60 fps, visionOS 30 fps on both, screen pixel red) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
-   "rejudged": false,
+   "r17": true,
+   "rejudged": true,
    "status": "covered"
   },
   "MetalPerformancePrimitives": {
@@ -9300,14 +9348,14 @@
     "func:MetalPerformanceShaders.cnn-conv-pool-fullyconnected",
     "func:MetalPerformanceShaders.image-histogram-sobel-lanczos-morphology",
     "func:MetalPerformanceShaders.ndarray-matmul-topk-softmax",
-    "func:MetalPerformanceShaders.threshold-median-cholesky"
+    "func:MetalPerformanceShaders.threshold-median-cholesky",
+    "func:MetalPerformanceShaders.image-conversion-lu-solve"
    ],
-   "gaps": [
-    "[a] MPSImageConversion, MPSMatrixDecompositionLU / MPSMatrixSolveLU"
-   ],
-   "note": "Blur + matmul, CNN conv/pool/fully-connected values, histogram/Sobel/Lanczos/morphology, NDArray matmul, softmax, top-K. P11: MPSImageMedian + MPSImageThresholdBinary on a texture, MPSMatrixDecompositionCholesky (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "Blur + matmul, CNN conv/pool/fully-connected values, histogram/Sobel/Lanczos/morphology, NDArray matmul, softmax, top-K. P11: MPSImageMedian + MPSImageThresholdBinary on a texture, MPSMatrixDecompositionCholesky (Apple and x86Sim PASS, 2026-11-18). r17: MPSImageConversion rgba8 -> rgba32Float, MPSMatrixDecompositionLU + MPSMatrixSolveLU (2x2 system, pivots, status 0) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
    "r15": true,
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -9356,14 +9404,14 @@
     "func:ModelIO.obj-usda-import-roundtrip",
     "func:ModelIO.procedural-textures-noise-sky-normalmap",
     "func:ModelIO.voxels-skeleton-animation-uv-unwrap",
-    "func:ModelIO.material-ambient-occlusion"
+    "func:ModelIO.material-ambient-occlusion",
+    "func:ModelIO.light-probe-irradiance-sh"
    ],
-   "gaps": [
-    "[a] MDLLightProbe irradiance"
-   ],
-   "note": "OBJ import, usda/usdc/obj round trips, noise/sky/normal-map textures, voxels, skeleton/animation, UV unwrap. P11: MDLPhysicallyPlausibleScatteringFunction material properties, light color by temperature, ambient occlusion baked into vertex values (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "OBJ import, usda/usdc/obj round trips, noise/sky/normal-map textures, voxels, skeleton/animation, UV unwrap. P11: MDLPhysicallyPlausibleScatteringFunction material properties, light color by temperature, ambient occlusion baked into vertex values (Apple and x86Sim PASS, 2026-11-18). r17: MDLSkyCubeTexture -> irradiance cube -> MDLLightProbe spherical harmonics level 2 (27 coefficients, same values on both) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
    "r15": true,
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -9398,11 +9446,10 @@
    "existing_checks": [
     "func:MusicUnderstanding.click-track-loudness-rhythm"
    ],
-   "gaps": [
-    "[a] assert rhythm beat count / bpm ~120 (reported only; loudness is asserted)"
-   ],
-   "note": "120 BPM click track loudness (LUFS) and rhythm on all platforms; rhythm ~120 s under translation.",
+   "gaps": [],
+   "note": "120 BPM click track loudness (LUFS) and rhythm on all platforms; rhythm ~120 s under translation. r17: asserts 8 beats ~0.5 s apart, ~120 bpm (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -9498,14 +9545,15 @@
     "func:PDFKit.document-text-render",
     "func:PDFKit.create-annotate-search-roundtrip",
     "func:PDFKit.pdfview-paging-pixels-overlay-thumbnails",
-    "func:PDFKit.encrypt-outline-form-widgets-roundtrip"
+    "func:PDFKit.encrypt-outline-form-widgets-roundtrip",
+    "func:PDFKit.pdfview-selection-find-highlight"
    ],
    "gaps": [
-    "[a] PDFView text selection (PDFSelection, currentSelection) and find highlighting on screen",
     "[a] outline does not survive write on Apple's simulator too (counted, not asserted)"
    ],
-   "note": "document create/annotate/search, PDFView paging pixels + overlay provider + thumbnails (iOS/visionOS), AES encrypt/unlock, form widgets round trip.",
+   "note": "document create/annotate/search, PDFView paging pixels + overlay provider + thumbnails (iOS/visionOS), AES encrypt/unlock, form widgets round trip. r17: findString -> PDFView.currentSelection, highlightedSelections, page selection for a rect and a word, clearSelection (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -9573,14 +9621,16 @@
   "Photos": {
    "existing_checks": [
     "func:Photos.authorization",
-    "func:Photos.library-create-fetch-request"
+    "func:Photos.library-create-fetch-request",
+    "func:Photos.caching-image-manager"
    ],
    "gaps": [
-    "[a] PHCachingImageManager / PHLivePhoto request",
+    "[a] PHLivePhoto request",
     "[c] asset delete (PHAssetChangeRequest.deleteAssets prompts: assert simulator answer)"
    ],
-   "note": "performChanges creates image+video+album+favorite, fetch back, requestImage pixels, PHAssetResourceManager bytes, requestAVAsset, change observer.",
+   "note": "performChanges creates image+video+album+favorite, fetch back, requestImage pixels, PHAssetResourceManager bytes, requestAVAsset, change observer. r17: PHCachingImageManager start/stop caching and a high-quality request answered (adds an image when the library has none) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -9601,14 +9651,14 @@
    "apple_sim_na_done": true,
    "existing_checks": [
     "func:PushKit.voip-credentials",
-    "func:PushKit.registry"
+    "func:PushKit.registry",
+    "func:PushKit.file-provider-push-type"
    ],
-   "gaps": [
-    "[a] pushType .fileProvider"
-   ],
-   "note": "voip-credentials asserts no token and none cached in 10 s on a fresh device (Apple), a token must be cached when one comes.",
+   "gaps": [],
+   "note": "voip-credentials asserts no token and none cached in 10 s on a fresh device (Apple), a token must be cached when one comes. r17: PKPushType.fileProvider: no token on a fresh device, an 80-byte token once apsd reached the APNs sandbox (both accepted, as voip-credentials) (Apple and x86Sim PASS, 2026-11-18).",
    "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
+   "r17": true,
    "rejudged": true,
    "status": "apple-sim-na"
   },
@@ -9618,14 +9668,14 @@
     "func:QuartzCore.metal-layer-drawable-present",
     "func:QuartzCore.replicator-transform-shape-emitter-layers",
     "func:QuartzCore.presentation-values-transaction-completion-tiled",
-    "func:QuartzCore.gradient-text-layer-render"
+    "func:QuartzCore.gradient-text-layer-render",
+    "func:QuartzCore.scene-displaylink-cadence"
    ],
-   "gaps": [
-    "[a] CADisplayLink frame cadence"
-   ],
-   "note": "CAMetalLayer drawables, replicator/transform/shape/emitter layers on screen, presentation() values, transaction completion, tiled layer; watchOS: runtime media clock, timing function control points, CALayer KVC. P11: CAGradientLayer / CATextLayer rendered pixels (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "CAMetalLayer drawables, replicator/transform/shape/emitter layers on screen, presentation() values, transaction completion, tiled layer; watchOS: runtime media clock, timing function control points, CALayer KVC. P11: CAGradientLayer / CATextLayer rendered pixels (Apple and x86Sim PASS, 2026-11-18). r17: UIWindowScene.displayLink (27.0) at 60 Hz (visionOS 30 Hz on both), increasing timestamps, target > timestamp (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
    "r15": true,
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -9646,14 +9696,14 @@
   "QuickLookThumbnailing": {
    "existing_checks": [
     "func:QuickLookThumbnailing.png-thumbnail",
-    "func:QuickLookThumbnailing.thumbnails-pdf-text"
+    "func:QuickLookThumbnailing.thumbnails-pdf-text",
+    "func:QuickLookThumbnailing.movie-thumbnail"
    ],
-   "gaps": [
-    "[a] movie thumbnails"
-   ],
-   "note": "P11: PDF and plain-text thumbnails (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "P11: PDF and plain-text thumbnails (Apple and x86Sim PASS, 2026-11-18). r17: a 64x64 thumbnail of an H.264 .mov (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
    "r15": true,
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -9717,13 +9767,13 @@
    "apple_sim_na_done": true,
    "existing_checks": [
     "func:ReplayKit.capture-answer-picker",
-    "func:ReplayKit.recorder"
+    "func:ReplayKit.recorder",
+    "func:ReplayKit.start-stop-recording-preview"
    ],
-   "gaps": [
-    "[a] startRecording/stopRecording -> RPPreviewViewController (or the simulator error)"
-   ],
-   "note": "done for startCapture: answers without hang as on Apple; broadcast picker has a button (iOS).",
+   "gaps": [],
+   "note": "done for startCapture: answers without hang as on Apple; broadcast picker has a button (iOS). r17: startRecording answers started, stopRecording never calls back in 10 s and isRecording stays false (Apple's simulators the same) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
+   "r17": true,
    "rejudged": true,
    "status": "apple-sim-na"
   },
@@ -9745,14 +9795,14 @@
     "func:SceneKit.scene-write-source-load-usdz",
     "func:SceneKit.animation-player-morpher-skinner",
     "func:SceneKit.shader-modifier-program-technique",
-    "func:SceneKit.renderer-shadows-particles"
+    "func:SceneKit.renderer-shadows-particles",
+    "func:SceneKit.audio-source-player"
    ],
-   "gaps": [
-    "[a] SCNAudioSource"
-   ],
-   "note": "Offscreen pixels, physics contact + hit tests, .scn/usdz load, animation player/morpher/skinner, shader modifier/SCNProgram/technique; watchOS: scene graph here, physics via _SceneKit_SwiftUI. P11: SCNRenderer snapshots: a shadow-casting light darkens the scene, a particle system is visible (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "Offscreen pixels, physics contact + hit tests, .scn/usdz load, animation player/morpher/skinner, shader modifier/SCNProgram/technique; watchOS: scene graph here, physics via _SceneKit_SwiftUI. P11: SCNRenderer snapshots: a shadow-casting light darkens the scene, a particle system is visible (Apple and x86Sim PASS, 2026-11-18). r17: SCNAudioSource from a WAV loaded, an SCNAudioPlayer on a node (AVAudioPlayerNode), removed (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
    "r15": true,
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -9852,12 +9902,11 @@
     "func:Speech.speech-analyzer-transcribe-file",
     "func:Speech.audio-buffer-request"
    ],
-   "gaps": [
-    "[a] speech-analyzer-transcribe-file: assert AssetInventory status unsupported (not-installed path currently asserts nothing)"
-   ],
-   "note": "done: recognize-synthesized-file asserts fox transcript or kLSRErrorDomain 300; SpeechAnalyzer reports assets unsupported on iOS/tvOS/visionOS like Apple. r16: the buffer path answers kLSRErrorDomain 300 like the URL request (Apple's iOS simulator: no answer within 60 s; both accepted) (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "done: recognize-synthesized-file asserts fox transcript or kLSRErrorDomain 300; SpeechAnalyzer reports assets unsupported on iOS/tvOS/visionOS like Apple. r16: the buffer path answers kLSRErrorDomain 300 like the URL request (Apple's iOS simulator: no answer within 60 s; both accepted) (Apple and x86Sim PASS, 2026-11-18). r17: asserts AssetInventory unsupported and SpeechTranscriber unavailable (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
    "r16": true,
+   "r17": true,
    "rejudged": true,
    "status": "apple-sim-na"
   },
@@ -9887,14 +9936,15 @@
     "func:StoreKit.storefront-sandbox",
     "func:StoreKit.transactions-entitlements-subscriptions",
     "func:StoreKit.app-transaction-sync-legacy-request",
-    "func:StoreKit.products-storefront"
+    "func:StoreKit.products-storefront",
+    "func:StoreKit.request-review-in-scene"
    ],
    "gaps": [
-    "[c] purchases need a .storekit configuration (SKTestSession is Xcode-only)",
-    "[a] AppStore.requestReview / SKStoreReviewController"
+    "[c] purchases need a .storekit configuration (SKTestSession is Xcode-only)"
    ],
-   "note": "Empty entitlements/unfinished/all/updates, subscription status, AppTransaction StoreKitError 1, SKProductsRequest invalid id, SKAN error 10, external purchase false (as Apple).",
+   "note": "Empty entitlements/unfinished/all/updates, subscription status, AppTransaction StoreKitError 1, SKProductsRequest invalid id, SKAN error 10, external purchase false (as Apple). r17: AppStore.requestReview(in:) accepted, no window of the app appears (the prompt is out of process) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P4 Data, cloud, contacts/calendars & commerce",
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -9947,14 +9997,15 @@
     "func:SwiftUI.toolbar-menu-picker-datepicker-popover"
    ],
    "gaps": [
-    "[a] contextMenu",
+    "[a] contextMenu (needs a long-press input: SwiftUI's ContextMenuBridge answers no configuration outside the gesture, Apple's simulator too)",
     "[a] DocumentGroup / FileDocument",
     "[a] drag & drop with Transferable (draggable/dropDestination)",
     "[a] List swipeActions (needs a swipe input)"
    ],
-   "note": "layout/Grid/custom Layout pixels, animation timing, Observation invalidation, lazy stacks/scroll position, NavigationStack path, sheet/cover/alert/dialog, controls+TextField focus, TimelineView, TabView now on all platforms that support them. r16: toolbar item as a trailing bar item, Menu and menu Picker as primary-action UIButtons (3 choices), compact UIDatePicker, a popover (visionOS: sheet) presented and dismissed from the model (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "layout/Grid/custom Layout pixels, animation timing, Observation invalidation, lazy stacks/scroll position, NavigationStack path, sheet/cover/alert/dialog, controls+TextField focus, TimelineView, TabView now on all platforms that support them. r16: toolbar item as a trailing bar item, Menu and menu Picker as primary-action UIButtons (3 choices), compact UIDatePicker, a popover (visionOS: sheet) presented and dismissed from the model (Apple and x86Sim PASS, 2026-11-18). r17: a contextMenu becomes a UIContextMenuInteraction with SwiftUI's ContextMenuBridge delegate, which answers no configuration outside a long-press gesture (Apple too): left for input",
    "package": "P6 UI frameworks depth & platform UI",
    "r16": true,
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -10083,16 +10134,16 @@
     "func:UIKit.update-link-printing",
     "func:UIKit.views-autolayout-render-symbols",
     "func:UIKit.window-scene-viewcontroller",
-    "func:UIKit.pasteboard-text-input"
+    "func:UIKit.pasteboard-text-input",
+    "func:UIKit.textfield-secure-content-type",
+    "func:UIKit.context-menu-interaction-present"
    ],
    "gaps": [
-    "[a] scene lifecycle (background/foreground, state restoration via NSUserActivity)",
-    "[a] UIContextMenuInteraction (preview + actions)",
-    "[a] UITextField secure entry / autofill (textContentType) behaviour",
-    "[a] port alert-actionsheet-present, scrollview-zoom-offset, document-save-open, first-responder-text-input"
+    "[a] scene lifecycle (background/foreground, state restoration via NSUserActivity)"
    ],
-   "note": "P6 adds compositional/diffable pixels, navigation callback order, UITab tab bar, page+search controllers, trait/dark-mode pixels, accessibility rotors, sheet detents, UIMenu/edit menu, UITextInput+find, date/color/font pickers, UIUpdateLink + printing; iPad checks SKIP on the iPhone device.",
+   "note": "P6 adds compositional/diffable pixels, navigation callback order, UITab tab bar, page+search controllers, trait/dark-mode pixels, accessibility rotors, sheet detents, UIMenu/edit menu, UITextInput+find, date/color/font pickers, UIUpdateLink + printing; iPad checks SKIP on the iPhone device. r17: a secure field with the password content type keeps its text and refuses copy / cut (a plain field copies) (Apple and x86Sim PASS, 2026-11-18). r17: a UIContextMenuInteraction presented as a long press ends (UIKit's _presentMenuAtLocation:), delegate config / actions / willDisplay / willEnd, menu labels on screen (iOS; visionOS shows the menu outside the app scene, Apple too) (Apple and x86Sim PASS, 2026-11-18). r17: alert / action sheet, scroll view zoom, UIDocument save/open and first-responder text input ported to visionOS",
    "package": "P6 UI frameworks depth & platform UI",
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -10164,14 +10215,15 @@
   "VideoToolbox": {
    "existing_checks": [
     "func:VideoToolbox.h264-hevc-encode-decode",
-    "func:VideoToolbox.pixel-rotation-transfer-processors"
+    "func:VideoToolbox.pixel-rotation-transfer-processors",
+    "func:VideoToolbox.prores-encode-multipass"
    ],
    "gaps": [
-    "[a] VTCompressionSession multi-pass, ProRes encode (verify on Apple sim)",
     "[c] VTFrameProcessor (frame-rate conversion / super-resolution) isSupported answer"
    ],
-   "note": "H.264/HEVC encode+decode, VTPixelRotationSession 90 deg pixels, VTPixelTransferSession BGRA<->420v scaled; hw decode false on both.",
+   "note": "H.264/HEVC encode+decode, VTPixelRotationSession 90 deg pixels, VTPixelTransferSession BGRA<->420v scaled; hw decode false on both. r17: no ProRes 422 encoder in Apple's simulators (kVTCouldNotFindVideoEncoderErr -12908); H.264 takes VTMultiPassStorage and encodes 3 frames (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
+   "r17": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -10256,15 +10308,17 @@
     "func:WebKit.canvas-webgl-wasm-crypto-intl-raf",
     "func:WebKit.navigation-delegate-order-ui-panels",
     "func:WebKit.content-rules-download-find-data-store",
-    "func:WebKit.webview-load-javascript"
+    "func:WebKit.webview-load-javascript",
+    "func:WebKit.indexeddb-put-get",
+    "func:WebKit.find-interaction-navigator"
    ],
    "gaps": [
-    "[a] IndexedDB / service workers",
-    "[a] WKWebExtension (iOS 18.4+)",
-    "[a] WKFindInteraction UI (find bar), not just WKWebView.find"
+    "[a] service workers",
+    "[a] WKWebExtension (iOS 18.4+)"
    ],
-   "note": "content rule list blocking, find, WKDownload, WKWebsiteDataStore records fetch/remove, navigation delegate order, UI panels, JS bridges, custom schemes, cookies.",
+   "note": "content rule list blocking, find, WKDownload, WKWebsiteDataStore records fetch/remove, navigation delegate order, UI panels, JS bridges, custom schemes, cookies. r17: IndexedDB in a page with an https origin: put, get, count (Apple and x86Sim PASS, 2026-11-18). r17: WKWebView's find navigator shown with 3 results, findNext moves the highlight, dismissed (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
+   "r17": true,
    "rejudged": true,
    "status": "covered"
   },
