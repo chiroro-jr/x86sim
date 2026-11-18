@@ -54,7 +54,7 @@ typedef void (^AudioDeviceIOBlock)(const AudioTimeStamp*, const AudioBufferList*
 typedef AudioDeviceIOProc AudioDeviceIOProcID;
 
 #define FCC(s) ((UInt32)(s)[0] << 24 | (UInt32)(s)[1] << 16 | (UInt32)(s)[2] << 8 | (UInt32)(s)[3])
-enum { kSys = 1, kOutDev = 0x5801, kInDev = 0x5802, kOutStream = 0x5803, kInStream = 0x5804, kOutAgg = 0x5805, kInAgg = 0x5806 };
+enum { kSys = 1, kOutDev = 0x5801, kInDev = 0x5802, kOutStream = 0x5803, kInStream = 0x5804, kOutAgg = 0x5805, kInAgg = 0x5806, kIOAgg = 0x5807 };
 #define ERR_UNKNOWN FCC("who?")
 #define ERR_SIZE FCC("!siz")
 #define ERR_OBJ FCC("!obj")
@@ -95,13 +95,13 @@ static int logon;
 #define LOG(...) do { if (logon) { fprintf(stderr, "simaudio[%d]: ", getpid()); fprintf(stderr, __VA_ARGS__); fputc('\n', stderr); } } while (0)
 static const char* fcc(UInt32 v, char* b) { for (int i = 0; i < 4; i++) { char c = (char)(v >> (24 - 8 * i)); b[i] = c >= 32 && c < 127 ? c : '.'; } b[4] = 0; return b; }
 
-static int ours(AudioObjectID o) { return o == kOutDev || o == kInDev || o == kOutStream || o == kInStream || o == kOutAgg || o == kInAgg; }
+static int ours(AudioObjectID o) { return o == kOutDev || o == kInDev || o == kOutStream || o == kInStream || o == kOutAgg || o == kInAgg || o == kIOAgg; }
 // a device object: one of ours, or the aggregate over it (my_CreateAggregateDevice)
-static int isagg(AudioObjectID o) { return o == kOutAgg || o == kInAgg; }
+static int isagg(AudioObjectID o) { return o == kOutAgg || o == kInAgg || o == kIOAgg; }
 
 // ---- device state ----
 #define MAXPROCS 8
-struct ioproc { AudioDeviceIOProc proc; void* data; AudioDeviceIOBlock block; dispatch_queue_t queue; int running; int id; };
+struct ioproc { AudioDeviceIOProc proc; void* data; AudioDeviceIOBlock block; dispatch_queue_t queue; int running; int id; int duplex; };
 struct dev {
 	AudioObjectID id, stream; int input; UInt32 channels;
 	double rate; UInt32 frames;
@@ -118,7 +118,7 @@ static struct dev devs[2] = {
 	{ kInDev, kInStream, 1, 1, 48000, 512, .sock = -1, .lock = PTHREAD_MUTEX_INITIALIZER, .volume = 1 },
 };
 static struct dev* devof(AudioObjectID o) {
-	if (o == kOutDev || o == kOutStream || o == kOutAgg) return &devs[0];
+	if (o == kOutDev || o == kOutStream || o == kOutAgg || o == kIOAgg) return &devs[0];
 	if (o == kInDev || o == kInStream || o == kInAgg) return &devs[1];
 	return NULL;
 }
@@ -143,8 +143,10 @@ static os_workgroup_t dev_workgroup(int input) {
 	pthread_mutex_unlock(&wglock);
 	return wg;
 }
-// Platforms 2: the composition of the last aggregate answered with each device (my_CreateAggregateDevice), for 'acom'
-static CFDictionaryRef aggdesc[2];
+// Platforms 2: the composition of the last aggregate answered with each device (my_CreateAggregateDevice), for 'acom';
+// [2]: the duplex one (kIOAgg: microphone and speaker)
+static CFDictionaryRef aggdesc[3];
+static int aggindex(AudioObjectID o) { return o == kIOAgg ? 2 : o == kInAgg; }
 static pthread_mutex_t agglock = PTHREAD_MUTEX_INITIALIZER;
 
 static double ticks_per_sec;
@@ -217,6 +219,37 @@ static void* input_reader(void* arg) {
 
 // ---- IO thread ----
 static int anyrunning(struct dev* d) { for (int i = 0; i < MAXPROCS; i++) if (d->procs[i].running) return 1; return 0; }
+static int anyduplex(struct dev* d) { for (int i = 0; i < MAXPROCS; i++) if (d->procs[i].running && d->procs[i].duplex) return 1; return 0; }
+// x86Sim: the duplex aggregate (kIOAgg: AURemoteIO with input and output, AVAudioRecorder / AVAudioEngine's input node /
+// AudioQueue input in .playAndRecord) runs its IOProcs on the output's IO thread with the microphone's frames as input:
+// the input device's Linux stream and ring run without its own IO thread while a duplex IOProc runs
+static int dupcap;
+static void capture_start(void) {
+	struct dev* in = &devs[1];
+	if (dupcap || in->threadrun) { dupcap = 1; return; }
+	if (!in->ring) { in->ringcap = 48000 * 2; in->ring = calloc(in->ringcap, 4); }
+	in->ringr = in->ringw = 0;
+	in->sock = connect_linux(in);
+	if (in->sock >= 0) { pthread_t t; pthread_create(&t, NULL, input_reader, in); pthread_detach(t); }
+	dupcap = 1;
+}
+static void capture_stop(void) {
+	struct dev* in = &devs[1];
+	if (!dupcap) return;
+	dupcap = 0;
+	if (!in->threadrun && in->sock >= 0) { shutdown(in->sock, SHUT_RDWR); close(in->sock); in->sock = -1; }
+}
+// up to n samples of the microphone's ring into buf (the rest silence)
+static void ring_read(struct dev* in, float* buf, size_t n) {
+	memset(buf, 0, n * 4);
+	pthread_mutex_lock(&in->lock);
+	size_t avail = in->ringw - in->ringr;
+	// keep the latency bounded: skip what piled up beyond two buffers
+	if (avail > n * 3) in->ringr = in->ringw - n * 2, avail = n * 2;
+	for (size_t i = 0; i < n && i < avail; i++) buf[i] = in->ring[(in->ringr + i) % in->ringcap] * (in->mute ? 0 : in->volume);
+	in->ringr += n < avail ? n : avail;
+	pthread_mutex_unlock(&in->lock);
+}
 
 static void stamp(struct dev* d, double sample, AudioTimeStamp* t) {
 	memset(t, 0, sizeof(*t));
@@ -232,7 +265,7 @@ static void* iothread(void* arg) {
 	// x86Sim: a time-constraint thread as the HAL's IO thread would be
 	struct sched_param sp = { .sched_priority = 47 }; pthread_setschedparam(pthread_self(), SCHED_RR, &sp);
 	UInt32 ch = d->channels;
-	float *mix = NULL, *buf = NULL, *in = NULL; size_t cap = 0;
+	float *mix = NULL, *buf = NULL, *in = NULL, *din = NULL; size_t cap = 0, dcap = 0;
 	uint64_t n = 0;
 	while (d->threadrun) {
 		UInt32 frames = d->frames; double rate = d->rate;
@@ -249,27 +282,26 @@ static void* iothread(void* arg) {
 		stamp(d, sample + 2.0 * frames, &outtime);
 		memset(mix, 0, need * 4);
 		AudioBufferList inl = { 1, { { ch, (UInt32)(need * 4), in } } };
-		if (d->input) {
-			memset(in, 0, need * 4);
-			pthread_mutex_lock(&d->lock);
-			size_t avail = d->ringw - d->ringr;
-			// keep the latency bounded: skip what piled up beyond two buffers
-			if (avail > need * 3) d->ringr = d->ringw - need * 2, avail = need * 2;
-			for (size_t i = 0; i < need && i < avail; i++) in[i] = d->ring[(d->ringr + i) % d->ringcap] * (d->mute ? 0 : d->volume);
-			d->ringr += need < avail ? need : avail;
-			pthread_mutex_unlock(&d->lock);
+		if (d->input) ring_read(d, in, need);
+		// the duplex aggregate's input: the microphone's frames for this cycle (its own channel count)
+		UInt32 dch = devs[1].channels; size_t dneed = (size_t)frames * dch;
+		AudioBufferList dinl = { 1, { { dch, (UInt32)(dneed * 4), NULL } } };
+		if (!d->input && anyduplex(d) && devs[1].ring) {
+			if (dneed > dcap) { dcap = dneed; din = realloc(din, dcap * 4); }
+			ring_read(&devs[1], din, dneed);
+			dinl.mBuffers[0].mData = din;
 		}
 		for (int i = 0; i < MAXPROCS; i++) {
 			struct ioproc* p = &d->procs[i];
 			if (!p->running) continue;
 			AudioBufferList outl = { 1, { { ch, (UInt32)(need * 4), buf } } };
 			memset(buf, 0, need * 4);
-			const AudioBufferList* ip = d->input ? &inl : NULL;
+			const AudioBufferList* ip = d->input ? &inl : p->duplex && dinl.mBuffers[0].mData ? &dinl : NULL;
 			AudioBufferList* op = d->input ? NULL : &outl;
 			static AudioBufferList empty = { 0 };
 			if (!ip) ip = &empty;
 			if (!op) op = (AudioBufferList*)&empty;
-			if (p->proc) p->proc(d->id, &now, ip, &intime, op, &outtime, p->data);
+			if (p->proc) p->proc(p->duplex ? kIOAgg : d->id, &now, ip, &intime, op, &outtime, p->data);
 			else if (p->block) p->block(&now, ip, &intime, op, &outtime);
 			if (!d->input) for (size_t k = 0; k < need; k++) mix[k] += buf[k];
 		}
@@ -288,7 +320,7 @@ static void* iothread(void* arg) {
 			d->sample0 = sample + frames; d->t0 = mach_absolute_time(); n = 0;
 		}
 	}
-	free(mix); free(buf); free(in);
+	free(mix); free(buf); free(in); free(din);
 	return NULL;
 }
 
@@ -337,9 +369,9 @@ static AudioObjectID uid_device(CFStringRef u) {
 	if (CFEqual(u, CFSTR("x86sim-input"))) return kInDev;
 	AudioObjectID r = 0;
 	pthread_mutex_lock(&agglock);
-	for (int i = 0; i < 2 && !r; i++) {
+	for (int i = 0; i < 3 && !r; i++) {
 		CFStringRef a = aggdesc[i] ? CFDictionaryGetValue(aggdesc[i], CFSTR("uid")) : NULL;
-		if (a && CFEqual(a, u)) r = i ? kInAgg : kOutAgg;
+		if (a && CFEqual(a, u)) r = i == 2 ? kIOAgg : i ? kInAgg : kOutAgg;
 	}
 	pthread_mutex_unlock(&agglock);
 	return r;
@@ -413,26 +445,49 @@ static OSStatus getprop(AudioObjectID obj, const AudioObjectPropertyAddress* a, 
 		return ERR_UNKNOWN;
 	}
 	int sc = scope_ok(d, a->mScope);
+	if (obj == kIOAgg) {
+		// the duplex aggregate: the microphone's answers in the input scope, the speaker's otherwise; its streams are both
+		if (a->mScope == FCC("inpt")) { d = &devs[1]; sc = 1; }
+		switch (sel) {
+		case FCC("grup"): {
+			if (*ioSize < sizeof(CFArrayRef)) return ERR_SIZE;
+			CFStringRef subs[2] = { CFSTR("x86sim-input"), CFSTR("x86sim-output") };
+			*(CFArrayRef*)out = CFArrayCreate(NULL, (const void**)subs, 2, &kCFTypeArrayCallBacks); *ioSize = sizeof(CFArrayRef); return 0;
+		}
+		case FCC("agrp"): {
+			if (*ioSize < 2 * sizeof(AudioObjectID)) PUT(AudioObjectID, kOutDev);
+			AudioObjectID ids[2] = { kInDev, kOutDev }; memcpy(out, ids, sizeof(ids)); *ioSize = sizeof(ids); return 0;
+		}
+		case FCC("stm#"):
+			if (a->mScope == FCC("glob")) {
+				if (*ioSize < 2 * sizeof(AudioObjectID)) PUT(AudioObjectID, kOutStream);
+				AudioObjectID ids[2] = { kInStream, kOutStream }; memcpy(out, ids, sizeof(ids)); *ioSize = sizeof(ids); return 0;
+			}
+			break;
+		case FCC("amst"): case FCC("apcd"): PUTCF("x86sim-output");
+		}
+	}
 	if (isagg(obj)) {
 		// the aggregate (AudioToolbox's AggregateDevice.mm checks it): its own class, UID and name (from the
 		// composition it was made with), the device under it as its one sub-device; the rest is that device's
 		CFStringRef sub = d->input ? CFSTR("x86sim-input") : CFSTR("x86sim-output");
+		const int ai = aggindex(obj);
 		switch (sel) {
 		case FCC("clas"): PUT(UInt32, FCC("aagg"));
 		case FCC("bcls"): PUT(UInt32, FCC("adev"));
 		case FCC("uid "): case FCC("lnam"): {
 			if (*ioSize < sizeof(CFStringRef)) return ERR_SIZE;
 			pthread_mutex_lock(&agglock);
-			CFStringRef v = aggdesc[d->input] ? CFDictionaryGetValue(aggdesc[d->input], sel == FCC("uid ") ? CFSTR("uid") : CFSTR("name")) : NULL;
+			CFStringRef v = aggdesc[ai] ? CFDictionaryGetValue(aggdesc[ai], sel == FCC("uid ") ? CFSTR("uid") : CFSTR("name")) : NULL;
 			if (v && CFGetTypeID(v) == CFStringGetTypeID()) CFRetain(v); else v = NULL;
 			pthread_mutex_unlock(&agglock);
-			if (!v) v = CFStringCreateWithCString(NULL, d->input ? "x86sim-input-aggregate" : "x86sim-output-aggregate", kCFStringEncodingUTF8);
+			if (!v) v = CFStringCreateWithCString(NULL, ai == 2 ? "x86sim-duplex-aggregate" : d->input ? "x86sim-input-aggregate" : "x86sim-output-aggregate", kCFStringEncodingUTF8);
 			*(CFStringRef*)out = v; *ioSize = sizeof(CFStringRef); return 0;
 		}
 		case FCC("acom"): {
 			if (*ioSize < sizeof(CFDictionaryRef)) return ERR_SIZE;
 			pthread_mutex_lock(&agglock);
-			CFDictionaryRef c = aggdesc[d->input];
+			CFDictionaryRef c = aggdesc[ai];
 			if (c) CFRetain(c);
 			pthread_mutex_unlock(&agglock);
 			if (!c) c = CFDictionaryCreate(NULL, NULL, NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
@@ -582,6 +637,7 @@ static OSStatus my_SetPropertyData(AudioObjectID o, const AudioObjectPropertyAdd
 			d->rate = r;
 			if (d->sock >= 0) { close(d->sock); d->sock = -1; }
 			if (run) dev_start(d);
+			if (o == kIOAgg && devs[1].rate != r) { int c = dupcap; capture_stop(); devs[1].rate = r; if (c) capture_start(); }
 			notify(d->id, FCC("nsrt"), FCC("glob"));
 			notify(d->stream, FCC("sfmt"), FCC("glob"));
 			notify(d->stream, FCC("pft "), FCC("glob"));
@@ -660,10 +716,10 @@ static void my_ObjectShow(AudioObjectID o) {
 }
 
 // ---- IOProcs ----
-static OSStatus newproc(struct dev* d, AudioDeviceIOProc p, void* data, AudioDeviceIOBlock blk, dispatch_queue_t q, AudioDeviceIOProcID* out) {
+static OSStatus newproc(struct dev* d, AudioDeviceIOProc p, void* data, AudioDeviceIOBlock blk, dispatch_queue_t q, AudioDeviceIOProcID* out, int duplex) {
 	pthread_mutex_lock(&d->lock);
 	for (int i = 0; i < MAXPROCS; i++) if (!d->procs[i].id) {
-		d->procs[i] = (struct ioproc){ p, data, blk ? Block_copy(blk) : NULL, q, 0, nextprocid++ };
+		d->procs[i] = (struct ioproc){ p, data, blk ? Block_copy(blk) : NULL, q, 0, nextprocid++, duplex };
 		*out = (AudioDeviceIOProcID)(uintptr_t)(0x58000000 + d->procs[i].id);
 		pthread_mutex_unlock(&d->lock);
 		LOG("device %x: IOProc %d created", d->id, d->procs[i].id);
@@ -682,18 +738,18 @@ static struct ioproc* findproc(struct dev* d, AudioDeviceIOProcID id) {
 	return NULL;
 }
 static OSStatus my_CreateIOProcID(AudioObjectID o, AudioDeviceIOProc p, void* data, AudioDeviceIOProcID* out) {
-	if (ours(o) && (devof(o)->id == o || isagg(o))) { if (!p || !out) return ERR_ILLEGAL; return newproc(devof(o), p, data, NULL, NULL, out); }
+	if (ours(o) && (devof(o)->id == o || isagg(o))) { if (!p || !out) return ERR_ILLEGAL; return newproc(devof(o), p, data, NULL, NULL, out, o == kIOAgg); }
 	return AudioDeviceCreateIOProcID ? AudioDeviceCreateIOProcID(o, p, data, out) : ERR_OBJ;
 }
 static OSStatus my_CreateIOProcIDWithBlock(AudioDeviceIOProcID* out, AudioObjectID o, dispatch_queue_t q, AudioDeviceIOBlock b) {
-	if (ours(o) && (devof(o)->id == o || isagg(o))) { if (!b || !out) return ERR_ILLEGAL; return newproc(devof(o), NULL, NULL, b, q, out); }
+	if (ours(o) && (devof(o)->id == o || isagg(o))) { if (!b || !out) return ERR_ILLEGAL; return newproc(devof(o), NULL, NULL, b, q, out, o == kIOAgg); }
 	return AudioDeviceCreateIOProcIDWithBlock ? AudioDeviceCreateIOProcIDWithBlock(out, o, q, b) : ERR_OBJ;
 }
 static OSStatus my_DestroyIOProcID(AudioObjectID o, AudioDeviceIOProcID id) {
 	if (!ours(o)) return AudioDeviceDestroyIOProcID ? AudioDeviceDestroyIOProcID(o, id) : ERR_OBJ;
 	struct dev* d = devof(o); struct ioproc* p = findproc(d, id);
 	if (!p) return ERR_ILLEGAL;
-	if (p->running) { p->running = 0; if (!anyrunning(d)) dev_stop(d); }
+	if (p->running) { p->running = 0; if (!anyduplex(d)) capture_stop(); if (!anyrunning(d)) dev_stop(d); }
 	pthread_mutex_lock(&d->lock);
 	if (p->block) Block_release(p->block);
 	memset(p, 0, sizeof(*p));
@@ -704,7 +760,7 @@ static OSStatus my_Start(AudioObjectID o, AudioDeviceIOProcID id) {
 	if (!ours(o)) return AudioDeviceStart ? AudioDeviceStart(o, id) : ERR_OBJ;
 	struct dev* d = devof(o);
 	LOG("device %x: start %p", o, (void*)id);
-	if (id) { struct ioproc* p = findproc(d, id); if (!p) return ERR_ILLEGAL; p->running = 1; }
+	if (id) { struct ioproc* p = findproc(d, id); if (!p) return ERR_ILLEGAL; p->running = 1; if (p->duplex) capture_start(); }
 	dev_start(d);
 	return 0;
 }
@@ -719,6 +775,7 @@ static OSStatus my_Stop(AudioObjectID o, AudioDeviceIOProcID id) {
 	struct dev* d = devof(o);
 	LOG("device %x: stop %p", o, (void*)id);
 	if (id) { struct ioproc* p = findproc(d, id); if (p) p->running = 0; }
+	if (!anyduplex(d)) capture_stop();
 	if (!id || !anyrunning(d)) dev_stop(d);
 	return 0;
 }
@@ -755,7 +812,7 @@ static OSStatus my_GetNearestStartTime(AudioObjectID o, AudioTimeStamp* t, UInt3
 // Platforms 2: the simulator's AudioToolbox (AQME, AURemoteIO, visionOS's PHASE/AudioIOUnit) wraps the default device
 // in a private aggregate ("iOSSimulatorAudioDevice-<pid>-<n>", master and subdevices by UID). Our devices already have
 // the IO it wants, so the aggregate is a thin object over the device (the output's, or the input's when it has no
-// output channels): its own ID, class and UID, the device as its sub-device (AggregateDevice.mm refused the device
+// output channels; both: the duplex aggregate kIOAgg, see capture_start): its own ID, class and UID, the device as its sub-device (AggregateDevice.mm refused the device
 // itself: "tried to add itself in an aggregate", no child devices, and after 10 tries AURemoteIO had 0 ch at 0 Hz).
 static OSStatus my_CreateAggregateDevice(CFDictionaryRef desc, AudioObjectID* out) {
 	if (logon) { LOG("CreateAggregateDevice:"); CFShow(desc); }
@@ -781,9 +838,9 @@ static OSStatus my_CreateAggregateDevice(CFDictionaryRef desc, AudioObjectID* ou
 		else if (CFEqual(master, CFSTR("x86sim-input"))) { ours++; if (!wantOut) wantIn = 1; }
 	}
 	if (!ours || other) return ERR_UNSUP;
-	*out = wantOut || !wantIn ? kOutAgg : kInAgg;
+	*out = wantOut && wantIn ? kIOAgg : wantOut || !wantIn ? kOutAgg : kInAgg;
 	pthread_mutex_lock(&agglock);
-	CFDictionaryRef *slot = &aggdesc[*out == kInAgg], old = *slot;
+	CFDictionaryRef *slot = &aggdesc[aggindex(*out)], old = *slot;
 	*slot = CFDictionaryCreateCopy(NULL, desc);
 	pthread_mutex_unlock(&agglock);
 	if (old) CFRelease(old);
@@ -791,7 +848,7 @@ static OSStatus my_CreateAggregateDevice(CFDictionaryRef desc, AudioObjectID* ou
 	return 0;
 }
 static OSStatus my_DestroyAggregateDevice(AudioObjectID o) {
-	if (o == kOutDev || o == kInDev || isagg(o)) return 0;
+	if (o == kOutDev || o == kInDev || isagg(o)) return 0;  // (kIOAgg included)
 	return AudioHardwareDestroyAggregateDevice ? AudioHardwareDestroyAggregateDevice(o) : ERR_OBJ;
 }
 
