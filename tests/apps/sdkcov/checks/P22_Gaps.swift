@@ -6,7 +6,7 @@ import CoreMedia
 #if canImport(AVFoundation)
 import AVFoundation
 #endif
-#if os(iOS) || os(visionOS)
+#if os(iOS) || os(visionOS) || os(tvOS)
 import UIKit
 #endif
 #if os(iOS)
@@ -137,7 +137,7 @@ final class P22PVCDelegate: NSObject, AVPlayerViewControllerDelegate, @unchecked
 }
 #endif
 
-#if os(iOS) || os(visionOS)
+#if os(iOS) || os(visionOS) || os(tvOS)
 /// an NSUserActivity delegate noting UIKit's save of the scene's activity
 final class P22ActivityDelegate: NSObject, NSUserActivityDelegate, @unchecked Sendable {
     let saves = Atomic<Int>(0)
@@ -432,11 +432,13 @@ extension Registry {
         // app sdkcovDoc (ext/DocApp.swift) by URL after marking a lifecycle request; sdkcovDoc opens sdkcov: again at once.
         // The window scene's and the application's notifications in order, the activation states, and UIKit saving the
         // scene's NSUserActivity (needsSave) when it leaves the foreground. Last in the run (Registry.all ends with p22).
-        #if os(iOS) || os(visionOS)
+        #if os(iOS) || os(visionOS) || os(tvOS)
         c.append(check("UIKit", "scene-lifecycle-round-trip", timeout: 120) {
             let t0 = Date()
             let bg = await onMain { UIApplication.shared.beginBackgroundTask(withName: "sdkcov-lifecycle") {} }
             defer { Task { @MainActor in UIApplication.shared.endBackgroundTask(bg) } }
+            // with --only the check can start before the scene is up: wait for it (20 s)
+            _ = await p3Wait(20) { await onMain { UIApplication.shared.connectedScenes.contains { $0.activationState == .foregroundActive } } }
             guard let scene = await onMain({ UIApplication.shared.connectedScenes.first { $0.activationState == .foregroundActive } as? UIWindowScene }) else {
                 throw Fail("no foreground-active window scene")
             }

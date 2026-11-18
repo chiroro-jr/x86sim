@@ -3,10 +3,12 @@
 // opens it through its URL scheme sdkcovdoc:; at launch it finds DocumentGroup's document browser, opens a seeded file
 // through the browser's delegate (as a tap on the file would), edits the document, waits for its autosave, marks each
 // step (ext/Marks.swift) and opens sdkcov: again so the app comes back.
+// tvOS (no DocumentGroup there): a plain window app that only answers the scene lifecycle round trip.
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
+#if !os(tvOS)
 struct SDKCovTextDoc: FileDocument {
     static var readableContentTypes: [UTType] { [.plainText] }
     var text: String
@@ -17,6 +19,8 @@ struct SDKCovTextDoc: FileDocument {
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper { FileWrapper(regularFileWithContents: Data(text.utf8)) }
 }
 
+#endif
+
 @MainActor enum DocDriver {
     static var started = false
     static let seeded = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("sdkcov-doc.txt")
@@ -25,10 +29,12 @@ struct SDKCovTextDoc: FileDocument {
         guard let vc else { return [] }
         return [vc] + vc.children.flatMap { all($0) } + all(vc.presentedViewController)
     }
+    #if !os(tvOS)
     static func browser() -> UIDocumentBrowserViewController? {
         let roots = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows).map(\.rootViewController)
         return roots.flatMap { all($0) }.compactMap { $0 as? UIDocumentBrowserViewController }.first
     }
+    #endif
     /// sdkcov's scene lifecycle check (func:UIKit.scene-lifecycle-round-trip, checks/P22_Gaps.swift) marks
     /// lifecycle-request (a token) just before it opens sdkcovdoc:; such a launch or activation only opens sdkcov:
     /// again (no document work)
@@ -53,6 +59,9 @@ struct SDKCovTextDoc: FileDocument {
     /// launched by URL (sdkcovdoc:) or by hand: once per process
     static func start() {
         if answerLifecycle() { return }
+        #if os(tvOS)
+        sdkcovMark("docapp-launch", "pid \(ProcessInfo.processInfo.processIdentifier) (tvOS: no document work)")
+        #else
         guard !started else { return }
         started = true
         sdkcovMark("docapp-launch", "pid \(ProcessInfo.processInfo.processIdentifier)")
@@ -68,7 +77,9 @@ struct SDKCovTextDoc: FileDocument {
             // a tap on the file: the browser's delegate (DocumentGroup's) gets it picked
             b.delegate?.documentBrowser?(b, didPickDocumentsAt: [seeded])
         }
+        #endif
     }
+    #if !os(tvOS)
     static func opened(_ text: Binding<String>, _ url: URL?) {
         sdkcovMark("docapp-open", "\(url?.lastPathComponent ?? "nil") text '\(text.wrappedValue)'")
         Task { @MainActor in
@@ -85,6 +96,7 @@ struct SDKCovTextDoc: FileDocument {
             back()
         }
     }
+    #endif
     static func back(_ url: String = "sdkcov://doc-done") {
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(500))
@@ -93,6 +105,7 @@ struct SDKCovTextDoc: FileDocument {
     }
 }
 
+#if !os(tvOS)
 struct SDKCovDocView: View {
     @Binding var doc: SDKCovTextDoc
     let url: URL?
@@ -101,12 +114,18 @@ struct SDKCovDocView: View {
     }
 }
 
+#endif
+
 @main
 struct SDKCovDocApp: App {
     var body: some Scene {
+        #if os(tvOS)
+        WindowGroup { Text("sdkcovDoc") }
+        #else
         DocumentGroup(newDocument: SDKCovTextDoc()) { cfg in
             SDKCovDocView(doc: cfg.$document, url: cfg.fileURL)
         }
+        #endif
     }
     init() {
         Task { @MainActor in DocDriver.start() }

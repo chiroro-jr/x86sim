@@ -96,8 +96,9 @@ for p in ${*:-ios tvos watchos xros}; do
 <key>NSAccessorySetupKitSupports</key><array><string>Bluetooth</string></array>
 <key>BAAppGroupID</key><string>group.com.x86sim.test.sdkcov</string>
 <key>CFBundleURLTypes</key><array><dict><key>CFBundleURLName</key><string>com.x86sim.test.sdkcov</string><key>CFBundleURLSchemes</key><array><string>sdkcov</string></array></dict></array>'"$ba$appsvc" ;;
-	tvos) sdk=appletvsimulator; tgt=arm64-apple-tvos27.0-simulator; plat=AppleTVSimulator; fam='<integer>3</integer>'; exts=downloader  # no extkit: as watchOS below
-		extra='<key>BAAppGroupID</key><string>group.com.x86sim.test.sdkcov</string>'"$ba$appsvc" ;;
+	tvos) sdk=appletvsimulator; tgt=arm64-apple-tvos27.0-simulator; plat=AppleTVSimulator; fam='<integer>3</integer>'; exts='downloader docapp'  # no extkit: as watchOS below; docapp: the scene lifecycle round trip (P22)
+		extra='<key>CFBundleURLTypes</key><array><dict><key>CFBundleURLName</key><string>com.x86sim.test.sdkcov</string><key>CFBundleURLSchemes</key><array><string>sdkcov</string></array></dict></array>
+<key>BAAppGroupID</key><string>group.com.x86sim.test.sdkcov</string>'"$ba$appsvc" ;;
 	# a standalone (watch-only) app: watchOS installs and runs it without an iPhone companion
 	watchos) sdk=watchsimulator; tgt=arm64-apple-watchos27.0-simulator; plat=WatchSimulator; fam='<integer>4</integer>'
 		# no ExtensionKit extension (tvOS, visionOS neither): their installd refuses an appex whose EXExtensionPointIdentifier is not one of
