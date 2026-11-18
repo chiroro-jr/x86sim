@@ -4,6 +4,10 @@ import Foundation
 #if canImport(WidgetKit) && os(iOS)
 import WidgetKit
 #endif
+#if canImport(GameController) && os(iOS)
+import GameController
+import Synchronization
+#endif
 #if os(watchOS)
 import WatchKit
 import Synchronization
@@ -67,6 +71,29 @@ extension Registry {
             try expect(back, "no round trip in \(Int(wait)) s: \(d)")
             // Apple's order and states (the host's launch that brings the app back adds a resign / become active pair)
             try expect(Array(e.prefix(4)) == ["willResignActive[0]", "didEnterBackground[2]", "willEnterForeground[2]", "didBecomeActive[0]"] && st == 0, d)
+            return d
+        })
+        #endif
+        // MARK: GameController: a hardware keyboard key through GCKeyboard (inputs.sh gckey / ref-mac.sh INPUT='key 14':
+        // the host's K key, HID usage 14, as Simulator sends it): the coalesced keyboard appears and its key handler sees
+        // K pressed and released
+        #if canImport(GameController) && os(iOS)
+        c.append(check("GameController", "input-keyboard-key", timeout: 120) {
+            let wait = p23InputWait
+            guard wait > 0 else { return "keyboard \(GCKeyboard.coalesced != nil) (SDKCOV_INPUT_WAIT unset: no key awaited)" }
+            let ev = Mutex<[String]>([])
+            let hook = { (kb: GCKeyboard) in
+                kb.keyboardInput?.keyChangedHandler = { _, _, code, pressed in ev.withLock { $0.append("\(code.rawValue)\(pressed ? "+" : "-")") } }
+            }
+            let ob = NotificationCenter.default.addObserver(forName: .GCKeyboardDidConnect, object: nil, queue: .main) { n in
+                if let kb = n.object as? GCKeyboard { hook(kb) }
+            }
+            defer { NotificationCenter.default.removeObserver(ob) }
+            if let kb = GCKeyboard.coalesced { hook(kb) }
+            let got = await p3Wait(wait) { ev.withLock { $0.contains("14-") } }
+            let e = ev.withLock { $0 }
+            let d = "keyboard \(GCKeyboard.coalesced?.vendorName ?? "none"); keys \(e.prefix(12))"
+            try expect(got, "no K press / release in \(Int(wait)) s: \(d)")
             return d
         })
         #endif

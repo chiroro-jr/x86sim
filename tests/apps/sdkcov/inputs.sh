@@ -23,7 +23,7 @@ build=; want=
 for a in "$@"; do case $a in --no-build) build=--no-build ;; *) want="$want $a" ;; esac; done
 rt=$(cat "$X86SIM_DEVICE/runtime" 2>/dev/null); plat=${rt%%-*}
 case $plat in
-	ios) all="shake orientation biometric bioitem gamepad memwarn push tracking clip ctxmenu swipe sdrag ncontent cvmenu pencil locbutton fpauth widget"
+	ios) all="shake orientation biometric bioitem gamepad memwarn push tracking clip ctxmenu swipe sdrag ncontent cvmenu pencil locbutton fpauth widget gckey"
 		case $(cat "$X86SIM_DEVICE/model" 2>/dev/null) in iPad*) all="$all pointer keyboard drag" ;; esac ;; xros) all="shake biometric bioitem gamepad memwarn tracking" ;; tvos) all="gamepad memwarn tracking" ;;
 	watchos) all="lifecycle" ;;
 	*) echo "inputs: no input checks for $plat" >&2; exit 0 ;;
@@ -105,6 +105,8 @@ for k in ${want:-$all}; do
 			f=$(find "$X86SIM_DEVICE"/data/tmp -name 'sdkcov-*.err' -newer "$OUT/run.log" 2>/dev/null | head -1)
 			grep -qs "X86TEST sdkcov only " "$f" || return; nap 6; touch "$OUT/lc-sent"
 			xs home; nap 4; xs app com.x86sim.test.sdkcov; } ; undo() { :; } ;;
+		# (P23) the K key (HID usage 14) on the hardware keyboard: GCKeyboard (Apple: ref-mac.sh INPUT='key 14')
+		gckey) id=func:GameController.input-keyboard-key; send() { xs raw "key down 14" "key up 14"; } ; undo() { :; } ;;
 		*) echo "inputs: unknown check $k" >&2; exit 2 ;;
 	esac
 	# per device: two devices of one platform don't share (and delete) each other's OUT
