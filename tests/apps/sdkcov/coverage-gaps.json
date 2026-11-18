@@ -61,7 +61,9 @@
     "func:AVFoundation.content-key-session-clear-key",
     "func:AVFoundation.chapters-text-track",
     "func:AVFoundation.player-stalled-notification",
-    "func:AVFoundation.player-loader-error-mid-play"
+    "func:AVFoundation.player-loader-error-mid-play",
+    "func:AVFoundation.player-stalled-http-loopback",
+    "func:AVFoundation.chapters-bundled-movie"
    ],
    "gaps": [],
    "note": "asset writer/reader/image generator, CI video compositor + export + presets, HLS loopback with WebVTT, resource loader, timed metadata, AVMutableMovie, queue player/looper/seek/rate, sample-buffer renderers+synchronizer, multi-format loads; capture-simulator-answers asserts 0 cameras and input-less session error -11819 as on Apple. P11: an unplayable item fails with AVFoundationErrorDomain -11829 (Apple and x86Sim PASS, 2026-11-18). r17: export metadata (title) written through; a passthrough export with fileLengthLimit refused -11838 (Apple the same) (Apple and x86Sim PASS, 2026-11-18). r24: AVContentKeySession clear key: the request arrives, the clear key response fails it (-11800) on both (Apple and x86Sim PASS, 2026-11-18). r25: QuickTime chapters (a text track associated as the video's chapter list, written by AVAssetWriter) read back as three chapter groups (Apple and x86Sim PASS, 2026-11-18). r25: a movie served by an AVAssetResourceLoader delegate that stops a third of the way into its media data: AVPlayerItemPlaybackStalled; a loader error mid-play gives the stall only (no failed-to-play-to-end, item stays ready) on both (player-loader-error-mid-play) (Apple and x86Sim PASS, 2026-11-18).",
@@ -76,13 +78,13 @@
   "AVKit": {
    "existing_checks": [
     "func:AVKit.player-view-controller",
-    "func:AVKit.player-vc-playback-pip-route-picker"
+    "func:AVKit.player-vc-playback-pip-route-picker",
+    "func:AVKit.fullscreen-enter-exit-delegate"
    ],
-   "gaps": [
-    "[a] AVPlayerViewControllerDelegate full-screen enter/exit transitions"
-   ],
-   "note": "AVPlayerViewController on screen plays (iOS/visionOS), tvOS transport bar + content proposal, watchOS VideoPlayer plays; PiP unsupported/not possible on Apple sim too, route picker has a button.",
+   "gaps": [],
+   "note": "AVPlayerViewController on screen plays (iOS/visionOS), tvOS transport bar + content proposal, watchOS VideoPlayer plays; PiP unsupported/not possible on Apple sim too, route picker has a button. r26: an inline AVPlayerViewController with entersFullScreenWhenPlaybackBegins / exitsFullScreenWhenPlaybackEnds: playback the app starts never goes full screen (no delegate call, plays to its end inline) on both (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
+   "r26": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -441,14 +443,16 @@
    "existing_checks": [
     "func:BackgroundAssets.asset-pack-manager",
     "func:BackgroundAssets.asset-pack-status-download",
-    "func:BackgroundAssets.download-manager-schedule-cancel"
+    "func:BackgroundAssets.download-manager-schedule-cancel",
+    "func:BackgroundAssets.foreground-download-loopback"
    ],
    "gaps": [
-    "[a] BADownloaderExtension: a scheduled BADownload running in the downloader extension (extension registered, seen by ExtensionFoundation monitor on tvOS/visionOS)"
+    "[a] a background BAURLDownload handled by an (unmanaged) BADownloaderExtension: the bundled extension is a ManagedDownloaderExtension; a foreground download through the app is covered"
    ],
-   "note": "asset-pack-status-download asserts the error answers on iOS/tvOS/visionOS; tvOS also checks downloads list. r25: BADownloadManager current downloads, a BAURLDownload scheduled, listed and cancelled; x86Sim failed (_GenericObjCError 0) until boot-a64 ran backgroundassets.user on iOS / visionOS too (fixed; tvOS had it) (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "asset-pack-status-download asserts the error answers on iOS/tvOS/visionOS; tvOS also checks downloads list. r25: BADownloadManager current downloads, a BAURLDownload scheduled, listed and cancelled; x86Sim failed (_GenericObjCError 0) until boot-a64 ran backgroundassets.user on iOS / visionOS too (fixed; tvOS had it) (Apple and x86Sim PASS, 2026-11-18). r26: a BAURLDownload from a loopback TLS server (http: raises \"request can only download over HTTPS\") started with startForegroundDownload: the manager delegate sees begin, the server trust challenge, progress, finished, and reads the file (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P3 App extensions, system services, communication & parental controls",
    "r25": true,
+   "r26": true,
    "rejudged": true,
    "status": "apple-sim-na"
   },
@@ -829,15 +833,17 @@
     "func:CoreImage.metal-vs-software-filter-chain",
     "func:CoreImage.color-kernel-processor-kernel",
     "func:CoreImage.detector-rectangle-face",
-    "func:CoreImage.heif-raw-text-detector"
+    "func:CoreImage.heif-raw-text-detector",
+    "func:CoreImage.cikernel-metal-library"
    ],
    "gaps": [],
-   "note": "P11: CIColorKernel from source, CIImageProcessorKernel CPU buffer path (Apple and x86Sim PASS, 2026-11-18). r16: CoreImage [[stitchable]] kernels (composeImageFilterFunctionsFromModules) compile on x86Sim since the libComposeFilters dlopen fix (Vision optical flow on visionOS). r17: CIDetector rectangle bounds on a drawn rectangle, no face in it (Apple and x86Sim PASS, 2026-11-18). r24: HEIF written and read back by pixels, DNG not writable by ImageIO, junk RAW data still gets a filter, camera models (tvOS 0), CIDetector text: 1 feature with 8 sub-features (CIKernel from a Metal library and a face image still open) (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "P11: CIColorKernel from source, CIImageProcessorKernel CPU buffer path (Apple and x86Sim PASS, 2026-11-18). r16: CoreImage [[stitchable]] kernels (composeImageFilterFunctionsFromModules) compile on x86Sim since the libComposeFilters dlopen fix (Vision optical flow on visionOS). r17: CIDetector rectangle bounds on a drawn rectangle, no face in it (Apple and x86Sim PASS, 2026-11-18). r24: HEIF written and read back by pixels, DNG not writable by ImageIO, junk RAW data still gets a filter, camera models (tvOS 0), CIDetector text: 1 feature with 8 sub-features (CIKernel from a Metal library and a face image still open) (Apple and x86Sim PASS, 2026-11-18). r26: CIColorKernel / CIWarpKernel from a compiled Metal library (stitchable kernels built per platform with the Metal Toolchain, res/sdkcovCI.sh) read back by pixels (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
    "r15": true,
    "r16": true,
    "r17": true,
    "r24": true,
+   "r26": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -1052,13 +1058,13 @@
    "existing_checks": [
     "func:CryptoTokenKit.secure-element-tokens",
     "func:CryptoTokenKit.token-info-smartcard-keychain",
-    "func:CryptoTokenKit.watcher"
+    "func:CryptoTokenKit.watcher",
+    "func:CryptoTokenKit.persistent-token-keychain"
    ],
-   "gaps": [
-    "[a] TKTokenKeychainContents (needs a token extension)"
-   ],
-   "note": "setoken tokens + token info, insertion handler, empty TKSmartCardSlotManager (iOS/visionOS), SE keychain query; tvOS watcher sees 0 tokens on Apple too.",
+   "gaps": [],
+   "note": "setoken tokens + token info, insertion handler, empty TKSmartCardSlotManager (iOS/visionOS), SE keychain query; tvOS watcher sees 0 tokens on Apple too. r26: a persistent token extension (ext/Token.swift) configured from the app (TKTokenDriver.Configuration): TKTokenWatcher sees it, the certificate is in the keychain under its token id, removal takes both away; the key's reference is -26276 on both (the extension is never launched) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P8 Foundation, networking, security, identity & device management",
+   "r26": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -1647,13 +1653,13 @@
   },
   "ImmersiveMediaSupport": {
    "existing_checks": [
-    "func:ImmersiveMediaSupport.presentation-commands-reader"
+    "func:ImmersiveMediaSupport.presentation-commands-reader",
+    "func:ImmersiveMediaSupport.venue-descriptor-cameras"
    ],
-   "gaps": [
-    "[a] ImmersiveMediaRemotePreviewSender / VenueDescriptor"
-   ],
-   "note": "presentation commands Codable + PresentationDescriptorReader (camera, shot flop; fade opacity stays 1.0 on Apple too); ImmersiveVideoFrame on visionOS.",
+   "gaps": [],
+   "note": "presentation commands Codable + PresentationDescriptorReader (camera, shot flop; fade opacity stays 1.0 on Apple too); ImmersiveVideoFrame on visionOS. r26: VenueDescriptor with a stereo camera: a junk USDZ calibration makes addCamera throw invalidData yet the camera is kept, saved to .aime, read back, removed; an unknown id invalidParameters (ImmersiveMediaRemotePreviewSender is not in the 27.2 SDK) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
+   "r26": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -3042,16 +3048,18 @@
     "func:UIKit.textfield-secure-content-type",
     "func:UIKit.context-menu-interaction-present",
     "func:UIKit.input-collection-context-menu",
-    "func:UIKit.input-extra-window-shown"
+    "func:UIKit.input-extra-window-shown",
+    "func:UIKit.scene-lifecycle-round-trip"
    ],
    "gaps": [
-    "[a] scene lifecycle (background/foreground, state restoration via NSUserActivity)"
+    "tvOS/watchOS: [a] scene lifecycle (background/foreground): the companion app sdkcovDoc is built for iOS / visionOS only"
    ],
-   "note": "P6 adds compositional/diffable pixels, navigation callback order, UITab tab bar, page+search controllers, trait/dark-mode pixels, accessibility rotors, sheet detents, UIMenu/edit menu, UITextInput+find, date/color/font pickers, UIUpdateLink + printing; iPad checks SKIP on the iPhone device. r17: a secure field with the password content type keeps its text and refuses copy / cut (a plain field copies) (Apple and x86Sim PASS, 2026-11-18). r17: a UIContextMenuInteraction presented as a long press ends (UIKit's _presentMenuAtLocation:), delegate config / actions / willDisplay / willEnd, menu labels on screen (iOS; visionOS shows the menu outside the app scene, Apple too) (Apple and x86Sim PASS, 2026-11-18). r20: a long press on a UICollectionView cell pushed on a navigation stack opens its context menu (x86Sim took it as a tap: simhid SwipeLocked bit, fixed) (Apple and x86Sim PASS, 2026-11-18). r21: a second UIWindow of the app's scene (p6Show) is key and on screen over the app's window, visionOS too (screenshots on both simulators) (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "P6 adds compositional/diffable pixels, navigation callback order, UITab tab bar, page+search controllers, trait/dark-mode pixels, accessibility rotors, sheet detents, UIMenu/edit menu, UITextInput+find, date/color/font pickers, UIUpdateLink + printing; iPad checks SKIP on the iPhone device. r17: a secure field with the password content type keeps its text and refuses copy / cut (a plain field copies) (Apple and x86Sim PASS, 2026-11-18). r17: a UIContextMenuInteraction presented as a long press ends (UIKit's _presentMenuAtLocation:), delegate config / actions / willDisplay / willEnd, menu labels on screen (iOS; visionOS shows the menu outside the app scene, Apple too) (Apple and x86Sim PASS, 2026-11-18). r20: a long press on a UICollectionView cell pushed on a navigation stack opens its context menu (x86Sim took it as a tap: simhid SwipeLocked bit, fixed) (Apple and x86Sim PASS, 2026-11-18). r21: a second UIWindow of the app's scene (p6Show) is key and on screen over the app's window, visionOS too (screenshots on both simulators) (Apple and x86Sim PASS, 2026-11-18). r26: sdkcov opens the companion app sdkcovDoc, which opens sdkcov: again: the window scene / application notifications in Apple's order with the activation states, same session after; UIKit does not save the scene's NSUserActivity (needsSave) on the way out (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
    "r17": true,
    "r20": true,
    "r21": true,
+   "r26": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -3901,12 +3909,11 @@
     "func:AVKit.tv-content-proposal-display-criteria",
     "func:AVKit.pip-sample-buffer-source"
    ],
-   "gaps": [
-    "[a] AVPlayerViewControllerDelegate full-screen enter/exit transitions"
-   ],
-   "note": "AVPlayerViewController on screen plays (iOS/visionOS), tvOS transport bar + content proposal, watchOS VideoPlayer plays; PiP unsupported/not possible on Apple sim too, route picker has a button. r17: tvOS: picture in picture unsupported, a sample-buffer content source not possible (Apple's simulator the same) (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "AVPlayerViewController on screen plays (iOS/visionOS), tvOS transport bar + content proposal, watchOS VideoPlayer plays; PiP unsupported/not possible on Apple sim too, route picker has a button. r17: tvOS: picture in picture unsupported, a sample-buffer content source not possible (Apple's simulator the same) (Apple and x86Sim PASS, 2026-11-18). r26: the full-screen delegate calls are unavailable in the tvOS SDK (dropped).",
    "package": "P1 Media & AV",
    "r17": true,
+   "r26": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -3973,12 +3980,12 @@
     "func:AppIntents.app-shortcut-phrases-titles"
    ],
    "gaps": [
-    "[a] ControlWidget toggles / SetValueIntent (with WidgetKit)",
-    "[run] donations: x86 FAIL 4099 (2026-11-15 20:04) predates the com.apple.linkd job in boot-a64.sh's tvOS list: rerun"
+    "[a] ControlWidget toggles / SetValueIntent (with WidgetKit)"
    ],
-   "note": "EntityQuery by id/string/all/suggested, AppEnum, display reps, OpenIntent parameters + perform, AppDependencyManager, donations donate/delete by identifier. r25: the provider's phrases (with the ${applicationName} placeholder), short titles and images read back by reflection (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "EntityQuery by id/string/all/suggested, AppEnum, display reps, OpenIntent parameters + perform, AppDependencyManager, donations donate/delete by identifier. r25: the provider's phrases (with the ${applicationName} placeholder), short titles and images read back by reflection (Apple and x86Sim PASS, 2026-11-18). r26: donations rerun on tvOS: = Apple (donated, deleted 1).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
    "r25": true,
+   "r26": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -4279,15 +4286,17 @@
     "func:CoreImage.metal-vs-software-filter-chain",
     "func:CoreImage.color-kernel-processor-kernel",
     "func:CoreImage.detector-rectangle-face",
-    "func:CoreImage.heif-raw-text-detector"
+    "func:CoreImage.heif-raw-text-detector",
+    "func:CoreImage.cikernel-metal-library"
    ],
    "gaps": [],
-   "note": "P11: CIColorKernel from source, CIImageProcessorKernel CPU buffer path (Apple and x86Sim PASS, 2026-11-18). r16: CoreImage [[stitchable]] kernels (composeImageFilterFunctionsFromModules) compile on x86Sim since the libComposeFilters dlopen fix (Vision optical flow on visionOS). r17: CIDetector rectangle bounds on a drawn rectangle, no face in it (Apple and x86Sim PASS, 2026-11-18). r24: HEIF written and read back by pixels, DNG not writable by ImageIO, junk RAW data still gets a filter, camera models (tvOS 0), CIDetector text: 1 feature with 8 sub-features (CIKernel from a Metal library and a face image still open) (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "P11: CIColorKernel from source, CIImageProcessorKernel CPU buffer path (Apple and x86Sim PASS, 2026-11-18). r16: CoreImage [[stitchable]] kernels (composeImageFilterFunctionsFromModules) compile on x86Sim since the libComposeFilters dlopen fix (Vision optical flow on visionOS). r17: CIDetector rectangle bounds on a drawn rectangle, no face in it (Apple and x86Sim PASS, 2026-11-18). r24: HEIF written and read back by pixels, DNG not writable by ImageIO, junk RAW data still gets a filter, camera models (tvOS 0), CIDetector text: 1 feature with 8 sub-features (CIKernel from a Metal library and a face image still open) (Apple and x86Sim PASS, 2026-11-18). r26: CIColorKernel / CIWarpKernel from a compiled Metal library (stitchable kernels built per platform with the Metal Toolchain, res/sdkcovCI.sh) read back by pixels (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
    "r15": true,
    "r16": true,
    "r17": true,
    "r24": true,
+   "r26": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -4443,10 +4452,11 @@
     "func:CryptoTokenKit.watcher"
    ],
    "gaps": [
-    "[a] TKTokenKeychainContents (needs a token extension)"
+    "[a] TKTokenKeychainContents through a persistent token extension (iOS has one: ext/Token.swift, not bundled here)"
    ],
    "note": "setoken tokens + token info, insertion handler, empty TKSmartCardSlotManager (iOS/visionOS), SE keychain query; tvOS watcher sees 0 tokens on Apple too.",
    "package": "P8 Foundation, networking, security, identity & device management",
+   "r26": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -5626,12 +5636,13 @@
     "func:UIKit.tv-menu-tree-text-input"
    ],
    "gaps": [
-    "[a] scene lifecycle (background/foreground, state restoration via NSUserActivity)"
+    "[a] scene lifecycle (background/foreground): the companion app sdkcovDoc is built for iOS / visionOS only"
    ],
    "note": "P6 adds compositional/diffable pixels, navigation callback order, UITab tab bar, page+search controllers, trait/dark-mode pixels, accessibility rotors, sheet detents, UIMenu/edit menu, UITextInput+find, date/color/font pickers, UIUpdateLink + printing; iPad checks SKIP on the iPhone device. r21: a second UIWindow of the app's scene (p6Show) is key and on screen over the app's window, visionOS too (screenshots on both simulators) (Apple and x86Sim PASS, 2026-11-18). r23: the P13 context menu interaction and secure text field checks run on tvOS too (Apple and x86Sim PASS, 2026-11-18). r23: tvOS UIMenu tree, a button's primary action, UITextInput on a text field (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
    "r21": true,
    "r23": true,
+   "r26": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -6108,16 +6119,17 @@
     "func:AVFoundation.sample-buffer-renderers-synchronizer",
     "func:AVFoundation.asset-load-formats",
     "func:AVFoundation.player-item-failed-status",
-    "func:AVFoundation.content-key-session-clear-key"
+    "func:AVFoundation.content-key-session-clear-key",
+    "func:AVFoundation.chapters-bundled-movie",
+    "func:AVFoundation.player-stalled-http-loopback"
    ],
-   "gaps": [
-    "[a] chapters / playback stall: the iOS checks (P21) write their movies with AVAssetWriter, not ported to watchOS"
-   ],
-   "note": "asset writer/reader/image generator, CI video compositor + export + presets, HLS loopback with WebVTT, resource loader, timed metadata, AVMutableMovie, queue player/looper/seek/rate, sample-buffer renderers+synchronizer, multi-format loads; capture-simulator-answers asserts 0 cameras and input-less session error -11819 as on Apple. P11: an unplayable item fails with AVFoundationErrorDomain -11829 (Apple and x86Sim PASS, 2026-11-18). r24: AVContentKeySession clear key: the request arrives, the clear key response fails it (-11800) on both (Apple and x86Sim PASS, 2026-11-18). r24: AVAssetExportSession is not in the watchOS SDK: gap dropped.",
+   "gaps": [],
+   "note": "asset writer/reader/image generator, CI video compositor + export + presets, HLS loopback with WebVTT, resource loader, timed metadata, AVMutableMovie, queue player/looper/seek/rate, sample-buffer renderers+synchronizer, multi-format loads; capture-simulator-answers asserts 0 cameras and input-less session error -11819 as on Apple. P11: an unplayable item fails with AVFoundationErrorDomain -11829 (Apple and x86Sim PASS, 2026-11-18). r24: AVContentKeySession clear key: the request arrives, the clear key response fails it (-11800) on both (Apple and x86Sim PASS, 2026-11-18). r24: AVAssetExportSession is not in the watchOS SDK: gap dropped. r26: QuickTime chapters read from a bundled movie (res/sdkcovMovies.swift on a Mac; watchOS has no AVAssetWriter) and AVPlayerItemPlaybackStalled over a loopback HTTP server that holds back two thirds of the media data (player-stalled-http-loopback; no AVAssetResourceLoader on watchOS) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
    "r15": true,
    "r24": true,
    "r25": true,
+   "r26": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -6605,10 +6617,11 @@
     "func:CryptoTokenKit.watcher"
    ],
    "gaps": [
-    "[a] TKTokenKeychainContents (needs a token extension)"
+    "[a] TKTokenKeychainContents through a persistent token extension (iOS has one: ext/Token.swift, not bundled here)"
    ],
    "note": "setoken tokens + token info, insertion handler, empty TKSmartCardSlotManager (iOS/visionOS), SE keychain query; tvOS watcher sees 0 tokens on Apple too.",
    "package": "P8 Foundation, networking, security, identity & device management",
+   "r26": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -7404,11 +7417,12 @@
     "func:UIKit.image-color-font"
    ],
    "gaps": [
-    "[a] scene lifecycle (background/foreground, state restoration via NSUserActivity)"
+    "[a] scene lifecycle (background/foreground): the companion app sdkcovDoc is built for iOS / visionOS only"
    ],
    "note": "P6 adds compositional/diffable pixels, navigation callback order, UITab tab bar, page+search controllers, trait/dark-mode pixels, accessibility rotors, sheet detents, UIMenu/edit menu, UITextInput+find, date/color/font pickers, UIUpdateLink + printing; iPad checks SKIP on the iPhone device. r23: UIKit is not in the watchOS SDK: its UIKit context menu / text field gaps dropped.",
    "package": "P6 UI frameworks depth & platform UI",
    "r23": true,
+   "r26": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -7937,13 +7951,13 @@
   "AVKit": {
    "existing_checks": [
     "func:AVKit.player-view-controller",
-    "func:AVKit.player-vc-playback-pip-route-picker"
+    "func:AVKit.player-vc-playback-pip-route-picker",
+    "func:AVKit.fullscreen-enter-exit-delegate"
    ],
-   "gaps": [
-    "[a] AVPlayerViewControllerDelegate full-screen enter/exit transitions"
-   ],
-   "note": "AVPlayerViewController on screen plays (iOS/visionOS), tvOS transport bar + content proposal, watchOS VideoPlayer plays; PiP unsupported/not possible on Apple sim too, route picker has a button.",
+   "gaps": [],
+   "note": "AVPlayerViewController on screen plays (iOS/visionOS), tvOS transport bar + content proposal, watchOS VideoPlayer plays; PiP unsupported/not possible on Apple sim too, route picker has a button. r26: an inline AVPlayerViewController with entersFullScreenWhenPlaybackBegins / exitsFullScreenWhenPlaybackEnds: playback the app starts never goes full screen (no delegate call, plays to its end inline) on both (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
+   "r26": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -8109,15 +8123,17 @@
    "apple_sim_na_done": true,
    "existing_checks": [
     "func:BackgroundAssets.asset-pack-status-download",
-    "func:BackgroundAssets.download-manager-schedule-cancel"
+    "func:BackgroundAssets.download-manager-schedule-cancel",
+    "func:BackgroundAssets.foreground-download-loopback"
    ],
    "gaps": [
-    "[a] BADownloaderExtension: a scheduled BADownload running in the downloader extension (extension registered, seen by ExtensionFoundation monitor on tvOS/visionOS)"
+    "[a] a background BAURLDownload handled by an (unmanaged) BADownloaderExtension: the bundled extension is a ManagedDownloaderExtension; a foreground download through the app is covered"
    ],
-   "note": "asset-pack-status-download asserts the error answers on iOS/tvOS/visionOS; tvOS also checks downloads list. r24: x86Sim visionOS run PASS (Apple and x86Sim PASS, 2026-11-18). r25: BADownloadManager current downloads, a BAURLDownload scheduled, listed and cancelled (boot-a64 now runs backgroundassets.user on visionOS too) (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "asset-pack-status-download asserts the error answers on iOS/tvOS/visionOS; tvOS also checks downloads list. r24: x86Sim visionOS run PASS (Apple and x86Sim PASS, 2026-11-18). r25: BADownloadManager current downloads, a BAURLDownload scheduled, listed and cancelled (boot-a64 now runs backgroundassets.user on visionOS too) (Apple and x86Sim PASS, 2026-11-18). r26: a BAURLDownload from a loopback TLS server (http: raises \"request can only download over HTTPS\") started with startForegroundDownload: the manager delegate sees begin, the server trust challenge, progress, finished, and reads the file (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P3 App extensions, system services, communication & parental controls",
    "r24": true,
    "r25": true,
+   "r26": true,
    "rejudged": true,
    "status": "apple-sim-na"
   },
@@ -8283,13 +8299,14 @@
   },
   "CompositorServices": {
    "existing_checks": [
-    "func:CompositorServices.layer-renderer-clock"
+    "func:CompositorServices.layer-renderer-clock",
+    "func:CompositorServices.layer-configuration-drawables"
    ],
-   "gaps": [
-    "[a] LayerRenderer drawable depth/stereo views, foveation config (visionOS)"
-   ],
+   "gaps": [],
+   "note": "r26: a CompositorLayer with its own configuration (depth32Float, foveation if supported, layered layout): no foveation on either simulator, three layouts, two depth formats, one view in a 2D array slice, depth texture, no rasterization rate maps (the view size is the device type's screen) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
-   "rejudged": false,
+   "r26": true,
+   "rejudged": true,
    "status": "covered"
   },
   "ComputeGraph": {
@@ -8443,15 +8460,17 @@
     "func:CoreImage.metal-vs-software-filter-chain",
     "func:CoreImage.color-kernel-processor-kernel",
     "func:CoreImage.detector-rectangle-face",
-    "func:CoreImage.heif-raw-text-detector"
+    "func:CoreImage.heif-raw-text-detector",
+    "func:CoreImage.cikernel-metal-library"
    ],
    "gaps": [],
-   "note": "P11: CIColorKernel from source, CIImageProcessorKernel CPU buffer path (Apple and x86Sim PASS, 2026-11-18). r16: CoreImage [[stitchable]] kernels (composeImageFilterFunctionsFromModules) compile on x86Sim since the libComposeFilters dlopen fix (Vision optical flow on visionOS). r17: CIDetector rectangle bounds on a drawn rectangle, no face in it (Apple and x86Sim PASS, 2026-11-18). r24: HEIF written and read back by pixels, DNG not writable by ImageIO, junk RAW data still gets a filter, camera models (tvOS 0), CIDetector text: 1 feature with 8 sub-features (CIKernel from a Metal library and a face image still open) (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "P11: CIColorKernel from source, CIImageProcessorKernel CPU buffer path (Apple and x86Sim PASS, 2026-11-18). r16: CoreImage [[stitchable]] kernels (composeImageFilterFunctionsFromModules) compile on x86Sim since the libComposeFilters dlopen fix (Vision optical flow on visionOS). r17: CIDetector rectangle bounds on a drawn rectangle, no face in it (Apple and x86Sim PASS, 2026-11-18). r24: HEIF written and read back by pixels, DNG not writable by ImageIO, junk RAW data still gets a filter, camera models (tvOS 0), CIDetector text: 1 feature with 8 sub-features (CIKernel from a Metal library and a face image still open) (Apple and x86Sim PASS, 2026-11-18). r26: CIColorKernel / CIWarpKernel from a compiled Metal library (stitchable kernels built per platform with the Metal Toolchain, res/sdkcovCI.sh) read back by pixels (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
    "r15": true,
    "r16": true,
    "r17": true,
    "r24": true,
+   "r26": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -8624,10 +8643,11 @@
     "func:CryptoTokenKit.watcher"
    ],
    "gaps": [
-    "[a] TKTokenKeychainContents (needs a token extension)"
+    "[a] TKTokenKeychainContents through a persistent token extension (iOS has one: ext/Token.swift, not bundled here)"
    ],
    "note": "setoken tokens + token info, insertion handler, empty TKSmartCardSlotManager (iOS/visionOS), SE keychain query; tvOS watcher sees 0 tokens on Apple too.",
    "package": "P8 Foundation, networking, security, identity & device management",
+   "r26": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -9066,13 +9086,13 @@
   "ImmersiveMediaSupport": {
    "existing_checks": [
     "func:ImmersiveMediaSupport.video-frame-fade-command",
-    "func:ImmersiveMediaSupport.presentation-commands-reader"
+    "func:ImmersiveMediaSupport.presentation-commands-reader",
+    "func:ImmersiveMediaSupport.venue-descriptor-cameras"
    ],
-   "gaps": [
-    "[a] ImmersiveMediaRemotePreviewSender / VenueDescriptor"
-   ],
-   "note": "presentation commands Codable + PresentationDescriptorReader (camera, shot flop; fade opacity stays 1.0 on Apple too); ImmersiveVideoFrame on visionOS.",
+   "gaps": [],
+   "note": "presentation commands Codable + PresentationDescriptorReader (camera, shot flop; fade opacity stays 1.0 on Apple too); ImmersiveVideoFrame on visionOS. r26: VenueDescriptor with a stereo camera: a junk USDZ calibration makes addCamera throw invalidData yet the camera is kept, saved to .aime, read back, removed; an unknown id invalidParameters (ImmersiveMediaRemotePreviewSender is not in the 27.2 SDK) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
+   "r26": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -10057,18 +10077,19 @@
     "func:SwiftUI.timeline-transition-frame-sampling",
     "func:SwiftUI.tabview-page-selection",
     "func:SwiftUI.image-renderer-layout",
-    "func:SwiftUI.toolbar-menu-picker-datepicker-popover"
+    "func:SwiftUI.toolbar-menu-picker-datepicker-popover",
+    "func:SwiftUI.document-group-open-edit-save"
    ],
    "gaps": [
     "[a] contextMenu (needs a long-press input: SwiftUI's ContextMenuBridge answers no configuration outside the gesture, Apple's simulator too)",
-    "[a] DocumentGroup / FileDocument",
     "[a] drag & drop with Transferable (draggable/dropDestination)",
     "[a] List swipeActions (needs a swipe input)"
    ],
-   "note": "layout/Grid/custom Layout pixels, animation timing, Observation invalidation, lazy stacks/scroll position, NavigationStack path, sheet/cover/alert/dialog, controls+TextField focus, TimelineView, TabView now on all platforms that support them. r16: toolbar item as a trailing bar item, Menu and menu Picker as primary-action UIButtons (3 choices), compact UIDatePicker, a popover (visionOS: sheet) presented and dismissed from the model (Apple and x86Sim PASS, 2026-11-18). r17: a contextMenu becomes a UIContextMenuInteraction with SwiftUI's ContextMenuBridge delegate, which answers no configuration outside a long-press gesture (Apple too): left for input",
+   "note": "layout/Grid/custom Layout pixels, animation timing, Observation invalidation, lazy stacks/scroll position, NavigationStack path, sheet/cover/alert/dialog, controls+TextField focus, TimelineView, TabView now on all platforms that support them. r16: toolbar item as a trailing bar item, Menu and menu Picker as primary-action UIButtons (3 choices), compact UIDatePicker, a popover (visionOS: sheet) presented and dismissed from the model (Apple and x86Sim PASS, 2026-11-18). r17: a contextMenu becomes a UIContextMenuInteraction with SwiftUI's ContextMenuBridge delegate, which answers no configuration outside a long-press gesture (Apple too): left for input r26: DocumentGroup through the companion app sdkcovDoc on visionOS too (browser, open, edit, autosave) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
    "r16": true,
    "r17": true,
+   "r26": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -10200,15 +10221,15 @@
     "func:UIKit.pasteboard-text-input",
     "func:UIKit.textfield-secure-content-type",
     "func:UIKit.context-menu-interaction-present",
-    "func:UIKit.input-extra-window-shown"
+    "func:UIKit.input-extra-window-shown",
+    "func:UIKit.scene-lifecycle-round-trip"
    ],
-   "gaps": [
-    "[a] scene lifecycle (background/foreground, state restoration via NSUserActivity)"
-   ],
-   "note": "P6 adds compositional/diffable pixels, navigation callback order, UITab tab bar, page+search controllers, trait/dark-mode pixels, accessibility rotors, sheet detents, UIMenu/edit menu, UITextInput+find, date/color/font pickers, UIUpdateLink + printing; iPad checks SKIP on the iPhone device. r17: a secure field with the password content type keeps its text and refuses copy / cut (a plain field copies) (Apple and x86Sim PASS, 2026-11-18). r17: a UIContextMenuInteraction presented as a long press ends (UIKit's _presentMenuAtLocation:), delegate config / actions / willDisplay / willEnd, menu labels on screen (iOS; visionOS shows the menu outside the app scene, Apple too) (Apple and x86Sim PASS, 2026-11-18). r17: alert / action sheet, scroll view zoom, UIDocument save/open and first-responder text input ported to visionOS r21: a second UIWindow of the app's scene (p6Show) is key and on screen over the app's window, visionOS too (screenshots on both simulators) (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "P6 adds compositional/diffable pixels, navigation callback order, UITab tab bar, page+search controllers, trait/dark-mode pixels, accessibility rotors, sheet detents, UIMenu/edit menu, UITextInput+find, date/color/font pickers, UIUpdateLink + printing; iPad checks SKIP on the iPhone device. r17: a secure field with the password content type keeps its text and refuses copy / cut (a plain field copies) (Apple and x86Sim PASS, 2026-11-18). r17: a UIContextMenuInteraction presented as a long press ends (UIKit's _presentMenuAtLocation:), delegate config / actions / willDisplay / willEnd, menu labels on screen (iOS; visionOS shows the menu outside the app scene, Apple too) (Apple and x86Sim PASS, 2026-11-18). r17: alert / action sheet, scroll view zoom, UIDocument save/open and first-responder text input ported to visionOS r21: a second UIWindow of the app's scene (p6Show) is key and on screen over the app's window, visionOS too (screenshots on both simulators) (Apple and x86Sim PASS, 2026-11-18). r26: opening sdkcovDoc leaves sdkcov's scene foreground-active with no notification (the apps' windows share the space) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
    "r17": true,
    "r21": true,
+   "r26": true,
    "rejudged": true,
    "status": "covered"
   },
