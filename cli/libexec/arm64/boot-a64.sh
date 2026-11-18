@@ -267,6 +267,9 @@ MIN="com.apple.cfprefsd.xpc.daemon com.apple.cfprefsd.xpc.daemon.system com.appl
 # (applicationRegistered) or a client wakes it, it exits 0 at once and launchd starts it again every ~10 s (~0.15 s CPU
 # each), as in Apple's iOS 27.2 simulator (runs 3 after an install, 15 three minutes later). videosubscriptionsd starts
 # at an install too and stays (Apple's as well).
+# dmd (iOS, on demand): the device management daemon (com.apple.dmd), running in Apple's iOS 27.2 simulator. ScreenTimeAgent's
+# Catalyst task client connects to it at start and retries at once on every failed connect: without dmd that loop
+# kept ScreenTimeAgent at ~90% CPU for good ("Client did interrupt ... Transport could not connect", 4097 ~1500/s).
 # shazamd (iOS, watchOS, visionOS; on demand, sdkcov P11): ShazamKit's library service (com.apple.shazamd). Without it
 # SHLibrary.default.addItems failed at once (com.apple.ShazamKit.ShazamLibrary 301), where Apple's 27.2 simulators
 # never answer it for a simctl-installed app.
@@ -287,7 +290,7 @@ UI="com.apple.installcoordinationd com.apple.mobiletimerd com.apple.backboardd c
 	com.apple.gamed com.apple.gamesaved
 	com.apple.homed
 	com.apple.linkd com.apple.mediaanalysisd com.apple.mediaanalysisd.service com.apple.translationd
-	com.apple.telephonyutilities.callservicesd com.apple.UsageTrackingAgent com.apple.ScreenTimeAgent
+	com.apple.telephonyutilities.callservicesd com.apple.UsageTrackingAgent com.apple.ScreenTimeAgent com.apple.dmd
 	com.apple.videosubscriptionsd com.apple.managedappdistributiond com.apple.shazamd"
 UI_SLIM="com.apple.backboardd com.apple.SpringBoard com.apple.TextInput.kbd com.apple.FileCoordination com.apple.InputUI
 	com.apple.assistantd"
