@@ -287,6 +287,15 @@ extension Registry {
                 if let d, let s = CGImageSourceCreateWithData(d as CFData, nil), let ci = CGImageSourceCreateImageAtIndex(s, 0, nil) { imgSize = "\(ci.width)x\(ci.height)" }
             }
             try expect(imgSize == "40x30" && reqs.contains("GET /img.png"), "og:image \(imgSize), requests \(reqs)")
+            // the page's icon comes through its own provider (the 16x16 <link rel=icon>), apart from the og:image
+            var iconSize = "none"
+            if let ip = md.iconProvider {
+                let d: Data? = try? await withCheckedThrowingContinuation { k in
+                    _ = ip.loadDataRepresentation(for: .image) { d, e in if let d { k.resume(returning: d) } else { k.resume(throwing: e ?? Fail("no data")) } }
+                }
+                if let d, let s = CGImageSourceCreateWithData(d as CFData, nil), let ci = CGImageSourceCreateImageAtIndex(s, 0, nil) { iconSize = "\(ci.width)x\(ci.height)" }
+            }
+            try expect(iconSize == "16x16", "icon \(iconSize) (og:image \(imgSize)), requests \(reqs)")
             var view = ""
             #if !os(watchOS)
             view = try await p6A { () async throws -> String in

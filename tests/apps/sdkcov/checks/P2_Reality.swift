@@ -320,6 +320,8 @@ extension Registry {
             var assembled = "-"
             do { let a = try ComputeNodeGraph.Assembly(g); assembled = "uniform buffer \(a.uniformBufferSize) B, \(a.uniforms.count) uniforms" }
             catch { assembled = "assembly refused: \(error)" }
+            // Apple's 27.2 simulators: the input + add graph assembles with no uniforms (the constant 2.5 is inlined)
+            try expect(assembled == "uniform buffer 0 B, 0 uniforms", "assembly: \(assembled)")
             return "3 nodes / 2 edges, round trips \(rt), library \(defs.count) definitions, stages \(stages), \(assembled)"
         })
         #endif

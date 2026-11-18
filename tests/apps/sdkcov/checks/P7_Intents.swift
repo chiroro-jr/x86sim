@@ -480,6 +480,9 @@ extension Registry {
             #if os(tvOS)
             // Apple's tvOS 27.2 simulator refuses both deletes (IntentsErrorDomain 1900)
             try expect(dl == "IntentsErrorDomain 1900" && da == "IntentsErrorDomain 1900", "delete group \(dl), delete all \(da) (Apple's tvOS simulator: 1900 both)")
+            #else
+            // Apple's iOS / watchOS / visionOS 27.2 simulators delete both
+            try expect(dl == "ok" && da == "ok", "delete group \(dl), delete all \(da) (Apple: ok both)")
             #endif
             return "donate \(dr), delete group \(dl), delete all \(da), \(d.count) B archive"
         })
