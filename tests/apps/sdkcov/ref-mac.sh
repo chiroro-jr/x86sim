@@ -69,8 +69,8 @@ case $plat in ios|tvos|xros) xcrun simctl privacy "$dev" grant photos com.x86sim
 # on x86Sim (x86sim privacy / x86sim location)
 xcrun simctl privacy "$dev" grant location com.x86sim.test.sdkcov >/dev/null 2>&1 || echo "ref-mac: location not pre-granted"
 xcrun simctl location "$dev" set 37.3349,-122.0090 >/dev/null 2>&1 || echo "ref-mac: no simulated location"
-# Contacts, Calendars (full access) and Reminders for P4_People.swift's store checks, as run.sh grants them on x86Sim
-for svc in AddressBook Calendar Reminders; do sqlite3 "$HOME/Library/Developer/CoreSimulator/Devices/$dev/data/Library/TCC/TCC.db" "insert or replace into access
+# Contacts, Calendars (full access), Reminders (P4_People.swift's store checks) and the microphone (P12_Gaps.swift), as run.sh grants them on x86Sim
+for svc in AddressBook Calendar Reminders Microphone; do sqlite3 "$HOME/Library/Developer/CoreSimulator/Devices/$dev/data/Library/TCC/TCC.db" "insert or replace into access
 	(service, client, client_type, auth_value, auth_reason, auth_version, flags) values
 	('kTCCService$svc', 'com.x86sim.test.sdkcov', 0, 2, 4, 1, 0)" || echo "ref-mac: $svc not pre-granted"; done
 # the app's FileProvider extension enabled as on a device whose fileproviderd first starts with the app installed:
