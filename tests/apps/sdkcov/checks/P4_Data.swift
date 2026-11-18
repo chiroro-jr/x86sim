@@ -606,6 +606,8 @@ extension Registry {
             do { for try await r in q.responses { switch r { case .item: items += 1; case .suggestion: sugg += 1; @unknown default: break } } }
             catch { err = "\((error as NSError).domain) \((error as NSError).code)" }
             q.cancel()
+            // Apple's simulator (iOS, visionOS): the query ends with nothing found and no error
+            try expect(items == 0 && sugg == 0 && err == "none", "\(items) items, \(sugg) suggestions, error \(err) (Apple's simulator: 0, 0, none)")
             return "\(items) items, \(sugg) suggestions, error \(err)"
         })
         #endif

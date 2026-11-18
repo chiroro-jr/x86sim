@@ -578,7 +578,8 @@ extension Registry {
             let done = try await onMain { () throws -> () -> Void in try p5Show(UIHostingController(rootView: v)).1 }
             defer { Task { @MainActor in done() } }
             let r = await shown.wait(10) ?? "nothing appeared in 10 s"
-            try expect(r == "label" || r == "fallback", r)
+            // Apple's iOS simulator shows the picker's label (ref-mac.sh)
+            try expect(r == "label", "\(r) (Apple's simulator: label)")
             return "DevicePicker showed its \(r)"
         })
         #endif
@@ -590,7 +591,8 @@ extension Registry {
             let approved = l.approvedEntitlements
             let any = EnterpriseLicenseDetails.EnterpriseEntitlement.allCases.filter { l.isApproved(for: $0) }
             try expect(approved.isEmpty && any.isEmpty, "approved \(approved) without a license")
-            // (Apple's visionOS simulator reports the license status valid with nothing approved)
+            // Apple's visionOS simulator reports the license status valid with nothing approved, compute category normal
+            try expect("\(l.licenseStatus)" == "valid" && "\(AppComputeCategory.shared.status)" == "normal", "license \(l.licenseStatus), compute category \(AppComputeCategory.shared.status) (Apple's simulator: valid, normal)")
             return "license \(l.licenseStatus), compute category \(AppComputeCategory.shared.status)"
         })
         #endif

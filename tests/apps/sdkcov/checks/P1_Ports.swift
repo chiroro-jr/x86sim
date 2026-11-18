@@ -251,7 +251,7 @@ extension Registry {
                 var body: some View {
                     let a = ArtworkImage(art, width: 64, height: 64)
                         .background(GeometryReader { g in Color.clear.onAppear { size.value = g.size } })
-                    #if os(iOS)
+                    #if os(iOS)   // unavailable in visionOS
                     a.musicSubscriptionOffer(isPresented: $offer)
                     #else
                     a

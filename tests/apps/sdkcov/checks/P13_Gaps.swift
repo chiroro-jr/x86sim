@@ -398,7 +398,7 @@ extension Registry {
         #endif
 
         // MARK: UIKit: a secure text field (password content type): no copy / cut, text kept
-        #if os(iOS) || os(visionOS)
+        #if os(iOS) || os(visionOS) || os(tvOS)
         c.append(check("UIKit", "textfield-secure-content-type", timeout: 30) {
             let (sec, plain, done) = try await onMain { () -> (UITextField, UITextField, () -> Void) in
                 let vc = UIViewController(); vc.view.backgroundColor = .white
@@ -429,7 +429,7 @@ extension Registry {
         #endif
 
         // MARK: UIKit: a UIContextMenuInteraction's menu presented (as a long press ends) and dismissed
-        #if os(iOS) || os(visionOS)
+        #if os(iOS) || os(visionOS) || os(tvOS)
         c.append(check("UIKit", "context-menu-interaction-present", timeout: 30) {
             let d = P13MenuDelegate()
             let (i, v, done) = try await onMain { () -> (UIContextMenuInteraction, UIView, () -> Void) in

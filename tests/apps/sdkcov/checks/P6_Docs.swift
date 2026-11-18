@@ -177,6 +177,8 @@ extension Registry {
             // owner password: permissions; text of the unlocked document
             let text = back.page(at: 1)?.string ?? ""
             try expect(text.contains("page 1"), "page 1 text '\(text)'")
+            // written out, the outline does not come back (Apple's simulator too: iOS, iPad, visionOS)
+            try expect(plainOutline == -1 && reread == -1, "outline re-read \(plainOutline) / \(reread) children (Apple's simulator: -1 / -1)")
             return "AES-encrypted write/unlock, outline in memory (re-read: \(plainOutline) / \(reread) children), text + checkbox widgets + note round trip, \(back.dataRepresentation()?.count ?? 0) B"
         })
         #endif
