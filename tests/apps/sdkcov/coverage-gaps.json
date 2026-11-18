@@ -199,9 +199,10 @@
     "func:ActivityKit.push-token-updates"
    ],
    "gaps": [],
-   "note": "request/update/end lifecycle plus the widget extension drawing lock-screen and Dynamic Island views; Apple sim supports it. r20: a Live Activity requested with pushType .token: no pushTokenUpdates value and pushToken nil in 15 s (no APNs in the simulator) (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "request/update/end lifecycle plus the widget extension drawing lock-screen and Dynamic Island views; Apple sim supports it. r20: a Live Activity requested with pushType .token: no pushTokenUpdates value and pushToken nil in 15 s (no APNs in the simulator) (Apple and x86Sim PASS, 2026-11-18). r21: push-token-updates rerun on both simulators (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P3 App extensions, system services, communication & parental controls",
    "r20": true,
+   "r21": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -540,13 +541,15 @@
    "apple_sim_na": "Apple's watchOS/visionOS simulators: callservicesd refuses incoming (CallKit.error 0) and transactions (requesttransaction 1)",
    "existing_checks": [
     "func:CallKit.incoming-outgoing-calls",
-    "func:CallKit.provider-observer"
+    "func:CallKit.provider-observer",
+    "func:CallKit.call-directory-extension"
    ],
    "gaps": [
-    "[a] CXCallDirectoryManager status (needs a call directory extension)"
+    "[b: Call Directory answers: x86Sim's CallKit CallDirectory service answers disabled (1) / reload error 6; Apple's fails to create its store at the Mac's /var/mobile/Library/CallDirectory (513) and answers error 0 to both]"
    ],
-   "note": "iOS: incoming reported, observed, ended; outgoing start/mute/end through the provider delegate; watch/vision assert the refusals.",
+   "note": "iOS: incoming reported, observed, ended; outgoing start/mute/end through the provider delegate; watch/vision assert the refusals. r21: the app carries a Call Directory extension (ext/CallDirectory.swift); asserted Apple answer: enabled status and reload both CXErrorCodeCallDirectoryManagerError 0, the extension never asked (Apple PASS, x86Sim FAIL, 2026-11-18).",
    "package": "P3 App extensions, system services, communication & parental controls",
+   "r21": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -577,15 +580,16 @@
    "existing_checks": [
     "func:Charts.bar-scale-sector-pie-pixels",
     "func:Charts.bar-line-render",
-    "func:Charts.rule-mark-pixel-position-selection"
+    "func:Charts.rule-mark-pixel-position-selection",
+    "func:Charts.scrollable-axes-initial-position"
    ],
    "gaps": [
-    "[a] chart selection/scroll APIs (chartXSelection, chartScrollableAxes, chartScrollPosition)",
     "[a] axis label positions by pixels"
    ],
-   "note": "BarMark scale and SectorMark pie sectors asserted by pixel colour on all four platforms. r20: a RuleMark at x 7.5 of 0...10 drawn at 0.749 of the plot width (ImageRenderer, chartXSelection set); a scrollable chart is a ScrollView ImageRenderer leaves blank (Apple too) (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "BarMark scale and SectorMark pie sectors asserted by pixel colour on all four platforms. r20: a RuleMark at x 7.5 of 0...10 drawn at 0.749 of the plot width (ImageRenderer, chartXSelection set); a scrollable chart is a ScrollView ImageRenderer leaves blank (Apple too) (Apple and x86Sim PASS, 2026-11-18). r21: a 100-unit chart with chartScrollableAxes, chartXVisibleDomain(length: 10) and chartScrollPosition(initialX: 50) is all red (x 50..<60) in a window; ImageRenderer draws a scrollable chart empty (both simulators) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
    "r20": true,
+   "r21": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -1249,10 +1253,12 @@
    ],
    "fin": true,
    "gaps": [
-    "[a] NSFileProviderManager evictItem / import / pending items"
+    "[a] NSFileProviderManager evictItem / import / pending items",
+    "[b: File Provider download fetched twice: right after sim_materializeFile fileproviderd's docID lookup of the item times out (6.2 s), it fetches the file again and takes the extension's unset date (Files: 12/31/69); Apple fetches once]"
    ],
-   "note": "replicated appex: add domain, enumerate, materialize hello.txt (fetchContents), createItem; Apple and x86Sim PASS (cov-iphone, cov-share). run.sh / ref-mac.sh reset the extension's enable state as a fresh device has it (fileproviderd's one-time LegacyEnabledStateHasBeenMigrated migration enables only the extensions present then; Apple fails the same on a reused device).",
+   "note": "replicated appex: add domain, enumerate, materialize hello.txt (fetchContents), createItem; Apple and x86Sim PASS (cov-iphone, cov-share). run.sh / ref-mac.sh reset the extension's enable state as a fresh device has it (fileproviderd's one-time LegacyEnabledStateHasBeenMigrated migration enables only the extensions present then; Apple fails the same on a reused device). r21: replicated-extension-domain asserts docs/note.txt keeps its date after its download and is fetched once (Apple PASS, x86Sim FAIL). Fixed on the way: Darling document ids follow renames / RENAME_SWAP as on APFS (ESTALE: opened wrong doc_id), FSIOC_CAS_BSDFLAGS atomic, APFS mark-purgeable fsctl (0xC0084A44), fpsim2host dataless flags via CAS and materialized files keep their times",
    "package": "P3 App extensions, system services, communication & parental controls",
+   "r21": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -1953,13 +1959,14 @@
   },
   "Messages": {
    "existing_checks": [
-    "func:Messages.message-sticker-objects"
+    "func:Messages.message-sticker-objects",
+    "func:Messages.messages-app-extension"
    ],
-   "gaps": [
-    "[a] MSMessagesAppViewController (needs iMessage extension)"
-   ],
+   "gaps": [],
+   "note": "r21: an iMessage app extension (com.apple.message-payload-provider, ext/Messages.swift) registered; an MSMessagesAppViewController hosted in the app: compact, no conversation, an expanded request ignored (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
-   "rejudged": false,
+   "r21": true,
+   "rejudged": true,
    "status": "covered"
   },
   "Metal": {
@@ -3027,15 +3034,17 @@
     "func:UIKit.pasteboard-text-input",
     "func:UIKit.textfield-secure-content-type",
     "func:UIKit.context-menu-interaction-present",
-    "func:UIKit.input-collection-context-menu"
+    "func:UIKit.input-collection-context-menu",
+    "func:UIKit.input-extra-window-shown"
    ],
    "gaps": [
     "[a] scene lifecycle (background/foreground, state restoration via NSUserActivity)"
    ],
-   "note": "P6 adds compositional/diffable pixels, navigation callback order, UITab tab bar, page+search controllers, trait/dark-mode pixels, accessibility rotors, sheet detents, UIMenu/edit menu, UITextInput+find, date/color/font pickers, UIUpdateLink + printing; iPad checks SKIP on the iPhone device. r17: a secure field with the password content type keeps its text and refuses copy / cut (a plain field copies) (Apple and x86Sim PASS, 2026-11-18). r17: a UIContextMenuInteraction presented as a long press ends (UIKit's _presentMenuAtLocation:), delegate config / actions / willDisplay / willEnd, menu labels on screen (iOS; visionOS shows the menu outside the app scene, Apple too) (Apple and x86Sim PASS, 2026-11-18). r20: a long press on a UICollectionView cell pushed on a navigation stack opens its context menu (x86Sim took it as a tap: simhid SwipeLocked bit, fixed) (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "P6 adds compositional/diffable pixels, navigation callback order, UITab tab bar, page+search controllers, trait/dark-mode pixels, accessibility rotors, sheet detents, UIMenu/edit menu, UITextInput+find, date/color/font pickers, UIUpdateLink + printing; iPad checks SKIP on the iPhone device. r17: a secure field with the password content type keeps its text and refuses copy / cut (a plain field copies) (Apple and x86Sim PASS, 2026-11-18). r17: a UIContextMenuInteraction presented as a long press ends (UIKit's _presentMenuAtLocation:), delegate config / actions / willDisplay / willEnd, menu labels on screen (iOS; visionOS shows the menu outside the app scene, Apple too) (Apple and x86Sim PASS, 2026-11-18). r20: a long press on a UICollectionView cell pushed on a navigation stack opens its context menu (x86Sim took it as a tap: simhid SwipeLocked bit, fixed) (Apple and x86Sim PASS, 2026-11-18). r21: a second UIWindow of the app's scene (p6Show) is key and on screen over the app's window, visionOS too (screenshots on both simulators) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
    "r17": true,
    "r20": true,
+   "r21": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -3087,10 +3096,11 @@
     "func:UserNotificationsUI.input-expand-content-extension"
    ],
    "gaps": [],
-   "note": "content-extension-registered: sdkcovNotifyContent.appex on com.apple.usernotifications.content-extension with category sdkcov.content, ratio 0.5 (LaunchServices + PlugInKit, Apple) (x86Sim PASS on each of its platforms, 2026-11-17) r18: alert authorization by a host tap on the prompt's Allow, banners of the content extension's category long-pressed: Apple's iOS 27.2 simulator shows the expanded notification with a blank extension area and never launches the extension (asserted: no marks) (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "content-extension-registered: sdkcovNotifyContent.appex on com.apple.usernotifications.content-extension with category sdkcov.content, ratio 0.5 (LaunchServices + PlugInKit, Apple) (x86Sim PASS on each of its platforms, 2026-11-17) r18: alert authorization by a host tap on the prompt's Allow, banners of the content extension's category long-pressed: Apple's iOS 27.2 simulator shows the expanded notification with a blank extension area and never launches the extension (asserted: no marks) (Apple and x86Sim PASS, 2026-11-18). r21: on the iPad Apple's simulator never shows the notification authorization prompt (3 runs): the request stays unanswered, asserted (x86Sim shows the prompt; no Allow tapped there) (Apple and x86Sim PASS on the iPad, 2026-11-18).",
    "p10": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "r18": true,
+   "r21": true,
    "rejudged": true,
    "status": "apple-sim-na"
   },
@@ -3786,13 +3796,13 @@
   },
   "_WebKit_SwiftUI": {
    "existing_checks": [
-    "func:_WebKit_SwiftUI.webpage-webview-javascript"
+    "func:_WebKit_SwiftUI.webpage-webview-javascript",
+    "func:_WebKit_SwiftUI.webpage-navigation-decider"
    ],
-   "gaps": [
-    "[a] WebPage navigation decisions / callJavaScript arguments"
-   ],
-   "note": "WebPage + WebView navigation events and JS on iOS and visionOS.",
+   "gaps": [],
+   "note": "WebPage + WebView navigation events and JS on iOS and visionOS. r21: WebPage(configuration:navigationDecider:) gets the HTML load's action and a clicked link's, cancels the sdkcov-blocked: one (the page stays on about:blank); no response decision for loaded HTML (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
+   "r21": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -4101,15 +4111,16 @@
    "existing_checks": [
     "func:Charts.bar-scale-sector-pie-pixels",
     "func:Charts.bar-line-render",
-    "func:Charts.rule-mark-pixel-position-selection"
+    "func:Charts.rule-mark-pixel-position-selection",
+    "func:Charts.scrollable-axes-initial-position"
    ],
    "gaps": [
-    "[a] chart selection/scroll APIs (chartXSelection, chartScrollableAxes, chartScrollPosition)",
     "[a] axis label positions by pixels"
    ],
-   "note": "BarMark scale and SectorMark pie sectors asserted by pixel colour on all four platforms. r20: a RuleMark at x 7.5 of 0...10 drawn at 0.749 of the plot width (ImageRenderer, chartXSelection set); a scrollable chart is a ScrollView ImageRenderer leaves blank (Apple too) (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "BarMark scale and SectorMark pie sectors asserted by pixel colour on all four platforms. r20: a RuleMark at x 7.5 of 0...10 drawn at 0.749 of the plot width (ImageRenderer, chartXSelection set); a scrollable chart is a ScrollView ImageRenderer leaves blank (Apple too) (Apple and x86Sim PASS, 2026-11-18). r21: a 100-unit chart with chartScrollableAxes, chartXVisibleDomain(length: 10) and chartScrollPosition(initialX: 50) is all red (x 50..<60) in a window; ImageRenderer draws a scrollable chart empty (both simulators) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
    "r20": true,
+   "r21": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -5393,12 +5404,11 @@
     "func:Speech.speech-transcriber-assets",
     "func:Speech.speech-analyzer-transcribe-file"
    ],
-   "gaps": [
-    "[a] SFSpeechAudioBufferRecognitionRequest (buffer path) asserting the same kLSRErrorDomain 300"
-   ],
-   "note": "done: recognize-synthesized-file asserts fox transcript or kLSRErrorDomain 300; SpeechAnalyzer reports assets unsupported on iOS/tvOS/visionOS like Apple. r17: asserts AssetInventory unsupported and SpeechTranscriber unavailable (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "done: recognize-synthesized-file asserts fox transcript or kLSRErrorDomain 300; SpeechAnalyzer reports assets unsupported on iOS/tvOS/visionOS like Apple. r17: asserts AssetInventory unsupported and SpeechTranscriber unavailable (Apple and x86Sim PASS, 2026-11-18). r21: SFSpeechRecognizer / SFSpeechAudioBufferRecognitionRequest are unavailable on tvOS (unavailable in the 27.2 SDK: swiftc -typecheck, 2026-11-18).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
    "r17": true,
+   "r21": true,
    "rejudged": true,
    "status": "apple-sim-na"
   },
@@ -5430,12 +5440,12 @@
     "func:StoreKit.products-storefront"
    ],
    "gaps": [
-    "[c] purchases need a .storekit configuration (SKTestSession is Xcode-only)",
-    "[a] AppStore.requestReview / SKStoreReviewController"
+    "[c] purchases need a .storekit configuration (SKTestSession is Xcode-only)"
    ],
-   "note": "Empty entitlements/unfinished/all/updates, subscription status, AppTransaction StoreKitError 1, SKProductsRequest invalid id, SKAN error 10, external purchase false (as Apple). r17: the P4 StoreKit checks run on x86Sim tvOS too (storefront USA now, as Apple)",
+   "note": "Empty entitlements/unfinished/all/updates, subscription status, AppTransaction StoreKitError 1, SKProductsRequest invalid id, SKAN error 10, external purchase false (as Apple). r17: the P4 StoreKit checks run on x86Sim tvOS too (storefront USA now, as Apple) r21: AppStore.requestReview and SKStoreReviewController are unavailable here (unavailable in the 27.2 SDK: swiftc -typecheck, 2026-11-18).",
    "package": "P4 Data, cloud, contacts/calendars & commerce",
    "r17": true,
+   "r21": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -5475,13 +5485,11 @@
    ],
    "gaps": [
     "[a] Menu/contextMenu, toolbar items",
-    "[a] DocumentGroup / FileDocument",
-    "[a] drag & drop with Transferable (draggable/dropDestination)",
-    "[a] List swipeActions, popover",
-    "[a] DatePicker / Picker menu style"
+    "[a] Picker menu style"
    ],
-   "note": "layout/Grid/custom Layout pixels, animation timing, Observation invalidation, lazy stacks/scroll position, NavigationStack path, sheet/cover/alert/dialog, controls+TextField focus, TimelineView, TabView now on all platforms that support them.",
+   "note": "layout/Grid/custom Layout pixels, animation timing, Observation invalidation, lazy stacks/scroll position, NavigationStack path, sheet/cover/alert/dialog, controls+TextField focus, TimelineView, TabView now on all platforms that support them. r21: DocumentGroup / FileDocument, draggable / dropDestination, swipeActions, popover and DatePicker are unavailable on tvOS (unavailable in the 27.2 SDK: swiftc -typecheck, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
+   "r21": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -5603,7 +5611,8 @@
     "func:UIKit.traits-dark-mode-dynamic-type-pixels",
     "func:UIKit.accessibility-custom-actions-rotor-frames",
     "func:UIKit.views-autolayout-render-symbols",
-    "func:UIKit.window-scene-viewcontroller"
+    "func:UIKit.window-scene-viewcontroller",
+    "func:UIKit.input-extra-window-shown"
    ],
    "gaps": [
     "[a] scene lifecycle (background/foreground, state restoration via NSUserActivity)",
@@ -5611,8 +5620,9 @@
     "[a] UITextField secure entry / autofill (textContentType) behaviour",
     "[a] UIMenu / UITextField text input (menus and text-input checks run on iOS/visionOS only)"
    ],
-   "note": "P6 adds compositional/diffable pixels, navigation callback order, UITab tab bar, page+search controllers, trait/dark-mode pixels, accessibility rotors, sheet detents, UIMenu/edit menu, UITextInput+find, date/color/font pickers, UIUpdateLink + printing; iPad checks SKIP on the iPhone device.",
+   "note": "P6 adds compositional/diffable pixels, navigation callback order, UITab tab bar, page+search controllers, trait/dark-mode pixels, accessibility rotors, sheet detents, UIMenu/edit menu, UITextInput+find, date/color/font pickers, UIUpdateLink + printing; iPad checks SKIP on the iPhone device. r21: a second UIWindow of the app's scene (p6Show) is key and on screen over the app's window, visionOS too (screenshots on both simulators) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
+   "r21": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -6287,12 +6297,13 @@
     "func:Charts.rule-mark-pixel-position-selection"
    ],
    "gaps": [
-    "[a] chart selection/scroll APIs (chartXSelection, chartScrollableAxes, chartScrollPosition)",
-    "[a] axis label positions by pixels"
+    "[a] axis label positions by pixels",
+    "[a] chartScrollableAxes / chartScrollPosition hosted on watchOS (the P17 check needs a UIKit window)"
    ],
-   "note": "BarMark scale and SectorMark pie sectors asserted by pixel colour on all four platforms. r20: a RuleMark at x 7.5 of 0...10 drawn at 0.749 of the plot width (ImageRenderer, chartXSelection set); a scrollable chart is a ScrollView ImageRenderer leaves blank (Apple too) (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "BarMark scale and SectorMark pie sectors asserted by pixel colour on all four platforms. r20: a RuleMark at x 7.5 of 0...10 drawn at 0.749 of the plot width (ImageRenderer, chartXSelection set); a scrollable chart is a ScrollView ImageRenderer leaves blank (Apple too) (Apple and x86Sim PASS, 2026-11-18). r21",
    "package": "P6 UI frameworks depth & platform UI",
    "r20": true,
+   "r21": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -7268,11 +7279,11 @@
     "func:StoreKit.products-storefront"
    ],
    "gaps": [
-    "[c] purchases need a .storekit configuration (SKTestSession is Xcode-only)",
-    "[a] AppStore.requestReview / SKStoreReviewController"
+    "[c] purchases need a .storekit configuration (SKTestSession is Xcode-only)"
    ],
-   "note": "Empty entitlements/unfinished/all/updates, subscription status, AppTransaction StoreKitError 1, SKProductsRequest invalid id, SKAN error 10, external purchase false (as Apple).",
+   "note": "Empty entitlements/unfinished/all/updates, subscription status, AppTransaction StoreKitError 1, SKProductsRequest invalid id, SKAN error 10, external purchase false (as Apple). r21: AppStore.requestReview and SKStoreReviewController are unavailable here (unavailable in the 27.2 SDK: swiftc -typecheck, 2026-11-18).",
    "package": "P4 Data, cloud, contacts/calendars & commerce",
+   "r21": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -7306,15 +7317,14 @@
     "func:SwiftUI.image-renderer-layout"
    ],
    "gaps": [
-    "[a] Menu/contextMenu, toolbar items",
-    "[a] DocumentGroup / FileDocument",
-    "[a] drag & drop with Transferable (draggable/dropDestination)",
-    "[a] List swipeActions, popover",
-    "[a] DatePicker / Picker menu style",
-    "[a] port controls-bindings-textfield-focus-submit (Toggle/Slider/Stepper/Picker bindings)"
+    "[a] port controls-bindings-textfield-focus-submit (Toggle/Slider/Stepper/Picker bindings)",
+    "[a] contextMenu, toolbar items",
+    "[a] List swipeActions",
+    "[a] DatePicker"
    ],
-   "note": "layout/Grid/custom Layout pixels, animation timing, Observation invalidation, lazy stacks/scroll position, NavigationStack path, sheet/cover/alert/dialog, controls+TextField focus, TimelineView, TabView now on all platforms that support them.",
+   "note": "layout/Grid/custom Layout pixels, animation timing, Observation invalidation, lazy stacks/scroll position, NavigationStack path, sheet/cover/alert/dialog, controls+TextField focus, TimelineView, TabView now on all platforms that support them. r21: Menu, Picker .menu style, popover, DocumentGroup / FileDocument and draggable / dropDestination are unavailable on watchOS (unavailable in the 27.2 SDK: swiftc -typecheck, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
+   "r21": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -8177,16 +8187,17 @@
    "existing_checks": [
     "func:Charts.bar-scale-sector-pie-pixels",
     "func:Charts.bar-line-render",
-    "func:Charts.rule-mark-pixel-position-selection"
+    "func:Charts.rule-mark-pixel-position-selection",
+    "func:Charts.scrollable-axes-initial-position"
    ],
    "gaps": [
-    "[a] chart selection/scroll APIs (chartXSelection, chartScrollableAxes, chartScrollPosition)",
     "[a] Chart3D",
     "[a] axis label positions by pixels"
    ],
-   "note": "BarMark scale and SectorMark pie sectors asserted by pixel colour on all four platforms. r20: a RuleMark at x 7.5 of 0...10 drawn at 0.749 of the plot width (ImageRenderer, chartXSelection set); a scrollable chart is a ScrollView ImageRenderer leaves blank (Apple too) (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "BarMark scale and SectorMark pie sectors asserted by pixel colour on all four platforms. r20: a RuleMark at x 7.5 of 0...10 drawn at 0.749 of the plot width (ImageRenderer, chartXSelection set); a scrollable chart is a ScrollView ImageRenderer leaves blank (Apple too) (Apple and x86Sim PASS, 2026-11-18). r21: a 100-unit chart with chartScrollableAxes, chartXVisibleDomain(length: 10) and chartScrollPosition(initialX: 50) is all red (x 50..<60) in a window; ImageRenderer draws a scrollable chart empty (both simulators) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
    "r20": true,
+   "r21": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -10162,14 +10173,16 @@
     "func:UIKit.window-scene-viewcontroller",
     "func:UIKit.pasteboard-text-input",
     "func:UIKit.textfield-secure-content-type",
-    "func:UIKit.context-menu-interaction-present"
+    "func:UIKit.context-menu-interaction-present",
+    "func:UIKit.input-extra-window-shown"
    ],
    "gaps": [
     "[a] scene lifecycle (background/foreground, state restoration via NSUserActivity)"
    ],
-   "note": "P6 adds compositional/diffable pixels, navigation callback order, UITab tab bar, page+search controllers, trait/dark-mode pixels, accessibility rotors, sheet detents, UIMenu/edit menu, UITextInput+find, date/color/font pickers, UIUpdateLink + printing; iPad checks SKIP on the iPhone device. r17: a secure field with the password content type keeps its text and refuses copy / cut (a plain field copies) (Apple and x86Sim PASS, 2026-11-18). r17: a UIContextMenuInteraction presented as a long press ends (UIKit's _presentMenuAtLocation:), delegate config / actions / willDisplay / willEnd, menu labels on screen (iOS; visionOS shows the menu outside the app scene, Apple too) (Apple and x86Sim PASS, 2026-11-18). r17: alert / action sheet, scroll view zoom, UIDocument save/open and first-responder text input ported to visionOS",
+   "note": "P6 adds compositional/diffable pixels, navigation callback order, UITab tab bar, page+search controllers, trait/dark-mode pixels, accessibility rotors, sheet detents, UIMenu/edit menu, UITextInput+find, date/color/font pickers, UIUpdateLink + printing; iPad checks SKIP on the iPhone device. r17: a secure field with the password content type keeps its text and refuses copy / cut (a plain field copies) (Apple and x86Sim PASS, 2026-11-18). r17: a UIContextMenuInteraction presented as a long press ends (UIKit's _presentMenuAtLocation:), delegate config / actions / willDisplay / willEnd, menu labels on screen (iOS; visionOS shows the menu outside the app scene, Apple too) (Apple and x86Sim PASS, 2026-11-18). r17: alert / action sheet, scroll view zoom, UIDocument save/open and first-responder text input ported to visionOS r21: a second UIWindow of the app's scene (p6Show) is key and on screen over the app's window, visionOS too (screenshots on both simulators) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
    "r17": true,
+   "r21": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -10896,13 +10909,13 @@
   },
   "_WebKit_SwiftUI": {
    "existing_checks": [
-    "func:_WebKit_SwiftUI.webpage-webview-javascript"
+    "func:_WebKit_SwiftUI.webpage-webview-javascript",
+    "func:_WebKit_SwiftUI.webpage-navigation-decider"
    ],
-   "gaps": [
-    "[a] WebPage navigation decisions / callJavaScript arguments"
-   ],
-   "note": "WebPage + WebView navigation events and JS on iOS and visionOS.",
+   "gaps": [],
+   "note": "WebPage + WebView navigation events and JS on iOS and visionOS. r21: WebPage(configuration:navigationDecider:) gets the HTML load's action and a clicked link's, cancels the sdkcov-blocked: one (the page stays on about:blank); no response decision for loaded HTML (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
+   "r21": true,
    "rejudged": true,
    "status": "covered"
   }
