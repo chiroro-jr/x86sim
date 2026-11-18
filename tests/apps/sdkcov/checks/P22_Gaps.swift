@@ -6,8 +6,10 @@ import CoreMedia
 #if canImport(AVFoundation)
 import AVFoundation
 #endif
-#if os(iOS)
+#if os(iOS) || os(visionOS)
 import UIKit
+#endif
+#if os(iOS)
 import CryptoTokenKit
 #endif
 #if canImport(CoreImage) && !os(watchOS)
@@ -59,7 +61,7 @@ func p22Atom(_ d: Data, _ type: String) -> (Int, Int)? {
     return nil
 }
 
-#if os(iOS)
+#if os(iOS) || os(visionOS)
 /// an NSUserActivity delegate noting UIKit's save of the scene's activity
 final class P22ActivityDelegate: NSObject, NSUserActivityDelegate, @unchecked Sendable {
     let saves = Atomic<Int>(0)
@@ -295,7 +297,7 @@ extension Registry {
         // app sdkcovDoc (ext/DocApp.swift) by URL after marking a lifecycle request; sdkcovDoc opens sdkcov: again at once.
         // The window scene's and the application's notifications in order, the activation states, and UIKit saving the
         // scene's NSUserActivity (needsSave) when it leaves the foreground. Last in the run (Registry.all ends with p22).
-        #if os(iOS)
+        #if os(iOS) || os(visionOS)
         c.append(check("UIKit", "scene-lifecycle-round-trip", timeout: 120) {
             let t0 = Date()
             let bg = await onMain { UIApplication.shared.beginBackgroundTask(withName: "sdkcov-lifecycle") {} }
@@ -328,11 +330,26 @@ extension Registry {
             let ob = P7Box<Bool>()
             await onMain { UIApplication.shared.open(URL(string: "sdkcovdoc://lifecycle")!) { ob.set($0) } }
             let opened = await ob.wait(20) ?? false
-            try expect(opened, "sdkcovdoc: not opened (sdkcovDoc-ios.app installed?)")
+            try expect(opened, "sdkcovdoc: not opened (sdkcovDoc installed?)")
             let names = { ev.withLock { $0.map { String($0.prefix { $0 != "[" }) } } }
-            let back = await more2Wait(60) { names().contains("scene.didEnterBackground") && names().last == "scene.didActivate" || names().last == "app.didBecomeActive" && names().contains("app.didEnterBackground") }
+            #if os(visionOS)
+            // visionOS: the apps' windows share the space; Apple's simulator leaves sdkcov's scene foreground-active,
+            // with no notification at all, while sdkcovDoc comes up (10 s)
+            try await Task.sleep(for: .seconds(10))
+            let ve = ev.withLock { $0 }
+            let vsame = await onMain { scene.session.persistentIdentifier == session && scene.activationState == .foregroundActive && UIApplication.shared.applicationState == .active }
+            let vd = "events \(ve); still foreground-active \(vsame), saves \(ad.saves.load(ordering: .relaxed))"
+            try expect(ve.isEmpty && vsame, vd)
+            return vd
+            #else
+            var answered: Date?
+            let back = await more2Wait(60) {
+                if answered == nil && !p3Marks("docapp-lifecycle", since: t0).isEmpty { answered = Date() }
+                if let a = answered, Date().timeIntervalSince(a) > 5 { return true }
+                return names().contains("scene.didEnterBackground") && names().last == "scene.didActivate" || names().last == "app.didBecomeActive" && names().contains("app.didEnterBackground")
+            }
             try await Task.sleep(for: .milliseconds(500))
-            let e = ev.withLock { $0 }, nm = names()
+            let e = ev.withLock { $0 }
             let same = await onMain { scene.session.persistentIdentifier == session && scene.activationState == .foregroundActive }
             let docMark = p3Marks("docapp-lifecycle", since: t0).last ?? "-"
             let detail = "\(e); saves \(ad.saves.load(ordering: .relaxed)), same session + active \(same), sdkcovDoc \(docMark)"
@@ -344,6 +361,7 @@ extension Registry {
             try expect(ad.saves.load(ordering: .relaxed) == 0, "activity saved: \(detail)")
             try expect(same, detail)
             return detail
+            #endif
         })
         #endif
         return c

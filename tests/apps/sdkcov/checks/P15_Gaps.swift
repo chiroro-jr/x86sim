@@ -206,7 +206,7 @@ extension Registry {
         // MARK: SwiftUI DocumentGroup: the companion app sdkcovDoc (ext/DocApp.swift, a DocumentGroup over a plain-text
         // FileDocument) opened through its URL scheme; it shows DocumentGroup's document browser, opens a file through
         // the browser's delegate, edits it and waits for the autosave, then opens sdkcov: again
-        #if os(iOS)
+        #if os(iOS) || os(visionOS)
         c.append(check("SwiftUI", "document-group-open-edit-save", timeout: 150) {
             let t0 = Date()
             let bg = await onMain { UIApplication.shared.beginBackgroundTask(withName: "sdkcov-doc") {} }

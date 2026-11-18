@@ -112,8 +112,10 @@ for p in ${*:-ios tvos watchos xros}; do
 	# NSWorldSensingUsageDescription / NSHandsTrackingUsageDescription: ARKit's plane detection / hand tracking
 	# authorization (an app asking without them is killed)
 	xros) sdk=xrsimulator; tgt=arm64-apple-xros27.0-simulator; plat=XRSimulator; fam='<integer>7</integer>'; multi='<true/>'  # volume + immersive spaces
-		exts='widget fileprovider downloader ncontent fpaction classify qlpreview'  # no extkit: as watchOS below
-		extra='<key>NSWorldSensingUsageDescription</key><string>sdkcov checks ARKit plane detection</string>
+		# docapp: the DocumentGroup companion app (P15) and the scene lifecycle round trip (P22), which come back by sdkcov:
+		exts='widget fileprovider downloader ncontent fpaction classify qlpreview docapp'  # no extkit: as watchOS below
+		extra='<key>CFBundleURLTypes</key><array><dict><key>CFBundleURLName</key><string>com.x86sim.test.sdkcov</string><key>CFBundleURLSchemes</key><array><string>sdkcov</string></array></dict></array>
+<key>NSWorldSensingUsageDescription</key><string>sdkcov checks ARKit plane detection</string>
 <key>NSHandsTrackingUsageDescription</key><string>sdkcov checks ARKit hand tracking</string>
 <key>NSHealthUpdateUsageDescription</key><string>sdkcov checks HealthKit writes</string>
 <key>BAAppGroupID</key><string>group.com.x86sim.test.sdkcov</string>'"$ba"
