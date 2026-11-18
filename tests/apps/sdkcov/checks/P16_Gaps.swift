@@ -20,6 +20,10 @@ import AVFoundation
 #if canImport(TipKit)
 import TipKit
 #endif
+#if canImport(ActivityKit) && os(iOS)
+import ActivityKit
+private struct P16LiveAttributes: ActivityAttributes { struct ContentState: Codable, Hashable { var step: Int }; var name: String }
+#endif
 
 #if canImport(Charts)
 /// a line over x 0...10 with a red rule at x = 7.5, no axes: the plot fills the frame, so the rule's column is at 75%
@@ -120,6 +124,22 @@ extension Registry {
                 try expect(back?.avPlayer === player, "entity material \(String(describing: e.model?.materials.first))")
                 return "VideoMaterial on a plane, player kept (rate \(player.rate))"
             }
+        })
+        #endif
+
+        // MARK: ActivityKit: a Live Activity requested with pushType .token; what pushTokenUpdates hands out
+        #if canImport(ActivityKit) && os(iOS)
+        c.append(check("ActivityKit", "push-token-updates", timeout: 40) {
+            let a = try Activity.request(attributes: P16LiveAttributes(name: "sdkcov-p16"), content: ActivityContent(state: P16LiveAttributes.ContentState(step: 1), staleDate: nil), pushType: .token)
+            defer { Task { await a.end(nil, dismissalPolicy: .immediate) } }
+            let tok = P7Box<Data>()
+            let t = Task { for await d in a.pushTokenUpdates { tok.set(d); break } }
+            defer { t.cancel() }
+            let d = await tok.wait(15)
+            let now = a.pushToken
+            // Apple's iOS 27.2 simulator: no APNs, so no push token for the activity (the request itself succeeds)
+            try expect(d == nil && now == nil, "push token \(String(describing: d)) / \(String(describing: now)) (Apple's simulator: none)")
+            return "pushTokenUpdates \(d.map { "\($0.count) B" } ?? "none in 15 s"), pushToken \(now.map { "\($0.count) B" } ?? "nil")"
         })
         #endif
 
