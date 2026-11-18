@@ -14,6 +14,8 @@
 # migration, a Home, an accessory transport, an accessory data provider (AccessoryNotifications' notification
 # forwarding) and a device discovery extension in Extensions/ (Apple's ExtensionKit points).
 # visionOS: the notification content, File Provider UI action and reporting UI extensions (installd takes them there).
+# P19, iOS and visionOS: a Quick Look preview extension (PlugIns/sdkcovQLPreview.appex) for the app's exported type
+# com.x86sim.test.sdkcov.qlsample (*.sdkcovql).
 # iOS also carries an App Clip, AppClips/sdkcovClip.app (ext/Clip.swift, bundle id com.x86sim.test.sdkcov.Clip): simctl /
 # x86sim install of the app does not install it; run.sh and ref-mac.sh install it after the app.
 # objc/SDKCovCatch.m: the app's one Objective-C file (an @try around a block), compiled with clang and imported into
@@ -84,7 +86,7 @@ for p in ${*:-ios tvos watchos xros}; do
 	# activates an ASAccessorySession (no activated event; deviceaccessd "GetDevices failed ... ENOENT") and the app dies
 	# (SIGSEGV in AccessorySetupKit) when it invalidates the session, so func:AccessorySetupKit.session-activate keeps it
 	ios) sdk=iphonesimulator; tgt=arm64-apple-ios27.0-simulator; plat=iPhoneSimulator; fam='<integer>1</integer><integer>2</integer>'; multi='<true/>'
-		exts='widget fileprovider extkit downloader ncontent nservice fpaction msgfilter classify translator migration home transport dataprovider discovery clip docapp calldir imessage'
+		exts='widget fileprovider extkit downloader ncontent nservice fpaction msgfilter classify translator migration home transport dataprovider discovery clip docapp calldir imessage qlpreview'
 		extra='<key>UISupportedInterfaceOrientations~ipad</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationPortraitUpsideDown</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
 <key>NSSupportsLiveActivities</key><true/>
 <key>NSHealthUpdateUsageDescription</key><string>sdkcov checks HealthKit writes</string>
@@ -109,7 +111,7 @@ for p in ${*:-ios tvos watchos xros}; do
 	# NSWorldSensingUsageDescription / NSHandsTrackingUsageDescription: ARKit's plane detection / hand tracking
 	# authorization (an app asking without them is killed)
 	xros) sdk=xrsimulator; tgt=arm64-apple-xros27.0-simulator; plat=XRSimulator; fam='<integer>7</integer>'; multi='<true/>'  # volume + immersive spaces
-		exts='widget fileprovider downloader ncontent fpaction classify'  # no extkit: as watchOS below
+		exts='widget fileprovider downloader ncontent fpaction classify qlpreview'  # no extkit: as watchOS below
 		extra='<key>NSWorldSensingUsageDescription</key><string>sdkcov checks ARKit plane detection</string>
 <key>NSHandsTrackingUsageDescription</key><string>sdkcov checks ARKit hand tracking</string>
 <key>NSHealthUpdateUsageDescription</key><string>sdkcov checks HealthKit writes</string>
@@ -141,6 +143,9 @@ for p in ${*:-ios tvos watchos xros}; do
 <key>NSAppleMusicUsageDescription</key><string>sdkcov checks the media library and Apple Music</string>
 <key>NSVideoSubscriberAccountUsageDescription</key><string>sdkcov checks the TV provider account</string>
 <key>NSBonjourServices</key><array><string>_sdkcov._tcp</string></array>
+<key>UTExportedTypeDeclarations</key><array><dict><key>UTTypeIdentifier</key><string>com.x86sim.test.sdkcov.qlsample</string>
+<key>UTTypeDescription</key><string>sdkcov Quick Look sample</string><key>UTTypeConformsTo</key><array><string>public.data</string><string>public.content</string></array>
+<key>UTTypeTagSpecification</key><dict><key>public.filename-extension</key><array><string>sdkcovql</string></array></dict></dict></array>
 $extra"
 	# the watch's NSHealthShareUsageDescription is in $extra: one copy (plutil rejects a duplicate key)
 	[ $p = watchos ] && python3 -I - "$G/gen/app.plist" <<'PY'
@@ -169,6 +174,9 @@ PY
 			ents_ext "$G/gen/msgfilter.entitlements" $BID.msgfilter ;;
 		imessage) plist_bundle "$G/gen/imessage.plist" $BID.imessage sdkcovMessages 'XPC!' "$(nsext com.apple.message-payload-provider SDKCovMessagesVC)"
 			ents_ext "$G/gen/imessage.entitlements" $BID.imessage ;;
+		# (P19) a Quick Look preview extension for the app's own document type (UTExportedTypeDeclarations below)
+		qlpreview) plist_bundle "$G/gen/qlpreview.plist" $BID.qlpreview sdkcovQLPreview 'XPC!' "$(nsext com.apple.quicklook.preview SDKCovQLPreview '<key>QLSupportedContentTypes</key><array><string>com.x86sim.test.sdkcov.qlsample</string></array><key>QLSupportsSearchableItems</key><false/>')"
+			ents_ext "$G/gen/qlpreview.entitlements" $BID.qlpreview ;;
 		calldir) plist_bundle "$G/gen/calldir.plist" $BID.calldir sdkcovCallDirectory 'XPC!' "$(nsext com.apple.callkit.call-directory SDKCovCallDirectory)"
 			ents_ext "$G/gen/calldir.entitlements" $BID.calldir ;;
 		classify) plist_bundle "$G/gen/classify.plist" $BID.classify sdkcovClassification 'XPC!' "$(nsext com.apple.identitylookup.classification-ui SDKCovClassification '<key>ILClassificationExtensionSMSReportDestination</key><string>12345</string>')"
@@ -252,6 +260,7 @@ PL
 			msgfilter) ext MessageFilter PlugIns MessageFilter.swift msgfilter ;;
 			classify) ext Classification PlugIns Classification.swift classify ;;
 			calldir) ext CallDirectory PlugIns CallDirectory.swift calldir ;;
+			qlpreview) ext QLPreview PlugIns QLPreview.swift qlpreview ;;
 			imessage) ext Messages PlugIns Messages.swift imessage ;;
 			translator) ext Translator Extensions Translator.swift translator ;;
 			migration) ext Migration Extensions Migration.swift migration ;;
