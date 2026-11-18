@@ -8,7 +8,7 @@
 #   ahead (its kTCCServiceUserTracking row) and SDKCOV_INPUT_WAIT=40 in its launch environment, as inputs.sh tracking
 # Env INPUT='CMD[;CMD...]' (with --only): host touches / keys sent every few seconds while the app runs, as inputs.sh
 #   does on x86Sim, through mac/indigo.m (SimulatorKit's Indigo HID, built on the Mac): e.g. INPUT='drag 0.5 0.5 0.5 0.5
-#   1500 32' (a long press), with SDKCOV_INPUT_WAIT=$WAIT (default 40) in the app's launch environment
+#   1500 32' (a long press); `relaunch` opens the app again (simctl launch: back to the front), with SDKCOV_INPUT_WAIT=$WAIT (default 40) in the app's launch environment
 # Env SHOTS='S1 S2 ...' (with --only): screenshots S seconds after the launch, OUT/shot-S.png
 # Env LOGPRED='PREDICATE' (with --only): the simulator's unified log of the run (log show --info --debug, that
 #   predicate, from the device's boot) comes back as OUT/log.txt
@@ -125,7 +125,7 @@ if [ -n "$only" ]; then   # one launch; its stderr is the result
 		for s in $shots; do [ $(( $(date +%s) - t0 )) -ge "$s" ] && [ ! -e "$W/shot-$s.png" ] && xcrun simctl io "$dev" screenshot "$W/shot-$s.png" >/dev/null 2>&1; done
 		[ -n "$bio" ] && [ $(( $(date +%s) - t0 )) -ge 10 ] && for m in pearl oyster fingerTouch; do xcrun simctl spawn "$dev" notifyutil -p com.apple.BiometricKit_Sim.$m.match >/dev/null 2>&1; done
 		[ -n "$input" ] && [ $(( $(date +%s) - t0 )) -ge 8 ] && { IFS=';' read -ra cmds <<< "$input"
-			for c in "${cmds[@]}"; do "$W/indigo" "$dev" $c >/dev/null; done; }
+			for c in "${cmds[@]}"; do case $c in relaunch) xcrun simctl launch "$dev" com.x86sim.test.sdkcov >/dev/null 2>&1 ;; *) "$W/indigo" "$dev" $c >/dev/null ;; esac; done; }
 		# gone only after 3 misses in a row (as run.sh: one empty answer ended a run with the app still going)
 		if xcrun simctl spawn "$dev" launchctl list 2>/dev/null | grep -q "com.x86sim.test.sdkcov"; then miss=0
 		else miss=$((miss + 1)); [ $miss -ge 3 ] && break; fi

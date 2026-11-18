@@ -25,6 +25,7 @@ rt=$(cat "$X86SIM_DEVICE/runtime" 2>/dev/null); plat=${rt%%-*}
 case $plat in
 	ios) all="shake orientation biometric bioitem gamepad memwarn push tracking clip ctxmenu swipe sdrag ncontent cvmenu pencil locbutton fpauth widget"
 		case $(cat "$X86SIM_DEVICE/model" 2>/dev/null) in iPad*) all="$all pointer keyboard drag" ;; esac ;; xros) all="shake biometric bioitem gamepad memwarn tracking" ;; tvos) all="gamepad memwarn tracking" ;;
+	watchos) all="lifecycle" ;;
 	*) echo "inputs: no input checks for $plat" >&2; exit 0 ;;
 esac
 xs() { "$X86SIM_ROOT/cli/x86sim" "$@"; }
@@ -99,6 +100,11 @@ for k in ${want:-$all}; do
 		widget) id=func:WidgetKit.input-placed-widget-timeline; pre() { xs home; nap 2; press 0.5 0.55 2; nap 2; press 0.17 0.037 0.1; nap 2
 			press 0.33 0.107 0.1; nap 4; press 0.5 0.2 0.1; nap 2; xs type sdkcov; nap 3; press 0.3 0.29 0.1; nap 5
 			press 0.5 0.905 0.1; nap 4; press 0.83 0.037 0.1; nap 2; } ; send() { :; } ; undo() { :; } ;;
+		# (P23, watchOS) once the check has started: the Digital Crown pressed (the watch face), 4 s later sdkcov opened again from the host
+		lifecycle) id=func:WatchKit.input-lifecycle-round-trip; send() { [ -e "$OUT/lc-sent" ] && return
+			f=$(find "$X86SIM_DEVICE"/data/tmp -name 'sdkcov-*.err' -newer "$OUT/run.log" 2>/dev/null | head -1)
+			grep -qs "X86TEST sdkcov only " "$f" || return; nap 6; touch "$OUT/lc-sent"
+			xs home; nap 4; xs app com.x86sim.test.sdkcov; } ; undo() { :; } ;;
 		*) echo "inputs: unknown check $k" >&2; exit 2 ;;
 	esac
 	# per device: two devices of one platform don't share (and delete) each other's OUT

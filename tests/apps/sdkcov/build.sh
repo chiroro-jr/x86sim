@@ -16,7 +16,7 @@
 # visionOS: the notification content, File Provider UI action and reporting UI extensions (installd takes them there).
 # P19, iOS and visionOS: a Quick Look preview extension (PlugIns/sdkcovQLPreview.appex) for the app's exported type
 # com.x86sim.test.sdkcov.qlsample (*.sdkcovql).
-# P22, iOS: a CryptoTokenKit persistent token extension (PlugIns/sdkcovToken.appex, class id com.x86sim.test.sdkcov.token).
+# P22 (P23: all four platforms): a CryptoTokenKit persistent token extension (PlugIns/sdkcovToken.appex, class id com.x86sim.test.sdkcov.token).
 # iOS also carries an App Clip, AppClips/sdkcovClip.app (ext/Clip.swift, bundle id com.x86sim.test.sdkcov.Clip): simctl /
 # x86sim install of the app does not install it; run.sh and ref-mac.sh install it after the app.
 # objc/SDKCovCatch.m: the app's one Objective-C file (an @try around a block), compiled with clang and imported into
@@ -96,14 +96,14 @@ for p in ${*:-ios tvos watchos xros}; do
 <key>NSAccessorySetupKitSupports</key><array><string>Bluetooth</string></array>
 <key>BAAppGroupID</key><string>group.com.x86sim.test.sdkcov</string>
 <key>CFBundleURLTypes</key><array><dict><key>CFBundleURLName</key><string>com.x86sim.test.sdkcov</string><key>CFBundleURLSchemes</key><array><string>sdkcov</string></array></dict></array>'"$ba$appsvc" ;;
-	tvos) sdk=appletvsimulator; tgt=arm64-apple-tvos27.0-simulator; plat=AppleTVSimulator; fam='<integer>3</integer>'; exts='downloader docapp'  # no extkit: as watchOS below; docapp: the scene lifecycle round trip (P22)
+	tvos) sdk=appletvsimulator; tgt=arm64-apple-tvos27.0-simulator; plat=AppleTVSimulator; fam='<integer>3</integer>'; exts='downloader docapp token'  # no extkit: as watchOS below; docapp: the scene lifecycle round trip (P22)
 		extra='<key>CFBundleURLTypes</key><array><dict><key>CFBundleURLName</key><string>com.x86sim.test.sdkcov</string><key>CFBundleURLSchemes</key><array><string>sdkcov</string></array></dict></array>
 <key>BAAppGroupID</key><string>group.com.x86sim.test.sdkcov</string>'"$ba$appsvc" ;;
 	# a standalone (watch-only) app: watchOS installs and runs it without an iPhone companion
 	watchos) sdk=watchsimulator; tgt=arm64-apple-watchos27.0-simulator; plat=WatchSimulator; fam='<integer>4</integer>'
 		# no ExtensionKit extension (tvOS, visionOS neither): their installd refuses an appex whose EXExtensionPointIdentifier is not one of
 		# Apple's ("does not specify an Apple extension point"), so the app defines no extension point there either
-		exts='widget'
+		exts='widget token'
 		# WKBackgroundModes self-care: WKExtendedRuntimeSession runs (refused with error 7 without it); the Health usage
 		# strings: the workout check may ask for Health access (an app without them is killed when it asks)
 		extra='<key>WKApplication</key><true/><key>WKWatchOnly</key><true/><key>WKBackgroundModes</key><array><string>self-care</string></array><key>NSHealthShareUsageDescription</key><string>sdkcov reads workouts it saved</string><key>NSHealthUpdateUsageDescription</key><string>sdkcov saves a test workout</string>'
@@ -114,7 +114,7 @@ for p in ${*:-ios tvos watchos xros}; do
 	# authorization (an app asking without them is killed)
 	xros) sdk=xrsimulator; tgt=arm64-apple-xros27.0-simulator; plat=XRSimulator; fam='<integer>7</integer>'; multi='<true/>'  # volume + immersive spaces
 		# docapp: the DocumentGroup companion app (P15) and the scene lifecycle round trip (P22), which come back by sdkcov:
-		exts='widget fileprovider downloader ncontent fpaction classify qlpreview docapp'  # no extkit: as watchOS below
+		exts='widget fileprovider downloader ncontent fpaction classify qlpreview docapp token'  # no extkit: as watchOS below
 		extra='<key>CFBundleURLTypes</key><array><dict><key>CFBundleURLName</key><string>com.x86sim.test.sdkcov</string><key>CFBundleURLSchemes</key><array><string>sdkcov</string></array></dict></array>
 <key>NSWorldSensingUsageDescription</key><string>sdkcov checks ARKit plane detection</string>
 <key>NSHandsTrackingUsageDescription</key><string>sdkcov checks ARKit hand tracking</string>

@@ -9,7 +9,7 @@ import AVFoundation
 #if os(iOS) || os(visionOS) || os(tvOS)
 import UIKit
 #endif
-#if os(iOS)
+#if canImport(CryptoTokenKit)
 import CryptoTokenKit
 #endif
 #if canImport(CoreImage) && !os(watchOS)
@@ -319,12 +319,18 @@ extension Registry {
         // MARK: CryptoTokenKit: a persistent token (the app's token extension, ext/Token.swift) configured from the app
         // (TKTokenDriver.Configuration) with a certificate: TKTokenWatcher sees the token, the keychain lists the
         // certificate under its token id (TKTokenKeychainContents), and removing the configuration takes both away
-        #if os(iOS)
+        #if canImport(CryptoTokenKit)
         c.append(check("CryptoTokenKit", "persistent-token-keychain", timeout: 90) {
             let cls = "com.x86sim.test.sdkcov.token", inst = "sdkcov-p22", tid = "\(cls):\(inst)"
             let t0 = Date()
             var dcs: [String: TKTokenDriver.Configuration] = [:]
             for _ in 0..<20 { dcs = TKTokenDriver.Configuration.driverConfigurations; if dcs[cls] != nil { break }; try await Task.sleep(for: .milliseconds(500)) }
+            #if os(tvOS) || os(watchOS)
+            // Apple's tvOS / watchOS simulators: the bundled ctk-tokens extension gives the app no driver configuration
+            // (installd takes the appex; CryptoTokenKit lists no class for it)
+            try expect(dcs.isEmpty, "driver configurations \(dcs.keys.sorted())")
+            return "no driver configuration for the bundled token extension"
+            #else
             guard let dc = dcs[cls] else { throw Fail("driver configurations \(dcs.keys.sorted())") }
             dc.removeTokenConfiguration(for: inst)
             let tc = dc.addTokenConfiguration(for: inst)
@@ -366,6 +372,7 @@ extension Registry {
             // extension not launched; no session)
             try expect(kst == -26276, d)
             return d
+            #endif
         })
         #endif
 

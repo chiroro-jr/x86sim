@@ -4,6 +4,10 @@ import Foundation
 #if canImport(WidgetKit) && os(iOS)
 import WidgetKit
 #endif
+#if os(watchOS)
+import WatchKit
+import Synchronization
+#endif
 
 private var p23InputWait: Double { Double(ProcessInfo.processInfo.environment["SDKCOV_INPUT_WAIT"] ?? "") ?? 0 }
 
@@ -34,6 +38,36 @@ extension Registry {
             try expect(before > 0, "the placed widget's timeline was never asked for: \(r)")
             try expect(reloaded, "no timeline asked for in 45 s after reloadTimelines(ofKind:): \(r)")
             return r
+        })
+        #endif
+        // MARK: WatchKit: the app's lifecycle when it leaves the screen and comes back (watchOS has no app-to-app URL
+        // opening): inputs.sh lifecycle / ref-mac.sh INPUT presses the Digital Crown (home: the watch face),
+        // then launches sdkcov again from the host. WKApplication's notifications in order with its state
+        #if os(watchOS)
+        c.append(check("WatchKit", "input-lifecycle-round-trip", timeout: 120) {
+            let wait = p23InputWait
+            guard wait > 0 else { return "state \(await onMain { WKApplication.shared().applicationState.rawValue }) (SDKCOV_INPUT_WAIT unset: no round trip awaited)" }
+            _ = await p3Wait(20) { await onMain { WKApplication.shared().applicationState == .active } }
+            let ev = Mutex<[String]>([])
+            let nc = NotificationCenter.default
+            var obs: [NSObjectProtocol] = []
+            for (n, tag) in [(WKApplication.willResignActiveNotification, "willResignActive"), (WKApplication.didEnterBackgroundNotification, "didEnterBackground"),
+                             (WKApplication.willEnterForegroundNotification, "willEnterForeground"), (WKApplication.didBecomeActiveNotification, "didBecomeActive")] {
+                obs.append(nc.addObserver(forName: n, object: nil, queue: .main) { _ in
+                    let st = MainActor.assumeIsolated { WKApplication.shared().applicationState.rawValue }
+                    ev.withLock { $0.append("\(tag)[\(st)]") }
+                })
+            }
+            defer { obs.forEach { nc.removeObserver($0) } }
+            let back = await p3Wait(wait) { ev.withLock { $0.contains { $0.hasPrefix("didEnterBackground") } && ($0.last?.hasPrefix("didBecomeActive") ?? false) } }
+            try await Task.sleep(for: .milliseconds(500))
+            let e = ev.withLock { $0 }
+            let st = await onMain { WKApplication.shared().applicationState.rawValue }
+            let d = "\(e); state now \(st)"
+            try expect(back, "no round trip in \(Int(wait)) s: \(d)")
+            // Apple's order and states (the host's launch that brings the app back adds a resign / become active pair)
+            try expect(Array(e.prefix(4)) == ["willResignActive[0]", "didEnterBackground[2]", "willEnterForeground[2]", "didBecomeActive[0]"] && st == 0, d)
+            return d
         })
         #endif
         return c
