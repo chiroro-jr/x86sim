@@ -10,6 +10,20 @@ import UniformTypeIdentifiers
 #if canImport(Network)
 import Network
 #endif
+#if canImport(AVFoundation)
+import AVFoundation
+#endif
+#if canImport(ComputeGraph) && !os(watchOS)
+import ComputeGraph
+import Metal
+#endif
+#if os(watchOS)
+import SwiftUI
+import SceneKit
+#endif
+#if canImport(RealityKit) && os(iOS)
+import RealityKit
+#endif
 #if canImport(CoreImage)
 import CoreImage
 #endif
@@ -123,6 +137,37 @@ final class P20PinDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendabl
     }
     func urlSession(_ s: URLSession, task: URLSessionTask, didFinishCollecting m: URLSessionTaskMetrics) {
         protocols.withLock { $0.append(m.transactionMetrics.map { $0.networkProtocolName ?? "?" }.joined(separator: "+")) }
+    }
+}
+#endif
+
+#if canImport(AVFoundation)
+/// AVContentKeySession delegate: answers every request with a clear key and logs what happens
+final class P20KeyDelegate: NSObject, AVContentKeySessionDelegate, @unchecked Sendable {
+    let log = Mutex<[String]>([])
+    func add(_ s: String) { log.withLock { $0.append(s) } }
+    func contentKeySession(_ session: AVContentKeySession, didProvide keyRequest: AVContentKeyRequest) {
+        add("request \(keyRequest.identifier.map { "\($0)" } ?? "nil")")
+        keyRequest.processContentKeyResponse(AVContentKeyResponse(clearKeyData: Data(repeating: 0x5a, count: 16), initializationVector: nil))
+    }
+    func contentKeySession(_ session: AVContentKeySession, contentKeyRequestDidSucceed keyRequest: AVContentKeyRequest) { add("succeeded status \(keyRequest.status.rawValue)") }
+    func contentKeySession(_ session: AVContentKeySession, contentKeyRequest keyRequest: AVContentKeyRequest, didFailWithError err: Error) { add("failed \(p8Err(err))") }
+}
+#endif
+
+#if os(watchOS)
+struct P20WatchControls: View {
+    @State var on = true
+    @State var v = 0.5
+    @State var n = 3
+    @State var p = 1
+    var body: some View {
+        VStack(spacing: 4) {
+            Toggle("On", isOn: $on)
+            Slider(value: $v)
+            Stepper("N \(n)", value: $n)
+            Picker("P", selection: $p) { Text("A").tag(0); Text("B").tag(1) }
+        }.frame(width: 180, height: 220).background(Color.white)
     }
 }
 #endif
@@ -302,6 +347,119 @@ extension Registry {
             // service worker container at all, even in a secure context
             try expect(s == "no navigator.serviceWorker (secure true)", "service worker: \(s) (Apple's simulator: no navigator.serviceWorker (secure true))")
             return s
+        })
+        #endif
+
+        // MARK: AVFoundation: an AVContentKeySession (clear key) answering its own key request
+        #if canImport(AVFoundation)
+        c.append(check("AVFoundation", "content-key-session-clear-key", timeout: 30) {
+            let s = AVContentKeySession(keySystem: .clearKey)
+            let d = P20KeyDelegate()
+            s.setDelegate(d, queue: DispatchQueue(label: "p20.keys"))
+            s.processContentKeyRequest(withIdentifier: "skd://sdkcov/key1", initializationData: nil, options: nil)
+            _ = await more2Wait(10) { d.log.withLock { $0.count } >= 2 }
+            let log = d.log.withLock { $0 }
+            s.expire()
+            // Apple's 27.2 simulators: the request comes, the clear key response then fails it (-11800)
+            try expect(log == ["request skd://sdkcov/key1", "failed AVFoundationErrorDomain -11800"], "delegate \(log) (Apple's simulator: request, failed -11800)")
+            return "key system \(s.keySystem.rawValue), delegate \(log)"
+        })
+        #endif
+
+        // MARK: ComputeGraph: an assembled graph compiled to pipelines and advanced one step by a simulation
+        #if canImport(ComputeGraph) && !os(watchOS)
+        c.append(check("ComputeGraph", "pipelines-simulation-advance", timeout: 90) {
+            var g = ComputeNodeGraph()
+            let f = ComputeNodeGraph.DataType(.float)
+            let input = ComputeNodeGraph.NodeDefinition(name: "x", outputs: [.init(name: "value", kind: .value, type: .primitive(type: f))], kind: .graphInput)
+            let add = ComputeNodeGraph.NodeDefinition(name: "add", inputs: [.init(name: "a", kind: .value, type: .primitive(type: f)), .init(name: "b", kind: .value, type: .primitive(type: f))],
+                                                      outputs: [.init(name: "out", kind: .value, type: .primitive(type: f))], kind: .binaryArithmetic(a: f, b: f, operation: .add))
+            let n0 = try g.addNode(.init(definition: input, label: "x"))
+            var addNode = ComputeNodeGraph.Node(definition: add, label: "add"); addNode.setInput(at: 1, Float(2.5))
+            let n1 = try g.addNode(addNode)
+            try g.addEdge(.init(source: .init(node: n0, index: 0), target: .init(node: n1, index: 0)))
+            let a = try ComputeNodeGraph.Assembly(g)
+            var out: [String] = ["assembly uniforms \(a.uniforms.count)"]
+            let p: ComputeNodeGraph.Pipelines
+            do { p = try await ComputeNodeGraph.Pipelines(descriptor: .init(assembly: a)) }
+            catch { return "pipelines refused: \(error)" }
+            out.append("pipelines debugDraw \(p.options.debugDraw)")
+            guard let dev = MTLCreateSystemDefaultDevice(), let q = dev.makeCommandQueue() else { throw Fail("no Metal device") }
+            let sim = ComputeGraphSimulation(pipelines: p, commandQueue: q)
+            let set = sim.setUniform(Float(4), named: "x")
+            guard let cb = q.makeCommandBuffer(), let enc = cb.makeComputeCommandEncoder() else { throw Fail("no command buffer") }
+            sim.advance(.init(deltaTime: 1.0 / 60, commandBuffer: cb, computeEncoder: enc))
+            enc.endEncoding(); cb.commit(); await cb.completed()
+            out.append("setUniform x \(set), advance: command buffer status \(cb.status.rawValue) error \(cb.error.map { "\($0)" } ?? "nil"), uniforms \(sim.graphUniforms.length) B")
+            // Apple's 27.2 simulators: compiled, the uniform named "x" not found (the input is inlined), one step completes
+            try expect(out.joined(separator: "; ") == "assembly uniforms 0; pipelines debugDraw false; setUniform x false, advance: command buffer status 4 error nil, uniforms 4 B", out.joined(separator: "; "))
+            return out.joined(separator: "; ")
+        })
+        #endif
+
+        // MARK: SwiftUI on watchOS: Toggle / Slider / Stepper / Picker bound to state, drawn by ImageRenderer
+        #if os(watchOS)
+        c.append(check("SwiftUI", "watch-controls-render", timeout: 30) {
+            let img = await onMain { () -> CGImage? in let r = ImageRenderer(content: P20WatchControls()); r.scale = 1; return r.cgImage }
+            guard let img else { throw Fail("ImageRenderer gave no image") }
+            let ctx = bitmap(img.width, img.height); ctx.draw(img, in: CGRect(x: 0, y: 0, width: img.width, height: img.height))
+            var dark = 0, green = 0
+            for y in 0..<img.height { for x in 0..<img.width {
+                let px = pixel(ctx, x, y)
+                if px[3] > 128 && Int(px[0]) + Int(px[1]) + Int(px[2]) < 600 { dark += 1 }
+                if px[1] > 150 && px[0] < 120 && px[2] < 120 { green += 1 }
+            } }
+            // Apple's watchOS 27.2 simulator: 180x220, 13463 non-white (dark control platters), no green
+            try expect(img.width == 180 && img.height == 220 && (12500...14500).contains(dark) && green == 0, "\(img.width)x\(img.height), \(dark) non-white, \(green) green (Apple's simulator: 180x220, 13463, 0)")
+            return "\(img.width)x\(img.height), \(dark) non-white, \(green) green pixels"
+        })
+        // MARK: SceneKit on watchOS: a particle system and a shadow-casting light, archived and read back
+        c.append(check("SceneKit", "watch-particles-shadows", timeout: 30) {
+            let scene = SCNScene()
+            let ps = SCNParticleSystem(); ps.birthRate = 50; ps.particleLifeSpan = 2; ps.emitterShape = SCNSphere(radius: 0.5); ps.particleColor = .red
+            let emitter = SCNNode(); emitter.name = "emitter"; emitter.addParticleSystem(ps); scene.rootNode.addChildNode(emitter)
+            let l = SCNLight(); l.type = .directional; l.castsShadow = true; l.shadowMode = .deferred; l.shadowMapSize = CGSize(width: 1024, height: 1024); l.shadowRadius = 4
+            let ln = SCNNode(); ln.name = "sun"; ln.light = l; scene.rootNode.addChildNode(ln)
+            // (SCNScene.write(to:) is not on watchOS: a keyed archive round trip)
+            let data = try NSKeyedArchiver.archivedData(withRootObject: scene, requiringSecureCoding: true)
+            var back = "-"
+            if let s2 = try NSKeyedUnarchiver.unarchivedObject(ofClass: SCNScene.self, from: data) {
+                let e = s2.rootNode.childNode(withName: "emitter", recursively: true), sun = s2.rootNode.childNode(withName: "sun", recursively: true)
+                back = "particles \(e?.particleSystems?.count ?? -1) birthRate \(e?.particleSystems?.first?.birthRate ?? -1), light shadows \(sun?.light?.castsShadow ?? false) mode \(sun?.light?.shadowMode.rawValue ?? -1) map \(sun?.light?.shadowMapSize ?? .zero)"
+            }
+            try expect(emitter.particleSystems?.count == 1 && l.castsShadow && back == "particles 1 birthRate 50.0, light shadows true mode 1 map {h:1024.0, w:1024.0}", "read back \(back)")
+            return "archived \(data.count) B; read back: \(back)"
+        })
+        #endif
+
+        // MARK: RealityKit: an ARView in nonAR camera mode rendering a red unlit box, by snapshot
+        #if canImport(RealityKit) && os(iOS)
+        c.append(check("RealityKit", "arview-nonar-snapshot", timeout: 60) {
+            let (v, done) = try await onMain { () -> (ARView, () -> Void) in
+                let v = ARView(frame: CGRect(x: 0, y: 0, width: 200, height: 200), cameraMode: .nonAR, automaticallyConfigureSession: false)
+                v.environment.background = .color(.white)
+                let anchor = AnchorEntity(world: .zero)
+                anchor.addChild(ModelEntity(mesh: .generateBox(size: 0.4), materials: [UnlitMaterial(color: .red)]))
+                let cam = PerspectiveCamera(); cam.look(at: .zero, from: [0, 0, 1.2], relativeTo: nil); anchor.addChild(cam)
+                v.scene.addAnchor(anchor)
+                let vc = UIViewController(); vc.view.addSubview(v)
+                let (_, done) = try p6Show(vc)
+                return (v, done)
+            }
+            defer { Task { @MainActor in done() } }
+            try await Task.sleep(for: .seconds(2))
+            let box = P8Box<UIImage?>()
+            await onMain { v.snapshot(saveToHDR: false) { box.set($0) } }
+            guard let got = await box.wait(20), let img = got?.cgImage else { throw Fail("no snapshot in 20 s") }
+            let ctx = bitmap(img.width, img.height); ctx.draw(img, in: CGRect(x: 0, y: 0, width: img.width, height: img.height))
+            var red = 0, white = 0
+            for y in stride(from: 0, to: img.height, by: 2) { for x in stride(from: 0, to: img.width, by: 2) {
+                let px = pixel(ctx, x, y)
+                if px[0] > 200 && px[1] < 60 && px[2] < 60 { red += 1 } else if px[0] > 230 && px[1] > 230 && px[2] > 230 { white += 1 }
+            } }
+            let total = (img.width / 2) * (img.height / 2)
+            try expect(red > total / 20 && white > total / 4, "\(img.width)x\(img.height): red \(red) white \(white) of \(total)")
+            return "\(img.width)x\(img.height) snapshot: red \(red * 100 / total)%, white \(white * 100 / total)%"
         })
         #endif
 
