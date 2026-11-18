@@ -513,6 +513,8 @@ extension Registry {
         c.append(check("Intents", "focus-status-center", timeout: 20) {
             let st = INFocusStatusCenter.default.authorizationStatus
             let fs = INFocusStatusCenter.default.focusStatus.isFocused
+            // Apple's simulators (all four): not determined, not focused (no Focus mode on)
+            try expect(st == .notDetermined && fs == false, "focus authorization \(st.rawValue), isFocused \(String(describing: fs))")
             return "focus authorization \(st.rawValue), isFocused \(String(describing: fs)), siri authorization \(INPreferences.siriAuthorizationStatus().rawValue)"
         })
         #endif

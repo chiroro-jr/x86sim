@@ -384,6 +384,8 @@ extension Registry {
             let det = SpeechDetector()
             try expect(st != .installed || SpeechTranscriber.isAvailable, "assets installed but transcriber unavailable")
             guard st == .installed else {
+                // Apple's simulators: the transcriber's assets are unsupported there (no on-device model), the transcriber unavailable
+                try expect(st == .unsupported && !SpeechTranscriber.isAvailable, "SpeechTranscriber assets \(st) (available \(SpeechTranscriber.isAvailable))")
                 return "SpeechTranscriber assets \(st) (available \(SpeechTranscriber.isAvailable)); detector format \(await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [det]).map { "\($0.sampleRate)" } ?? "nil")"
             }
             let analyzer = SpeechAnalyzer(modules: [t])

@@ -98,6 +98,9 @@ extension Registry {
             let rr = try await s2.analyze(for: [.rhythm])
             let beats = rr.rhythm?.beats ?? []
             let gaps = zip(beats.dropFirst(), beats).map { ($0.0 - $0.1).seconds }
+            // a 120 BPM click: Apple's simulators find 8 beats at ~120.4 bpm (gaps ~0.5 s)
+            let bpm = rr.rhythm?.beatsPerMinute ?? 0
+            try expect(beats.count == 8 && abs(bpm - 120) < 3 && gaps.allSatisfy { abs($0 - 0.5) < 0.05 }, "\(beats.count) beats, gaps \(gaps), bpm \(bpm)")
             return "loudness \(String(format: "%.1f", lo.integrated.value)) LUFS (\(Int(t1.timeIntervalSince(t0) * 1000)) ms); \(beats.count) beats, gaps \(gaps.map { String(format: "%.2f", $0) }.joined(separator: ",")), bpm \(rr.rhythm?.beatsPerMinute.map { String(format: "%.1f", $0) } ?? "nil")"
         })
         #endif
