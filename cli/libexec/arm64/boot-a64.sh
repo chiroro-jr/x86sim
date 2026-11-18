@@ -291,7 +291,7 @@ UI="com.apple.installcoordinationd com.apple.mobiletimerd com.apple.backboardd c
 	com.apple.homed
 	com.apple.linkd com.apple.mediaanalysisd com.apple.mediaanalysisd.service com.apple.translationd
 	com.apple.telephonyutilities.callservicesd com.apple.UsageTrackingAgent com.apple.ScreenTimeAgent com.apple.dmd
-	com.apple.videosubscriptionsd com.apple.managedappdistributiond com.apple.shazamd"
+	com.apple.videosubscriptionsd com.apple.managedappdistributiond com.apple.shazamd com.apple.backgroundassets.user"
 UI_SLIM="com.apple.backboardd com.apple.SpringBoard com.apple.TextInput.kbd com.apple.FileCoordination com.apple.InputUI
 	com.apple.assistantd"
 FULLUI="com.apple.chronod"
@@ -345,9 +345,12 @@ OUR_JOBS="$MM_JOB com.x86sim.openurl=host/openurl/$A64_HOSTDIR/openurl
 # sdkcov P1: assetsd (on demand, feature "photos") on tvOS and visionOS too, as in Apple's simulators: without it
 # PHPhotoLibrary.performChanges failed with PHPhotosErrorDomain 3301 (operation interrupted) on tvOS, where Apple's
 # tvOS 27.2 simulator creates and fetches the assets (sdkcov func:Photos.library-create-fetch-request).
-# backgroundassets.user (tvOS, on demand, sdkcov P3): Background Assets' per-user daemon. With BAInitialDownloadRestrictions
+# backgroundassets.user (on demand; tvOS since sdkcov P3, iOS and visionOS since r25: a diff of the runtimes' launchd
+# jobs against these lists, by the Mach services public frameworks name): Background Assets' per-user daemon. With BAInitialDownloadRestrictions
 # in the app (build.sh) BADownloadManager.fetchCurrentDownloads failed (Foundation._GenericObjCError 0) without it, where
 # Apple's tvOS 27.2 simulator answers 0 downloads (More_tvOS.swift func:BackgroundAssets.asset-pack-manager-downloads).
+# iOS / visionOS the same: fetchCurrentDownloads / scheduleDownload / cancel failed (_GenericObjCError 0, NSCocoaErrorDomain
+# 4099) where Apple's iOS 27.2 simulator schedules, lists and cancels (P21_Gaps.swift download-manager-schedule-cancel).
 TV_UI="com.apple.installcoordinationd com.apple.backboardd com.apple.Pineboard com.apple.TextInput.kbd
 	com.apple.homed com.apple.locationd
 	com.apple.FileCoordination com.apple.usernotificationsd com.apple.assistantd com.apple.TVSystemUIService
@@ -433,7 +436,7 @@ XR_UI="com.apple.installcoordinationd com.apple.backboardd com.apple.SurfBoard c
 	com.apple.gamed com.apple.gamesaved
 	com.apple.linkd com.apple.mediaanalysisd com.apple.mediaanalysisd.service com.apple.siriactionsd
 	com.apple.managedassetsd com.apple.eligibilityd com.apple.telephonyutilities.callservicesd com.apple.videosubscriptionsd com.apple.shazamd
-	com.apple.WebBookmarks.webbookmarksd com.apple.medialibraryd"
+	com.apple.WebBookmarks.webbookmarksd com.apple.medialibraryd com.apple.backgroundassets.user"
 XR_UI_SLIM="com.apple.backboardd com.apple.SurfBoard com.apple.vhmdd com.apple.wakeboardd com.apple.RealityEnvironment com.apple.TextInput.kbd
 	com.apple.FileCoordination"
 # No fpsim2host on tvOS / watchOS: their FileProvider has no FPSimulatorSupportInterface (no Files app), so it exited 1
