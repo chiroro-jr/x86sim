@@ -581,15 +581,15 @@
     "func:Charts.bar-scale-sector-pie-pixels",
     "func:Charts.bar-line-render",
     "func:Charts.rule-mark-pixel-position-selection",
-    "func:Charts.scrollable-axes-initial-position"
+    "func:Charts.scrollable-axes-initial-position",
+    "func:Charts.axis-label-positions-pixels"
    ],
-   "gaps": [
-    "[a] axis label positions by pixels"
-   ],
-   "note": "BarMark scale and SectorMark pie sectors asserted by pixel colour on all four platforms. r20: a RuleMark at x 7.5 of 0...10 drawn at 0.749 of the plot width (ImageRenderer, chartXSelection set); a scrollable chart is a ScrollView ImageRenderer leaves blank (Apple too) (Apple and x86Sim PASS, 2026-11-18). r21: a 100-unit chart with chartScrollableAxes, chartXVisibleDomain(length: 10) and chartScrollPosition(initialX: 50) is all red (x 50..<60) in a window; ImageRenderer draws a scrollable chart empty (both simulators) (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "BarMark scale and SectorMark pie sectors asserted by pixel colour on all four platforms. r20: a RuleMark at x 7.5 of 0...10 drawn at 0.749 of the plot width (ImageRenderer, chartXSelection set); a scrollable chart is a ScrollView ImageRenderer leaves blank (Apple too) (Apple and x86Sim PASS, 2026-11-18). r21: a 100-unit chart with chartScrollableAxes, chartXVisibleDomain(length: 10) and chartScrollPosition(initialX: 50) is all red (x 50..<60) in a window; ImageRenderer draws a scrollable chart empty (both simulators) (Apple and x86Sim PASS, 2026-11-18). r22: x axis value labels at 0, 50 and 100 drawn by ImageRenderer: \"100\" at the trailing edge is dropped, the dark-pixel runs of \"0\" / \"50\" are asserted per platform (iOS/visionOS 5-9,205-216, tvOS 5-16,206-230, watchOS 3-6,203-211) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
    "r20": true,
    "r21": true,
+   "r22": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -1254,11 +1254,12 @@
    "fin": true,
    "gaps": [
     "[a] NSFileProviderManager evictItem / import / pending items",
-    "[b: File Provider download fetched twice: right after sim_materializeFile fileproviderd's docID lookup of the item times out (6.2 s), it fetches the file again and takes the extension's unset date (Files: 12/31/69); Apple fetches once]"
+    "[b: File Provider download fetched twice: after sim_materializeFile fileproviderd's post-operation lookup of the item reads it once (attributes fine: tracked, not dataless, document id kept) and then retries 6.2 s with no file system access at all (an in-memory wait, not mtime / gen count / flags / own-event marks), fetches the file again and takes the extension's unset date (Files: 12/31/69); Apple fetches once]"
    ],
-   "note": "replicated appex: add domain, enumerate, materialize hello.txt (fetchContents), createItem; Apple and x86Sim PASS (cov-iphone, cov-share). run.sh / ref-mac.sh reset the extension's enable state as a fresh device has it (fileproviderd's one-time LegacyEnabledStateHasBeenMigrated migration enables only the extensions present then; Apple fails the same on a reused device). r21: replicated-extension-domain asserts docs/note.txt keeps its date after its download and is fetched once (Apple PASS, x86Sim FAIL). Fixed on the way: Darling document ids follow renames / RENAME_SWAP as on APFS (ESTALE: opened wrong doc_id), FSIOC_CAS_BSDFLAGS atomic, APFS mark-purgeable fsctl (0xC0084A44), fpsim2host dataless flags via CAS and materialized files keep their times",
+   "note": "replicated appex: add domain, enumerate, materialize hello.txt (fetchContents), createItem; Apple and x86Sim PASS (cov-iphone, cov-share). run.sh / ref-mac.sh reset the extension's enable state as a fresh device has it (fileproviderd's one-time LegacyEnabledStateHasBeenMigrated migration enables only the extensions present then; Apple fails the same on a reused device). r21: replicated-extension-domain asserts docs/note.txt keeps its date after its download and is fetched once (Apple PASS, x86Sim FAIL). Fixed on the way: Darling document ids follow renames / RENAME_SWAP as on APFS (ESTALE: opened wrong doc_id), FSIOC_CAS_BSDFLAGS atomic, APFS mark-purgeable fsctl (0xC0084A44), fpsim2host dataless flags via CAS and materialized files keep their times r22: double fetch narrowed (Darling syscall traces of fileproviderd, fpsim2host call timing)",
    "package": "P3 App extensions, system services, communication & parental controls",
    "r21": true,
+   "r22": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -1829,14 +1830,14 @@
     "func:MapKit.snapshot-pixels",
     "func:MapKit.geometry-local-objects",
     "func:MapKit.snapshotter",
-    "func:MapKit.marker-annotation-views-on-screen"
+    "func:MapKit.marker-annotation-views-on-screen",
+    "func:MapKit.map-item-request-place-id"
    ],
-   "gaps": [
-    "[a] MKMapItemRequest (place ID) / MKMapItem identifiers"
-   ],
-   "note": "MKLocalSearch + completer, directions + ETA, MKGeocodingRequest/MKReverseGeocodingRequest, Look Around scene, overlay renderer pixels, MKMapView conversions, snapshot pixels asserted. r17: two MKMarkerAnnotationViews in a map view on screen at their projected points, selection (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "MKLocalSearch + completer, directions + ETA, MKGeocodingRequest/MKReverseGeocodingRequest, Look Around scene, overlay renderer pixels, MKMapView conversions, snapshot pixels asserted. r17: two MKMarkerAnnotationViews in a map view on screen at their projected points, selection (Apple and x86Sim PASS, 2026-11-18). r22: MKMapItemRequest for an identifier that names no place answers MKError 5 (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P5 Health, home, location, sensors & accessories",
    "r17": true,
+   "r22": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -3096,11 +3097,12 @@
     "func:UserNotificationsUI.input-expand-content-extension"
    ],
    "gaps": [],
-   "note": "content-extension-registered: sdkcovNotifyContent.appex on com.apple.usernotifications.content-extension with category sdkcov.content, ratio 0.5 (LaunchServices + PlugInKit, Apple) (x86Sim PASS on each of its platforms, 2026-11-17) r18: alert authorization by a host tap on the prompt's Allow, banners of the content extension's category long-pressed: Apple's iOS 27.2 simulator shows the expanded notification with a blank extension area and never launches the extension (asserted: no marks) (Apple and x86Sim PASS, 2026-11-18). r21: on the iPad Apple's simulator never shows the notification authorization prompt (3 runs): the request stays unanswered, asserted (x86Sim shows the prompt; no Allow tapped there) (Apple and x86Sim PASS on the iPad, 2026-11-18).",
+   "note": "content-extension-registered: sdkcovNotifyContent.appex on com.apple.usernotifications.content-extension with category sdkcov.content, ratio 0.5 (LaunchServices + PlugInKit, Apple) (x86Sim PASS on each of its platforms, 2026-11-17) r18: alert authorization by a host tap on the prompt's Allow, banners of the content extension's category long-pressed: Apple's iOS 27.2 simulator shows the expanded notification with a blank extension area and never launches the extension (asserted: no marks) (Apple and x86Sim PASS, 2026-11-18). r21: on the iPad Apple's simulator never shows the notification authorization prompt (3 runs): the request stays unanswered, asserted (x86Sim shows the prompt; no Allow tapped there) (Apple and x86Sim PASS on the iPad, 2026-11-18). r22: Apple's iPad simulator does show the authorization prompt: SpringBoard's notification server starts ~135 s after boot (iPhone too), so a request made right after a boot (ref-mac.sh) waits; the iPad check now taps Allow as on the iPhone (Apple and x86Sim PASS on the iPad with WAIT=150, 2026-11-18).",
    "p10": true,
    "package": "P3 App extensions, system services, communication & parental controls",
    "r18": true,
    "r21": true,
+   "r22": true,
    "rejudged": true,
    "status": "apple-sim-na"
   },
@@ -4112,15 +4114,15 @@
     "func:Charts.bar-scale-sector-pie-pixels",
     "func:Charts.bar-line-render",
     "func:Charts.rule-mark-pixel-position-selection",
-    "func:Charts.scrollable-axes-initial-position"
+    "func:Charts.scrollable-axes-initial-position",
+    "func:Charts.axis-label-positions-pixels"
    ],
-   "gaps": [
-    "[a] axis label positions by pixels"
-   ],
-   "note": "BarMark scale and SectorMark pie sectors asserted by pixel colour on all four platforms. r20: a RuleMark at x 7.5 of 0...10 drawn at 0.749 of the plot width (ImageRenderer, chartXSelection set); a scrollable chart is a ScrollView ImageRenderer leaves blank (Apple too) (Apple and x86Sim PASS, 2026-11-18). r21: a 100-unit chart with chartScrollableAxes, chartXVisibleDomain(length: 10) and chartScrollPosition(initialX: 50) is all red (x 50..<60) in a window; ImageRenderer draws a scrollable chart empty (both simulators) (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "BarMark scale and SectorMark pie sectors asserted by pixel colour on all four platforms. r20: a RuleMark at x 7.5 of 0...10 drawn at 0.749 of the plot width (ImageRenderer, chartXSelection set); a scrollable chart is a ScrollView ImageRenderer leaves blank (Apple too) (Apple and x86Sim PASS, 2026-11-18). r21: a 100-unit chart with chartScrollableAxes, chartXVisibleDomain(length: 10) and chartScrollPosition(initialX: 50) is all red (x 50..<60) in a window; ImageRenderer draws a scrollable chart empty (both simulators) (Apple and x86Sim PASS, 2026-11-18). r22: x axis value labels at 0, 50 and 100 drawn by ImageRenderer: \"100\" at the trailing edge is dropped, the dark-pixel runs of \"0\" / \"50\" are asserted per platform (iOS/visionOS 5-9,205-216, tvOS 5-16,206-230, watchOS 3-6,203-211) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
    "r20": true,
    "r21": true,
+   "r22": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -4821,14 +4823,14 @@
     "func:MapKit.snapshot-pixels",
     "func:MapKit.geometry-local-objects",
     "func:MapKit.snapshotter",
-    "func:MapKit.marker-annotation-views-on-screen"
+    "func:MapKit.marker-annotation-views-on-screen",
+    "func:MapKit.map-item-request-place-id"
    ],
-   "gaps": [
-    "[a] MKMapItemRequest (place ID) / MKMapItem identifiers"
-   ],
-   "note": "MKLocalSearch + completer, directions + ETA, MKGeocodingRequest/MKReverseGeocodingRequest, Look Around scene, overlay renderer pixels, MKMapView conversions, snapshot pixels asserted. r17: two MKMarkerAnnotationViews in a map view on screen at their projected points, selection (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "MKLocalSearch + completer, directions + ETA, MKGeocodingRequest/MKReverseGeocodingRequest, Look Around scene, overlay renderer pixels, MKMapView conversions, snapshot pixels asserted. r17: two MKMarkerAnnotationViews in a map view on screen at their projected points, selection (Apple and x86Sim PASS, 2026-11-18). r22: MKMapItemRequest for an identifier that names no place answers MKError 5 (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P5 Health, home, location, sensors & accessories",
    "r17": true,
+   "r22": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -6294,16 +6296,17 @@
    "existing_checks": [
     "func:Charts.bar-scale-sector-pie-pixels",
     "func:Charts.bar-line-render",
-    "func:Charts.rule-mark-pixel-position-selection"
+    "func:Charts.rule-mark-pixel-position-selection",
+    "func:Charts.axis-label-positions-pixels"
    ],
    "gaps": [
-    "[a] axis label positions by pixels",
     "[a] chartScrollableAxes / chartScrollPosition hosted on watchOS (the P17 check needs a UIKit window)"
    ],
-   "note": "BarMark scale and SectorMark pie sectors asserted by pixel colour on all four platforms. r20: a RuleMark at x 7.5 of 0...10 drawn at 0.749 of the plot width (ImageRenderer, chartXSelection set); a scrollable chart is a ScrollView ImageRenderer leaves blank (Apple too) (Apple and x86Sim PASS, 2026-11-18). r21",
+   "note": "BarMark scale and SectorMark pie sectors asserted by pixel colour on all four platforms. r20: a RuleMark at x 7.5 of 0...10 drawn at 0.749 of the plot width (ImageRenderer, chartXSelection set); a scrollable chart is a ScrollView ImageRenderer leaves blank (Apple too) (Apple and x86Sim PASS, 2026-11-18). r21 r22: x axis value labels at 0, 50 and 100 drawn by ImageRenderer: \"100\" at the trailing edge is dropped, the dark-pixel runs of \"0\" / \"50\" are asserted per platform (iOS/visionOS 5-9,205-216, tvOS 5-16,206-230, watchOS 3-6,203-211) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
    "r20": true,
    "r21": true,
+   "r22": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -6924,13 +6927,13 @@
     "func:MapKit.local-search",
     "func:MapKit.directions-eta",
     "func:MapKit.geocoding-requests",
-    "func:MapKit.geometry-local-objects"
+    "func:MapKit.geometry-local-objects",
+    "func:MapKit.map-item-request-place-id"
    ],
-   "gaps": [
-    "[a] MKMapItemRequest (place ID) / MKMapItem identifiers"
-   ],
-   "note": "MKLocalSearch + completer, directions + ETA, MKGeocodingRequest/MKReverseGeocodingRequest, Look Around scene, overlay renderer pixels, MKMapView conversions, snapshot pixels asserted.",
+   "gaps": [],
+   "note": "MKLocalSearch + completer, directions + ETA, MKGeocodingRequest/MKReverseGeocodingRequest, Look Around scene, overlay renderer pixels, MKMapView conversions, snapshot pixels asserted. r22: MKMapItemRequest for an identifier that names no place answers MKError 5 (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P5 Health, home, location, sensors & accessories",
+   "r22": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -8188,16 +8191,17 @@
     "func:Charts.bar-scale-sector-pie-pixels",
     "func:Charts.bar-line-render",
     "func:Charts.rule-mark-pixel-position-selection",
-    "func:Charts.scrollable-axes-initial-position"
+    "func:Charts.scrollable-axes-initial-position",
+    "func:Charts.axis-label-positions-pixels"
    ],
    "gaps": [
-    "[a] Chart3D",
-    "[a] axis label positions by pixels"
+    "[a] Chart3D"
    ],
-   "note": "BarMark scale and SectorMark pie sectors asserted by pixel colour on all four platforms. r20: a RuleMark at x 7.5 of 0...10 drawn at 0.749 of the plot width (ImageRenderer, chartXSelection set); a scrollable chart is a ScrollView ImageRenderer leaves blank (Apple too) (Apple and x86Sim PASS, 2026-11-18). r21: a 100-unit chart with chartScrollableAxes, chartXVisibleDomain(length: 10) and chartScrollPosition(initialX: 50) is all red (x 50..<60) in a window; ImageRenderer draws a scrollable chart empty (both simulators) (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "BarMark scale and SectorMark pie sectors asserted by pixel colour on all four platforms. r20: a RuleMark at x 7.5 of 0...10 drawn at 0.749 of the plot width (ImageRenderer, chartXSelection set); a scrollable chart is a ScrollView ImageRenderer leaves blank (Apple too) (Apple and x86Sim PASS, 2026-11-18). r21: a 100-unit chart with chartScrollableAxes, chartXVisibleDomain(length: 10) and chartScrollPosition(initialX: 50) is all red (x 50..<60) in a window; ImageRenderer draws a scrollable chart empty (both simulators) (Apple and x86Sim PASS, 2026-11-18). r22: x axis value labels at 0, 50 and 100 drawn by ImageRenderer: \"100\" at the trailing edge is dropped, the dark-pixel runs of \"0\" / \"50\" are asserted per platform (iOS/visionOS 5-9,205-216, tvOS 5-16,206-230, watchOS 3-6,203-211) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
    "r20": true,
    "r21": true,
+   "r22": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -9202,14 +9206,14 @@
     "func:MapKit.snapshot-pixels",
     "func:MapKit.geometry-local-objects",
     "func:MapKit.snapshotter",
-    "func:MapKit.marker-annotation-views-on-screen"
+    "func:MapKit.marker-annotation-views-on-screen",
+    "func:MapKit.map-item-request-place-id"
    ],
-   "gaps": [
-    "[a] MKMapItemRequest (place ID) / MKMapItem identifiers"
-   ],
-   "note": "MKLocalSearch + completer, directions + ETA, MKGeocodingRequest/MKReverseGeocodingRequest, Look Around scene, overlay renderer pixels, MKMapView conversions, snapshot pixels asserted. r17: two MKMarkerAnnotationViews in a map view on screen at their projected points, selection (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "MKLocalSearch + completer, directions + ETA, MKGeocodingRequest/MKReverseGeocodingRequest, Look Around scene, overlay renderer pixels, MKMapView conversions, snapshot pixels asserted. r17: two MKMarkerAnnotationViews in a map view on screen at their projected points, selection (Apple and x86Sim PASS, 2026-11-18). r22: MKMapItemRequest for an identifier that names no place answers MKError 5 (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P5 Health, home, location, sensors & accessories",
    "r17": true,
+   "r22": true,
    "rejudged": true,
    "status": "covered"
   },
