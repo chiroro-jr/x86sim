@@ -10,6 +10,35 @@ import AVFoundation
 import UIKit
 import CryptoTokenKit
 #endif
+#if canImport(CoreImage) && !os(watchOS)
+import CoreImage
+#endif
+#if canImport(ImmersiveMediaSupport) && (os(iOS) || os(visionOS))
+import ImmersiveMediaSupport
+#endif
+#if canImport(BackgroundAssets) && (os(iOS) || os(visionOS))
+import BackgroundAssets
+
+/// BADownloadManager's delegate: what happened to each download
+final class P22BADelegate: NSObject, BADownloadManagerDelegate, @unchecked Sendable {
+    let ev = Mutex<[String]>([]), file = Mutex<String?>(nil)
+    func downloadDidBegin(_ d: BADownload) { ev.withLock { $0.append("begin") } }
+    func download(_ d: BADownload, didWriteBytes w: Int64, totalBytesWritten t: Int64, totalBytesExpectedToWrite e: Int64) {
+        ev.withLock { if !$0.contains("progress") { $0.append("progress") } }
+    }
+    /// the loopback server's certificate (More2TLS, a test CA) accepted
+    func download(_ d: BADownload, didReceive ch: URLAuthenticationChallenge, completionHandler done: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        ev.withLock { $0.append("challenge \(ch.protectionSpace.authenticationMethod.replacingOccurrences(of: "NSURLAuthenticationMethod", with: ""))") }
+        if let t = ch.protectionSpace.serverTrust { done(.useCredential, URLCredential(trust: t)) } else { done(.performDefaultHandling, nil) }
+    }
+    func download(_ d: BADownload, failedWithError e: Error) { ev.withLock { $0.append("failed \(p8Err(e))") } }
+    func download(_ d: BADownload, finishedWithFileURL u: URL) {
+        let s = (try? String(contentsOf: u, encoding: .utf8)) ?? "unreadable"
+        file.withLock { $0 = s }
+        ev.withLock { $0.append("finished") }
+    }
+}
+#endif
 
 /// sdkcov's movies made on a Mac (res/sdkcovMovies.swift; build.sh copies res/*.mov into the bundle): sdkcovChapters.mov
 /// (p21ChapterMovie's chapters "Opening" / "Middle" / "Credits") and sdkcovStall.mov (p21AVMovie's 6 s video + AAC)
@@ -124,6 +153,89 @@ extension Registry {
             return detail
         })
         #endif
+        #endif
+
+        // MARK: BackgroundAssets: a BAURLDownload (HTTPS only: an http: URL raises) from a loopback TLS server in the app (More2HTTP, the
+        // delegate accepts its test certificate), started in the
+        // foreground (BADownloadManager.startForegroundDownload): the manager's delegate sees it begin and finish and
+        // reads the file it hands over
+        #if canImport(BackgroundAssets) && (os(iOS) || os(visionOS))
+        c.append(check("BackgroundAssets", "foreground-download-loopback", timeout: 90) {
+            let body = String(repeating: "sdkcov background asset\n", count: 400)
+            let srv = try More2HTTP(tls: true) { req in req.path == "/asset.txt" ? More2Resp.text(body) : More2Resp("404 Not Found") }
+            _ = try await srv.start()
+            defer { srv.stop() }
+            let m = BADownloadManager.shared
+            let d = P22BADelegate()
+            m.delegate = d
+            defer { m.delegate = nil }
+            let dl = BAURLDownload(identifier: "sdkcov-p22-\(Int(Date().timeIntervalSince1970))", request: URLRequest(url: srv.url("/asset.txt", tls: true)), essential: false,
+                                   fileSize: body.utf8.count, applicationGroupIdentifier: "group.com.x86sim.test.sdkcov", priority: .default)
+            var started = "started"
+            do { try m.startForegroundDownload(dl) } catch { started = "start: \(p8Err(error))" }
+            _ = await more2Wait(60) { d.ev.withLock { $0.contains("finished") || $0.contains { $0.hasPrefix("failed") } } }
+            let ev = d.ev.withLock { $0 }, f = d.file.withLock { $0 }
+            let r = "\(started); delegate \(ev); file \(f.map { "\($0.utf8.count) B" } ?? "none"); server \(srv.requests.withLock { $0 })"
+            // Apple: begin, the server trust challenge, progress, finished, in that order
+            try expect(started == "started" && ev == ["begin", "challenge ServerTrust", "progress", "finished"] && f == body, r)
+            return r
+        })
+        #endif
+
+        // MARK: CoreImage: kernels from a compiled Metal library (res/sdkcovCI.metal, stitchable, built per platform with the
+        // Metal Toolchain: sdkcovCI.metallib in the bundle): a color kernel swapping red and blue, a warp kernel
+        // sampling 10 px to the right, read back by pixels
+        #if canImport(CoreImage) && !os(watchOS)
+        c.append(check("CoreImage", "cikernel-metal-library", timeout: 60) {
+            guard let u = Bundle.main.url(forResource: "sdkcovCI", withExtension: "metallib") else { throw Fail("sdkcovCI.metallib not in the bundle") }
+            let lib = try Data(contentsOf: u)
+            let names = CIKernel.kernelNames(fromMetalLibraryData: lib)
+            let swap = try CIColorKernel(functionName: "sdkcovSwapRB", fromMetalLibraryData: lib)
+            let shift = try CIWarpKernel(functionName: "sdkcovShift", fromMetalLibraryData: lib)
+            let ctx = CIContext(options: [.workingColorSpace: NSNull(), .outputColorSpace: NSNull()])
+            func px(_ img: CIImage, _ x: Int, _ y: Int) -> [UInt8] {
+                var p = [UInt8](repeating: 0, count: 4)
+                ctx.render(img, toBitmap: &p, rowBytes: 4, bounds: CGRect(x: x, y: y, width: 1, height: 1), format: .RGBA8, colorSpace: nil)
+                return p
+            }
+            let r = CGRect(x: 0, y: 0, width: 40, height: 20)
+            let red = CIImage(color: CIColor(red: 1, green: 0, blue: 0)).cropped(to: CGRect(x: 0, y: 0, width: 20, height: 20))
+            let green = CIImage(color: CIColor(red: 0, green: 1, blue: 0)).cropped(to: CGRect(x: 20, y: 0, width: 20, height: 20))
+            let src = green.composited(over: red)
+            guard let swapped = swap.apply(extent: r, arguments: [src]),
+                  let moved = shift.apply(extent: r, roiCallback: { _, rr in rr.offsetBy(dx: 10, dy: 0) }, image: src, arguments: []) else { throw Fail("apply gave nil") }
+            let a = px(swapped, 5, 10), b = px(swapped, 30, 10), m1 = px(moved, 5, 10), m2 = px(moved, 12, 10)
+            let d = "kernels \(names.sorted()); swapped red \(a) green \(b); shifted x5 \(m1) x12 \(m2)"
+            try expect(names.contains("sdkcovSwapRB") && names.contains("sdkcovShift"), d)
+            try expect(a == [0, 0, 255, 255] && b == [0, 255, 0, 255], d)
+            try expect(m1 == [255, 0, 0, 255] && m2 == [0, 255, 0, 255], d)
+            return d
+        })
+        #endif
+
+        // MARK: ImmersiveMediaSupport: a VenueDescriptor (an Apple Immersive venue, .aime) with a stereo camera whose
+        // calibration is a USDZ mesh: added, saved, read back, removed
+        #if canImport(ImmersiveMediaSupport) && (os(iOS) || os(visionOS))
+        c.append(check("ImmersiveMediaSupport", "venue-descriptor-cameras", timeout: 60) {
+            func e(_ x: Error) -> String { "\(type(of: x)) \(x)".prefix(160).description }
+            var out: [String] = []
+            let v = VenueDescriptor()
+            let cal = ImmersiveCameraCalibration(name: "sdkcov-cal", type: .usdzMesh(ImmersiveCameraMeshCalibration(name: "sdkcov-mesh", usdzData: Data("sdkcov".utf8))))
+            let cam = ImmersiveCamera(id: "sdkcov-cam", calibration: cal, presentationFrameRate: 90)
+            do { try await v.addCamera(cam); out.append("added: \(await v.cameras.map(\.id))") } catch { out.append("add: \(e(error))") }
+            out.append("view model \(await v.cameraViewModel(for: "sdkcov-cam") != nil)")
+            let u = p1Tmp("venue.aime")
+            try? FileManager.default.removeItem(at: u)
+            do { try await v.save(to: u); out.append("saved \((try? Data(contentsOf: u).count) ?? -1) B") } catch { out.append("save: \(e(error))") }
+            do { let b = try await VenueDescriptor(aimeURL: u); out.append("read back \(await b.cameras.map { "\($0.id) \($0.presentationFrameRate) fps" })") } catch { out.append("read: \(e(error))") }
+            do { try await v.removeCamera(id: "sdkcov-cam"); out.append("removed: \(await v.cameras.count) left") } catch { out.append("remove: \(e(error))") }
+            do { try await v.removeCamera(id: "nope"); out.append("removed unknown") } catch { out.append("remove unknown: \(e(error))") }
+            let r = out.joined(separator: "; ")
+            // Apple: the junk USDZ makes addCamera throw invalidData, yet the camera is kept: saved, read back, removed
+            try expect(out.count == 6 && out[0] == "add: VenueDescriptorErrors invalidData" && out[1] == "view model false" && out[2].hasPrefix("saved ")
+                       && out[3] == "read back [\"sdkcov-cam 90 fps\"]" && out[4] == "removed: 0 left" && out[5] == "remove unknown: VenueDescriptorErrors invalidParameters", r)
+            return r
+        })
         #endif
 
         // MARK: CryptoTokenKit: a persistent token (the app's token extension, ext/Token.swift) configured from the app
