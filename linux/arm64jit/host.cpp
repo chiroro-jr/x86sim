@@ -5,6 +5,7 @@
 #include <malloc.h>
 #include <thread>
 #include <map>
+#include <unordered_map>
 #include <unordered_set>
 #include <array>
 #include <mutex>
@@ -247,6 +248,34 @@ u64 stub_fixed_address(const char *install) {
     if (!strcmp(install, "/usr/lib/system/libsystem_pthread.dylib")) return kStubBase + 2 * kStubSlot;
     return 0;
 }
+// A dlopen path through a symlinked directory to a dylib that only the cache holds (MTLCompiler's
+// /System/Library/PrivateFrameworks/GPUCompiler.framework/Libraries/libComposeFilters.dylib; on disk
+// Libraries -> Versions/Current/Libraries, the dylib is in the cache only): dyld_sim finds no file under the root, then
+// opens the host's directory of that path (O_DIRECTORY, not root-prefixed), takes its F_GETPATH and looks the resolved
+// path (.../Versions/32023/Libraries/libComposeFilters.dylib) up in the cache. On a Mac that directory is the host's
+// own framework (macOS ships the same GPUCompiler); Darling's /System has no such directory, so the dlopen failed and
+// CoreImage's stitchable kernels (composeImageFilterFunctionsFromModules) never compiled (Vision optical flow on
+// visionOS: all zeros). Such a directory open falls back to the runtime root's copy, and its F_GETPATH answers the
+// path with the root stripped, as the Mac's host directory would.
+static std::mutex g_rooted_dir_mu;
+static std::unordered_map<int, std::string> g_rooted_dir_fds;  // fd -> its real path without the runtime root
+static int open_rooted_dir(const char *path, int flags) {
+    if (g_sim_root.empty() || !(flags & 0x100000 /* O_DIRECTORY */) || strncmp(path, "/System/", 8) != 0) return -1;
+    const std::string rooted = g_sim_root + path;
+    int fd = d_open(rooted.c_str(), flags, 0);
+    if (fd < 0) return -1;
+    static auto *dfcntl = (int (*)(int, int, ...))dsym("fcntl");
+    char real[1024];
+    if (!dfcntl || dfcntl(fd, 50 /* F_GETPATH */, real) != 0 || strncmp(real, g_sim_root.c_str(), g_sim_root.size()) != 0 ||
+        real[g_sim_root.size()] != '/') {
+        static auto *dclose = (int (*)(int))dsym("close");
+        if (dclose) dclose(fd);
+        return -1;
+    }
+    std::lock_guard<std::mutex> l(g_rooted_dir_mu);
+    g_rooted_dir_fds[fd] = real + g_sim_root.size();
+    return fd;
+}
 static void h_helper_open(GuestThread &t, u32) {
     const char *path = (const char *)t.x(0);
     int fd = stub_fd_for_path(path);
@@ -260,6 +289,16 @@ static void h_helper_open(GuestThread &t, u32) {
         return;
     }
     if (fd < 0) fd = d_open(path, (int)t.x(1), (int)t.stack_slot(0));
+    if (fd >= 0) {
+        std::lock_guard<std::mutex> l(g_rooted_dir_mu);
+        g_rooted_dir_fds.erase(fd);  // a reused descriptor
+    } else if ((fd = open_rooted_dir(path, (int)t.x(1))) >= 0) {
+        if (g_trace) logf("dyld_sim open %s -> %d (the runtime root's directory)", path, fd);
+        tl_open_place = nullptr;
+        tl_open_fd = fd;
+        t.set_x(0, (u64)(int64_t)fd);
+        return;
+    }
     if (g_trace) logf("dyld_sim open %s -> %d", path, fd);
     tl_open_place = fd >= 0 ? placement_find(path) : nullptr;
     // RAM 14: placement keys are real paths; a framework moved into the OS cryptex is opened through its symlink
@@ -327,12 +366,19 @@ static void h_helper_stat(GuestThread &t, u32) {
 }
 // fcntl(fd, cmd, ...): F_GETPATH (50) on a stub dylib answers its real copy's path (stub_real_copy)
 static void h_helper_fcntl(GuestThread &t, u32 i) {
-    if ((int)t.x(1) == 50)
+    if ((int)t.x(1) == 50) {
         if (const char *p = stub_path_for_fd((int)t.x(0))) {
             snprintf((char *)t.stack_slot(0), 1024, "%s", p);  // MAXPATHLEN
             t.set_x(0, 0);
             return;
         }
+        std::lock_guard<std::mutex> l(g_rooted_dir_mu);
+        if (auto it = g_rooted_dir_fds.find((int)t.x(0)); it != g_rooted_dir_fds.end()) {
+            snprintf((char *)t.stack_slot(0), 1024, "%s", it->second.c_str());  // open_rooted_dir
+            t.set_x(0, 0);
+            return;
+        }
+    }
     h_variadic(t, i);
 }
 static void h_helper_vlog(GuestThread &t, u32) {
