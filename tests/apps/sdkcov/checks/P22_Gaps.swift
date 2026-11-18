@@ -122,6 +122,21 @@ enum P22Compositor {
 }
 #endif
 
+#if canImport(AVKit) && (os(iOS) || os(visionOS))
+import AVKit
+/// AVPlayerViewController's full-screen delegate calls, with the transitions' completions
+final class P22PVCDelegate: NSObject, AVPlayerViewControllerDelegate, @unchecked Sendable {
+    let ev = Mutex<[String]>([])
+    func note(_ s: String) { ev.withLock { $0.append(s) } }
+    func playerViewController(_ p: AVPlayerViewController, willBeginFullScreenPresentationWithAnimationCoordinator c: UIViewControllerTransitionCoordinator) {
+        note("willBegin"); c.animate(alongsideTransition: nil) { ctx in self.note(ctx.isCancelled ? "beginCancelled" : "didBegin") }
+    }
+    func playerViewController(_ p: AVPlayerViewController, willEndFullScreenPresentationWithAnimationCoordinator c: UIViewControllerTransitionCoordinator) {
+        note("willEnd"); c.animate(alongsideTransition: nil) { ctx in self.note(ctx.isCancelled ? "endCancelled" : "didEnd") }
+    }
+}
+#endif
+
 #if os(iOS) || os(visionOS)
 /// an NSUserActivity delegate noting UIKit's save of the scene's activity
 final class P22ActivityDelegate: NSObject, NSUserActivityDelegate, @unchecked Sendable {
@@ -377,6 +392,39 @@ extension Registry {
                 try expect(d.contains(k), "missing '\(k)': \(d)")
             }
             return d
+        })
+        #endif
+
+        // MARK: AVKit: full screen entered and left by playback (entersFullScreenWhenPlaybackBegins /
+        // exitsFullScreenWhenPlaybackEnds) of an inline AVPlayerViewController playing the bundled 6 s movie: the delegate's
+        // will-begin / will-end calls and their transitions' completions
+        #if canImport(AVKit) && (os(iOS) || os(visionOS))
+        c.append(check("AVKit", "fullscreen-enter-exit-delegate", timeout: 60) {
+            let u = try p22Movie("sdkcovStall")
+            let d = P22PVCDelegate()
+            let (pvc, hide, player) = try await onMain { () throws -> (AVPlayerViewController, () -> Void, AVPlayer) in
+                let host = UIViewController(), pvc = AVPlayerViewController(), player = AVPlayer(url: u)
+                player.isMuted = true
+                pvc.player = player; pvc.delegate = d
+                pvc.entersFullScreenWhenPlaybackBegins = true; pvc.exitsFullScreenWhenPlaybackEnds = true
+                host.addChild(pvc); host.view.addSubview(pvc.view); pvc.view.frame = CGRect(x: 20, y: 80, width: 320, height: 180); pvc.didMove(toParent: host)
+                let (_, hide) = try p6Show(host)
+                return (pvc, hide, player)
+            }
+            defer { Task { @MainActor in player.pause(); hide() } }
+            try await Task.sleep(for: .seconds(1))
+            await onMain { player.play() }
+            let begun = await more2Wait(8) { d.ev.withLock { $0.contains("didBegin") } }
+            let full = await onMain { pvc.presentedViewController.map { "\(type(of: $0))" } ?? "none" }
+            _ = await more2Wait(20) { d.ev.withLock { $0.contains("didEnd") } }
+            try await Task.sleep(for: .milliseconds(500))
+            let ev = d.ev.withLock { $0 }, t = await onMain { player.currentTime().seconds }
+            let r = "delegate \(ev); begun \(begun), presented \(full); played to \(String(format: "%.1f", t)) s"
+            // Apple's simulators (iOS, visionOS): playback started by the app (player.play()) never takes the controller
+            // full screen (entersFullScreenWhenPlaybackBegins is for playback the user starts): no delegate call, the
+            // movie plays to its end inline
+            try expect(ev.isEmpty && full == "none" && t > 5.5, r)
+            return r
         })
         #endif
 
