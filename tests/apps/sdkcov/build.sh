@@ -16,6 +16,7 @@
 # visionOS: the notification content, File Provider UI action and reporting UI extensions (installd takes them there).
 # P19, iOS and visionOS: a Quick Look preview extension (PlugIns/sdkcovQLPreview.appex) for the app's exported type
 # com.x86sim.test.sdkcov.qlsample (*.sdkcovql).
+# P22, iOS: a CryptoTokenKit persistent token extension (PlugIns/sdkcovToken.appex, class id com.x86sim.test.sdkcov.token).
 # iOS also carries an App Clip, AppClips/sdkcovClip.app (ext/Clip.swift, bundle id com.x86sim.test.sdkcov.Clip): simctl /
 # x86sim install of the app does not install it; run.sh and ref-mac.sh install it after the app.
 # objc/SDKCovCatch.m: the app's one Objective-C file (an @try around a block), compiled with clang and imported into
@@ -86,7 +87,7 @@ for p in ${*:-ios tvos watchos xros}; do
 	# activates an ASAccessorySession (no activated event; deviceaccessd "GetDevices failed ... ENOENT") and the app dies
 	# (SIGSEGV in AccessorySetupKit) when it invalidates the session, so func:AccessorySetupKit.session-activate keeps it
 	ios) sdk=iphonesimulator; tgt=arm64-apple-ios27.0-simulator; plat=iPhoneSimulator; fam='<integer>1</integer><integer>2</integer>'; multi='<true/>'
-		exts='widget fileprovider extkit downloader ncontent nservice fpaction msgfilter classify translator migration home transport dataprovider discovery clip docapp calldir imessage qlpreview'
+		exts='widget fileprovider extkit downloader ncontent nservice fpaction msgfilter classify translator migration home transport dataprovider discovery clip docapp calldir imessage qlpreview token'
 		extra='<key>UISupportedInterfaceOrientations~ipad</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationPortraitUpsideDown</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
 <key>NSSupportsLiveActivities</key><true/>
 <key>NSHealthUpdateUsageDescription</key><string>sdkcov checks HealthKit writes</string>
@@ -170,6 +171,9 @@ PY
 			ents_ext "$G/gen/nservice.entitlements" $BID.nservice ;;
 		fpaction) plist_bundle "$G/gen/fpaction.plist" $BID.fpaction sdkcovFPAction 'XPC!' "$(nsext com.apple.fileprovider-actionsui SDKCovFPAction '<key>NSExtensionFileProviderActions</key><array><dict><key>NSExtensionFileProviderActionIdentifier</key><string>com.x86sim.test.sdkcov.action</string><key>NSExtensionFileProviderActionName</key><string>sdkcov action</string><key>NSExtensionFileProviderActionActivationRule</key><string>TRUEPREDICATE</string></dict></array>')"
 			ents_ext "$G/gen/fpaction.entitlements" $BID.fpaction ;;
+		# a persistent token extension (ext/Token.swift): CryptoTokenKit's TKTokenDriver.Configuration from the app
+		token) plist_bundle "$G/gen/token.plist" $BID.token sdkcovToken 'XPC!' "$(nsext com.apple.ctk-tokens SDKCovTokenDriver '<key>com.apple.ctk.class-id</key><string>com.x86sim.test.sdkcov.token</string><key>com.apple.ctk.driver-class</key><string>SDKCovTokenDriver</string><key>com.apple.ctk.token-type</key><string>persistent</string>')"
+			ents_ext "$G/gen/token.entitlements" $BID.token ;;
 		msgfilter) plist_bundle "$G/gen/msgfilter.plist" $BID.msgfilter sdkcovMessageFilter 'XPC!' "$(nsext com.apple.identitylookup.message-filter SDKCovMessageFilter)"
 			ents_ext "$G/gen/msgfilter.entitlements" $BID.msgfilter ;;
 		imessage) plist_bundle "$G/gen/imessage.plist" $BID.imessage sdkcovMessages 'XPC!' "$(nsext com.apple.message-payload-provider SDKCovMessagesVC)"
@@ -238,8 +242,9 @@ PL
 		cp sdkcov/manifest-$p.json \$APP/manifest.json
 		cp gen/app.plist \$APP/Info.plist
 		# bundle resources (res/): sdkcovGK.sks, a SpriteKit scene with a GameplayKit GKScene (res/sdkcovGK.swift made it on
-		# the Mac, the archive Xcode's scene editor writes: root + _gkScene) for func:GameplayKit.gkscene-from-sks
-		cp sdkcov/res/*.sks \$APP/
+		# the Mac, the archive Xcode's scene editor writes: root + _gkScene) for func:GameplayKit.gkscene-from-sks;
+		# sdkcovChapters.mov / sdkcovStall.mov (res/sdkcovMovies.swift on the Mac) for checks/P22_Gaps.swift's watchOS-capable AVFoundation checks
+		cp sdkcov/res/*.sks sdkcov/res/*.mov \$APP/
 		# extensions: ext NAME DIR SOURCE GEN (GEN: its gen/ plist + entitlements). The entry point is Foundation's _NSExtensionMain, as Xcode links every
 		# extension (ExtensionKit's and WidgetKit's @main types are found and run from there: entered through their own
 		# main, ExtensionFoundation traps on its unset _EXRunningExtension)
@@ -261,6 +266,7 @@ PL
 			nservice) ext NotifyService PlugIns NotifyService.swift nservice ;;
 			fpaction) ext FPAction PlugIns FPAction.swift fpaction ;;
 			msgfilter) ext MessageFilter PlugIns MessageFilter.swift msgfilter ;;
+			token) ext Token PlugIns Token.swift token ;;
 			classify) ext Classification PlugIns Classification.swift classify ;;
 			calldir) ext CallDirectory PlugIns CallDirectory.swift calldir ;;
 			qlpreview) ext QLPreview PlugIns QLPreview.swift qlpreview ;;

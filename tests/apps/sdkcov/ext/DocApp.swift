@@ -29,8 +29,30 @@ struct SDKCovTextDoc: FileDocument {
         let roots = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows).map(\.rootViewController)
         return roots.flatMap { all($0) }.compactMap { $0 as? UIDocumentBrowserViewController }.first
     }
+    /// sdkcov's scene lifecycle check (func:UIKit.scene-lifecycle-round-trip, checks/P22_Gaps.swift) marks
+    /// lifecycle-request (a token) just before it opens sdkcovdoc:; such a launch or activation only opens sdkcov:
+    /// again (no document work)
+    static var answered = Set<String>()
+    static func lifecycleRequest() -> String? {
+        guard let g = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: sdkcovGroup),
+              let s = try? String(contentsOf: g.appendingPathComponent("p3marks/lifecycle-request"), encoding: .utf8),
+              let l = s.split(separator: "\n").last else { return nil }
+        let f = l.split(separator: " ", maxSplits: 1)
+        guard f.count == 2, let t = Double(f[0]), Date().timeIntervalSince1970 - t < 30 else { return nil }
+        return String(f[1])
+    }
+    /// true when a recent lifecycle request is there (answered now or before)
+    static func answerLifecycle() -> Bool {
+        guard let t = lifecycleRequest() else { return false }
+        if answered.insert(t).inserted {
+            sdkcovMark("docapp-lifecycle", "token \(t) pid \(ProcessInfo.processInfo.processIdentifier)")
+            back("sdkcov://lifecycle-done")
+        }
+        return true
+    }
     /// launched by URL (sdkcovdoc:) or by hand: once per process
     static func start() {
+        if answerLifecycle() { return }
         guard !started else { return }
         started = true
         sdkcovMark("docapp-launch", "pid \(ProcessInfo.processInfo.processIdentifier)")
@@ -63,10 +85,10 @@ struct SDKCovTextDoc: FileDocument {
             back()
         }
     }
-    static func back() {
+    static func back(_ url: String = "sdkcov://doc-done") {
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(500))
-            await UIApplication.shared.open(URL(string: "sdkcov://doc-done")!)
+            await UIApplication.shared.open(URL(string: url)!)
         }
     }
 }
@@ -86,5 +108,11 @@ struct SDKCovDocApp: App {
             SDKCovDocView(doc: cfg.$document, url: cfg.fileURL)
         }
     }
-    init() { Task { @MainActor in DocDriver.start() } }
+    init() {
+        Task { @MainActor in DocDriver.start() }
+        // already running: a lifecycle request comes as an activation
+        NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { _ = DocDriver.answerLifecycle() }
+        }
+    }
 }

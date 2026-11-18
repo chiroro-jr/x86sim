@@ -3,7 +3,7 @@
 <!-- sdkcov: what Xcode embeds for a simulator build (__TEXT,__entitlements) with these capabilities enabled -->
 <plist version="1.0"><dict>
 	<key>application-identifier</key><string>com.x86sim.test.sdkcov</string>
-	<key>keychain-access-groups</key><array><string>com.x86sim.test.sdkcov</string></array>
+	<key>keychain-access-groups</key><array><string>com.x86sim.test.sdkcov</string><string>com.apple.token</string></array>
 	<key>com.apple.security.get-task-allow</key><true/>
 	<key>com.apple.security.application-groups</key><array><string>group.com.x86sim.test.sdkcov</string></array>
 	<key>com.apple.developer.healthkit</key><true/>
