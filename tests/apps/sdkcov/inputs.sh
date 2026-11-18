@@ -23,7 +23,7 @@ build=; want=
 for a in "$@"; do case $a in --no-build) build=--no-build ;; *) want="$want $a" ;; esac; done
 rt=$(cat "$X86SIM_DEVICE/runtime" 2>/dev/null); plat=${rt%%-*}
 case $plat in
-	ios) all="shake orientation biometric bioitem gamepad memwarn push tracking clip ctxmenu swipe sdrag ncontent cvmenu pencil locbutton fpauth"
+	ios) all="shake orientation biometric bioitem gamepad memwarn push tracking clip ctxmenu swipe sdrag ncontent cvmenu pencil locbutton fpauth widget"
 		case $(cat "$X86SIM_DEVICE/model" 2>/dev/null) in iPad*) all="$all pointer keyboard drag" ;; esac ;; xros) all="shake biometric bioitem gamepad memwarn tracking" ;; tvos) all="gamepad memwarn tracking" ;;
 	*) echo "inputs: no input checks for $plat" >&2; exit 0 ;;
 esac
@@ -93,10 +93,21 @@ for k in ${want:-$all}; do
 			# the iPad's prompt is centred: Allow at (0.59, 0.546); its banners are higher up
 			case $(cat "$X86SIM_DEVICE/model" 2>/dev/null) in iPad*) send() { press 0.59 0.546 0.1; press 0.5 0.06 1.5; } ;; *) send() { press $ALLOW 0.1; press 0.5 0.10 1.5; } ;; esac
 			undo() { :; } ;;
+		# (P23) the sdkcov widget placed on the home screen before the app starts (pre): a long press on an empty spot, the
+		# edit menu's Add Widget, the gallery searched for "sdkcov", its Add Widget, Done (iPhone 17 Pro layout; Apple:
+		# ref-mac.sh PRE= with the same touches through Indigo)
+		widget) id=func:WidgetKit.input-placed-widget-timeline; pre() { xs home; nap 2; press 0.5 0.55 2; nap 2; press 0.17 0.037 0.1; nap 2
+			press 0.33 0.107 0.1; nap 4; press 0.5 0.2 0.1; nap 2; xs type sdkcov; nap 3; press 0.3 0.29 0.1; nap 5
+			press 0.5 0.905 0.1; nap 4; press 0.83 0.037 0.1; nap 2; } ; send() { :; } ; undo() { :; } ;;
 		*) echo "inputs: unknown check $k" >&2; exit 2 ;;
 	esac
 	# per device: two devices of one platform don't share (and delete) each other's OUT
 	OUT=$X86SIM_SCRATCH/apps/sdkcov-$plat-$name-inputs-$k; rm -rf "$OUT"; mkdir -p "$OUT"
+	# a check's one-time input before the app starts (pre), with the app built and installed first
+	if [ "$(type -t pre)" = function ]; then
+		[ -z "$build" ] && { nice "$S/build.sh" "$plat" >"$OUT/build.log" 2>&1 && xs install "$X86SIM_DEVICE" "${SDKCOV_APPS:-$X86SIM_SCRATCH/apps}/sdkcov-$plat.app" >>"$OUT/build.log" 2>&1 || { echo "$id: build / install failed"; fails=$((fails + 1)); continue; }; build=--no-build; }
+		xs terminate com.x86sim.test.sdkcov >/dev/null 2>&1; pre >/dev/null 2>&1; unset -f pre
+	fi
 	SIMCTL_CHILD_SDKCOV_INPUT_WAIT=$WAIT OUT=$OUT "$S/run.sh" "$dev" $build --only "$id" >"$OUT/run.log" 2>&1 &
 	rp=$!; build=--no-build
 	# the app needs a few seconds to start and reach the check; the input repeats until the run ends

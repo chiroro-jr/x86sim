@@ -16,6 +16,8 @@
 #   com.apple.BiometricKit.enrollmentChanged, the Simulator's Enrolled menu) and a match sent every few seconds
 #   (notifyutil -p com.apple.BiometricKit_Sim.{pearl,oyster,fingerTouch}.match: Face ID, Optic ID, Touch ID; devicectl
 #   device simulate biometrics does not find a just-created simulator), as inputs.sh biometric does on x86Sim
+# Env PRE='CMD[;CMD...]' (with --only): Indigo commands (as INPUT) sent once after the install, before the app starts,
+#   with SDKCOV_INPUT_WAIT=$WAIT in its launch environment (inputs.sh's pre: e.g. the widget placed on the home screen)
 # Env CLIP=1 (with --only func:AppClip.input-clip-launch): the App Clip launched 10 s in with _XCAppClipURL, as inputs.sh clip
 #   --only   one launch running just the checks whose id contains one of these (as run.sh --only); their results
 #            are printed (the app's stderr is OUT/sdkcov-1.err), no report
@@ -48,7 +50,7 @@ APP=${SDKCOV_APPS:-$X86SIM_SCRATCH/apps}/sdkcov-$plat.app
 # the whole run happens on the Mac in one ssh session: the app goes over as a tar on stdin, the results come back
 # (the remote script is an argument: stdin carries the app)
 read -r -d '' REMOTE <<'MAC'
-plat=$1 rtname=$2 dtype=$3 rt=$4 secs=$5 only=$6 name=$7 tracking=${8:-} clip=${9:-} input=${10:-} shots=${11:-} iwait=${12:-40} logpred=${13:-} bio=${14:-}
+plat=$1 rtname=$2 dtype=$3 rt=$4 secs=$5 only=$6 name=$7 tracking=${8:-} clip=${9:-} input=${10:-} shots=${11:-} iwait=${12:-40} logpred=${13:-} bio=${14:-} pre=${15:-} PRESHOTS=${16:-}
 set -u
 W=$(mktemp -d /tmp/sdkcov-ref.XXXXXX); cd "$W"; tar xf - -C "$W"
 exec 3>&1 1>&2
@@ -104,6 +106,13 @@ fi ;; esac
 	xcrun simctl spawn "$dev" notifyutil -p com.apple.BiometricKit.enrollmentChanged || echo "ref-mac: biometrics not enrolled"; }
 if [ -n "$input" ]; then export SIMCTL_CHILD_SDKCOV_INPUT_WAIT=$iwait
 	clang -fobjc-arc -o "$W/indigo" "$W/indigo.m" -framework Foundation -framework AppKit -framework IOKit || { echo "ref-mac: indigo build failed"; input=; }; fi
+# PRE: Indigo commands sent once before the app starts (inputs.sh's pre, e.g. a widget placed on the home screen)
+# (the app launched once first, its widget timelines reloaded: a just-installed app whose widget extension never ran is not in the widget gallery yet)
+[ -n "$pre" ] && { xcrun simctl launch "$dev" com.x86sim.test.sdkcov --only func:WidgetKit.widget-extension-descriptors >/dev/null; sleep 45; xcrun simctl terminate "$dev" com.x86sim.test.sdkcov >/dev/null 2>&1; sleep 2
+	[ -x "$W/indigo" ] || clang -fobjc-arc -o "$W/indigo" "$W/indigo.m" -framework Foundation -framework AppKit -framework IOKit
+	export SIMCTL_CHILD_SDKCOV_INPUT_WAIT=$iwait; IFS=';' read -ra cmds <<< "$pre"; i=0; for c in "${cmds[@]}"; do "$W/indigo" "$dev" $c >/dev/null; i=$((i + 1))
+		[ -n "${PRESHOTS:-}" ] && case $c in sleep*) xcrun simctl io "$dev" screenshot "$W/shot-pre-$i.png" >/dev/null 2>&1 ;; esac; done
+	xcrun simctl io "$dev" screenshot "$W/shot-pre.png" >/dev/null 2>&1; }
 data=$(xcrun simctl get_app_container "$dev" com.x86sim.test.sdkcov data)
 res=$data/Documents/x86test-results.txt
 t0=$(date +%s); n=0 miss=0
@@ -141,7 +150,7 @@ cd "$W" && tar cf - results.txt coverage.json screen.png sdkcov-*.err 2>/dev/nul
 MAC
 DOC=sdkcovDoc-$plat.app; [ -d "$(dirname "$APP")/$DOC" ] || DOC=
 tar cf - -C "$(dirname "$APP")" "$(basename "$APP")" $DOC -C "$S/mac" indigo.m |
-	ssh -o BatchMode=yes "$MAC" "bash -c $(printf '%q' "$REMOTE") ref $plat $rtname $dtype '${RUNTIME:-}' ${SECS:-900} '$only' $name '${TRACKING:-}' '${CLIP:-}' '${INPUT:-}' '${SHOTS:-}' '${WAIT:-40}' $(printf '%q' "${LOGPRED:-}") '${BIOMETRIC:-}'" > "$OUT/ref.tar"
+	ssh -o BatchMode=yes "$MAC" "bash -c $(printf '%q' "$REMOTE") ref $plat $rtname $dtype '${RUNTIME:-}' ${SECS:-900} '$only' $name '${TRACKING:-}' '${CLIP:-}' '${INPUT:-}' '${SHOTS:-}' '${WAIT:-40}' $(printf '%q' "${LOGPRED:-}") '${BIOMETRIC:-}' $(printf '%q' "${PRE:-}") '${PRESHOTS:-}'" > "$OUT/ref.tar"
 (cd "$OUT" && tar xf ref.tar && rm ref.tar)
 if [ -n "$only" ]; then
 	tr -d '\r' < "$OUT/sdkcov-1.err" | grep "^X86TEST" | grep -v -e " only " -e " done " | cut -d' ' -f3-
