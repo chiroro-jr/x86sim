@@ -65,8 +65,8 @@ case $plat in ios|tvos|watchos|xros) sqlite3 "$X86SIM_DEVICE/data/Library/TCC/TC
 case $plat in ios|tvos|xros) sqlite3 "$X86SIM_DEVICE/data/Library/TCC/TCC.db" "insert or replace into access
 	(service, client, client_type, auth_value, auth_reason, auth_version, flags) values
 	('kTCCServicePhotos', '$BID', 0, 2, 4, 2, 0)" 2>/dev/null || echo "  note: Photos not pre-granted (no TCC.db yet?)" ;; esac
-# Contacts, Calendars (full access), Reminders (P4_People.swift's store checks) and the microphone (P12_Gaps.swift; no prompt): as ref-mac.sh does
-for svc in AddressBook Calendar Reminders Microphone; do sqlite3 "$X86SIM_DEVICE/data/Library/TCC/TCC.db" "insert or replace into access
+# Contacts, Calendars (full access), Reminders (P4_People.swift's store checks) the microphone (P12_Gaps.swift) and the media library (P20_Gaps.swift's MPMediaQuery checks; no prompt): as ref-mac.sh does
+for svc in AddressBook Calendar Reminders Microphone MediaLibrary; do sqlite3 "$X86SIM_DEVICE/data/Library/TCC/TCC.db" "insert or replace into access
 	(service, client, client_type, auth_value, auth_reason, auth_version, flags) values
 	('kTCCService$svc', '$BID', 0, 2, 4, 1, 0)" 2>/dev/null || echo "  note: $svc not pre-granted (no TCC.db yet?)"; done
 # Location when in use + a simulated location (Apple Park) for P5_Location.swift's CoreLocation checks (no prompt): as

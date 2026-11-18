@@ -6,6 +6,7 @@
 import Foundation
 import notify
 import Synchronization
+import Security
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -141,9 +142,14 @@ extension Registry {
             var st = can()
             while !st.0 && Date() < end { try? await Task.sleep(nanoseconds: 200_000_000); st = can() }
             try expect(st.0, "not enrolled after \(Int(wait)) s: error \(st.1), type \(st.2)")
+            // Apple's fresh simulator can take longer than LocalAuthentication's 5 s to bring its biometric UI service up
+            // the first time ("UI activation timed out after 5 seconds", -1000): asked again then, as a user would retry
+            var r: Result<Bool, Error> = .success(false), tries = 0
+            repeat {
+            tries += 1
             let ctx = LAContext()
             let left = max(5, end.timeIntervalSinceNow)
-            let r: Result<Bool, Error> = await withCheckedContinuation { k in
+            r = await withCheckedContinuation { k in
                 let once = Mutex(false)
                 func finish(_ v: Result<Bool, Error>) { if once.withLock({ let d = $0; $0 = true; return !d }) { k.resume(returning: v) } }
                 ctx.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: "sdkcov checks biometrics") { ok, e in
@@ -151,11 +157,60 @@ extension Registry {
                 }
                 DispatchQueue.global().asyncAfter(deadline: .now() + left) { finish(.failure(Fail("no match in \(Int(left)) s"))) }
             }
+            if case .failure(let e) = r, (e as NSError).code == LAError.Code.systemCancel.rawValue || (e as NSError).code == -1000, tries < 3 { continue }
+            break
+            } while true
             switch r {
             case .success(let ok): try expect(ok, "evaluatePolicy false")
             case .failure(let e): throw Fail("evaluatePolicy: \(e)")
             }
-            return "enrolled (was \(ok0), \(code0)), type \(st.2), evaluatePolicy matched"
+            return "enrolled (was \(ok0), \(code0)), type \(st.2), evaluatePolicy matched\(tries > 1 ? " (try \(tries))" : "")"
+        })
+        // a keychain item protected by .biometryAny: read without interaction, read with a context the host's match
+        // authenticated (inputs.sh bioitem; ref-mac.sh BIOMETRIC=1)
+        c.append(check("Security", "input-biometry-item", timeout: 150) {
+            let wait = inputWait
+            guard wait > 0 else { return "SDKCOV_INPUT_WAIT unset: no enrollment awaited" }
+            let end = Date().addingTimeInterval(wait)
+            func enrolled() -> Bool { var e: NSError?; return LAContext().canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &e) }
+            while !enrolled() && Date() < end { try? await Task.sleep(nanoseconds: 200_000_000) }
+            try expect(enrolled(), "not enrolled after \(Int(wait)) s")
+            let acct = "sdkcov-bio-\(UUID().uuidString.prefix(6))"
+            var ae: Unmanaged<CFError>?
+            guard let ac = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleWhenUnlockedThisDeviceOnly, .biometryAny, &ae) else { throw Fail("access control \(String(describing: ae?.takeRetainedValue()))") }
+            let base: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "sdkcov.bio", kSecAttrAccount as String: acct]
+            var add = base; add[kSecAttrAccessControl as String] = ac; add[kSecValueData as String] = Data("bio secret".utf8)
+            let st = SecItemAdd(add as CFDictionary, nil)
+            try expect(st == errSecSuccess, "SecItemAdd \(st)")
+            defer { SecItemDelete(base as CFDictionary) }
+            // no UI allowed: refused
+            let noUI = LAContext(); noUI.interactionNotAllowed = true
+            var q = base; q[kSecReturnData as String] = true; q[kSecUseAuthenticationContext as String] = noUI
+            var out: CFTypeRef?
+            let st0 = SecItemCopyMatching(q as CFDictionary, &out)
+            // authenticated by the host's match (retried when the UI service is slow to come up, as input-biometric)
+            var tries = 0, err = "-"
+            var ctx = LAContext()
+            while tries < 3 {
+                tries += 1; ctx = LAContext()
+                let left = max(5, end.timeIntervalSinceNow)
+                let r: String = await withCheckedContinuation { k in
+                    let once = Mutex(false)
+                    func finish(_ v: String) { if once.withLock({ let d = $0; $0 = true; return !d }) { k.resume(returning: v) } }
+                    // (evaluateAccessControl(_:operation:) answers -1020 on both simulators: the policy, then the context reused)
+                    ctx.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: "sdkcov reads a keychain item") { ok, e in finish(ok ? "ok" : "\((e as NSError?)?.code ?? 0)") }
+                    DispatchQueue.global().asyncAfter(deadline: .now() + left) { finish("no match in \(Int(left)) s") }
+                }
+                err = r
+                if r == "ok" || !(r == "-4" || r == "-1000") { break }
+            }
+            try expect(err == "ok", "evaluatePolicy: \(err)")
+            q[kSecUseAuthenticationContext as String] = ctx
+            let st1 = SecItemCopyMatching(q as CFDictionary, &out)
+            let v = (out as? Data).map { String(decoding: $0, as: UTF8.self) } ?? "nil"
+            // Apple's iOS 27.2 simulator: its keychain does not enforce the biometry constraint, the no-UI read succeeds too
+            try expect(st0 == errSecSuccess && st1 == errSecSuccess && v == "bio secret", "no-UI read \(st0), authenticated read \(st1) \(v) (Apple's simulator: 0, 0)")
+            return "no-UI read \(st0), matched\(tries > 1 ? " (try \(tries))" : ""), authenticated read: \(v)"
         })
         #endif
         #if canImport(GameController) && !os(watchOS)

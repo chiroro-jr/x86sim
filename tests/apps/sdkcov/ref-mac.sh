@@ -12,6 +12,10 @@
 # Env SHOTS='S1 S2 ...' (with --only): screenshots S seconds after the launch, OUT/shot-S.png
 # Env LOGPRED='PREDICATE' (with --only): the simulator's unified log of the run (log show --info --debug, that
 #   predicate, from the device's boot) comes back as OUT/log.txt
+# Env BIOMETRIC=1 (with --only func:LocalAuthentication.input-biometric): biometrics enrolled (notifyutil
+#   com.apple.BiometricKit.enrollmentChanged, the Simulator's Enrolled menu) and a match sent every few seconds
+#   (notifyutil -p com.apple.BiometricKit_Sim.{pearl,oyster,fingerTouch}.match: Face ID, Optic ID, Touch ID; devicectl
+#   device simulate biometrics does not find a just-created simulator), as inputs.sh biometric does on x86Sim
 # Env CLIP=1 (with --only func:AppClip.input-clip-launch): the App Clip launched 10 s in with _XCAppClipURL, as inputs.sh clip
 #   --only   one launch running just the checks whose id contains one of these (as run.sh --only); their results
 #            are printed (the app's stderr is OUT/sdkcov-1.err), no report
@@ -44,7 +48,7 @@ APP=${SDKCOV_APPS:-$X86SIM_SCRATCH/apps}/sdkcov-$plat.app
 # the whole run happens on the Mac in one ssh session: the app goes over as a tar on stdin, the results come back
 # (the remote script is an argument: stdin carries the app)
 read -r -d '' REMOTE <<'MAC'
-plat=$1 rtname=$2 dtype=$3 rt=$4 secs=$5 only=$6 name=$7 tracking=${8:-} clip=${9:-} input=${10:-} shots=${11:-} iwait=${12:-40} logpred=${13:-}
+plat=$1 rtname=$2 dtype=$3 rt=$4 secs=$5 only=$6 name=$7 tracking=${8:-} clip=${9:-} input=${10:-} shots=${11:-} iwait=${12:-40} logpred=${13:-} bio=${14:-}
 set -u
 W=$(mktemp -d /tmp/sdkcov-ref.XXXXXX); cd "$W"; tar xf - -C "$W"
 exec 3>&1 1>&2
@@ -76,8 +80,8 @@ case $plat in ios|tvos|xros) xcrun simctl privacy "$dev" grant photos com.x86sim
 # on x86Sim (x86sim privacy / x86sim location)
 xcrun simctl privacy "$dev" grant location com.x86sim.test.sdkcov >/dev/null 2>&1 || echo "ref-mac: location not pre-granted"
 xcrun simctl location "$dev" set 37.3349,-122.0090 >/dev/null 2>&1 || echo "ref-mac: no simulated location"
-# Contacts, Calendars (full access), Reminders (P4_People.swift's store checks) and the microphone (P12_Gaps.swift), as run.sh grants them on x86Sim
-for svc in AddressBook Calendar Reminders Microphone; do sqlite3 "$HOME/Library/Developer/CoreSimulator/Devices/$dev/data/Library/TCC/TCC.db" "insert or replace into access
+# Contacts, Calendars (full access), Reminders (P4_People.swift's store checks) the microphone (P12_Gaps.swift) and the media library (P20_Gaps.swift's MPMediaQuery checks), as run.sh grants them on x86Sim
+for svc in AddressBook Calendar Reminders Microphone MediaLibrary; do sqlite3 "$HOME/Library/Developer/CoreSimulator/Devices/$dev/data/Library/TCC/TCC.db" "insert or replace into access
 	(service, client, client_type, auth_value, auth_reason, auth_version, flags) values
 	('kTCCService$svc', 'com.x86sim.test.sdkcov', 0, 2, 4, 1, 0)" || echo "ref-mac: $svc not pre-granted"; done
 # the app's FileProvider extension enabled as on a device whose fileproviderd first starts with the app installed:
@@ -96,6 +100,8 @@ fi ;; esac
 	(service, client, client_type, auth_value, auth_reason, auth_version, flags) values
 	('kTCCServiceUserTracking', 'com.x86sim.test.sdkcov', 0, 2, 2, 1, 0)" || echo "ref-mac: tracking not granted"; export SIMCTL_CHILD_SDKCOV_INPUT_WAIT=40; }
 [ -n "$clip" ] && export SIMCTL_CHILD_SDKCOV_INPUT_WAIT=40
+[ -n "$bio" ] && { export SIMCTL_CHILD_SDKCOV_INPUT_WAIT=$iwait; xcrun simctl spawn "$dev" notifyutil -s com.apple.BiometricKit.enrollmentChanged 1 &&
+	xcrun simctl spawn "$dev" notifyutil -p com.apple.BiometricKit.enrollmentChanged || echo "ref-mac: biometrics not enrolled"; }
 if [ -n "$input" ]; then export SIMCTL_CHILD_SDKCOV_INPUT_WAIT=$iwait
 	clang -fobjc-arc -o "$W/indigo" "$W/indigo.m" -framework Foundation -framework AppKit -framework IOKit || { echo "ref-mac: indigo build failed"; input=; }; fi
 data=$(xcrun simctl get_app_container "$dev" com.x86sim.test.sdkcov data)
@@ -108,6 +114,7 @@ if [ -n "$only" ]; then   # one launch; its stderr is the result
 	[ -n "$clip" ] && { sleep 5; SIMCTL_CHILD__XCAppClipURL=https://example.com/sdkcov xcrun simctl launch "$dev" com.x86sim.test.sdkcov.Clip >/dev/null; }
 	while [ $(( $(date +%s) - t0 )) -lt "$secs" ] && ! grep -q "X86TEST sdkcov done " "$W/sdkcov-1.err" 2>/dev/null; do
 		for s in $shots; do [ $(( $(date +%s) - t0 )) -ge "$s" ] && [ ! -e "$W/shot-$s.png" ] && xcrun simctl io "$dev" screenshot "$W/shot-$s.png" >/dev/null 2>&1; done
+		[ -n "$bio" ] && [ $(( $(date +%s) - t0 )) -ge 10 ] && for m in pearl oyster fingerTouch; do xcrun simctl spawn "$dev" notifyutil -p com.apple.BiometricKit_Sim.$m.match >/dev/null 2>&1; done
 		[ -n "$input" ] && [ $(( $(date +%s) - t0 )) -ge 8 ] && { IFS=';' read -ra cmds <<< "$input"
 			for c in "${cmds[@]}"; do "$W/indigo" "$dev" $c >/dev/null; done; }
 		# gone only after 3 misses in a row (as run.sh: one empty answer ended a run with the app still going)
@@ -134,7 +141,7 @@ cd "$W" && tar cf - results.txt coverage.json screen.png sdkcov-*.err 2>/dev/nul
 MAC
 DOC=sdkcovDoc-$plat.app; [ -d "$(dirname "$APP")/$DOC" ] || DOC=
 tar cf - -C "$(dirname "$APP")" "$(basename "$APP")" $DOC -C "$S/mac" indigo.m |
-	ssh -o BatchMode=yes "$MAC" "bash -c $(printf '%q' "$REMOTE") ref $plat $rtname $dtype '${RUNTIME:-}' ${SECS:-900} '$only' $name '${TRACKING:-}' '${CLIP:-}' '${INPUT:-}' '${SHOTS:-}' '${WAIT:-40}' $(printf '%q' "${LOGPRED:-}")" > "$OUT/ref.tar"
+	ssh -o BatchMode=yes "$MAC" "bash -c $(printf '%q' "$REMOTE") ref $plat $rtname $dtype '${RUNTIME:-}' ${SECS:-900} '$only' $name '${TRACKING:-}' '${CLIP:-}' '${INPUT:-}' '${SHOTS:-}' '${WAIT:-40}' $(printf '%q' "${LOGPRED:-}") '${BIOMETRIC:-}'" > "$OUT/ref.tar"
 (cd "$OUT" && tar xf ref.tar && rm ref.tar)
 if [ -n "$only" ]; then
 	tr -d '\r' < "$OUT/sdkcov-1.err" | grep "^X86TEST" | grep -v -e " only " -e " done " | cut -d' ' -f3-

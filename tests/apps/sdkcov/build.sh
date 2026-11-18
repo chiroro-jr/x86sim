@@ -237,6 +237,9 @@ PL
 		test -x \$APP/sdkcov
 		cp sdkcov/manifest-$p.json \$APP/manifest.json
 		cp gen/app.plist \$APP/Info.plist
+		# bundle resources (res/): sdkcovGK.sks, a SpriteKit scene with a GameplayKit GKScene (res/sdkcovGK.swift made it on
+		# the Mac, the archive Xcode's scene editor writes: root + _gkScene) for func:GameplayKit.gkscene-from-sks
+		cp sdkcov/res/*.sks \$APP/
 		# extensions: ext NAME DIR SOURCE GEN (GEN: its gen/ plist + entitlements). The entry point is Foundation's _NSExtensionMain, as Xcode links every
 		# extension (ExtensionKit's and WidgetKit's @main types are found and run from there: entered through their own
 		# main, ExtensionFoundation traps on its unset _EXRunningExtension)
