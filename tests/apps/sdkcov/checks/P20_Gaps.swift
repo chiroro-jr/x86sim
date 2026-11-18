@@ -21,8 +21,12 @@ import Metal
 import SwiftUI
 import SceneKit
 #endif
-#if canImport(RealityKit) && os(iOS)
+#if canImport(RealityKit) && (os(iOS) || os(visionOS))
 import RealityKit
+#endif
+#if os(visionOS)
+import SwiftUI
+import _RealityKit_SwiftUI
 #endif
 #if canImport(CoreImage)
 import CoreImage
@@ -37,6 +41,13 @@ import MediaPlayer
 #if canImport(WebKit) && (os(iOS) || os(visionOS))
 import WebKit
 import UIKit
+#endif
+#if os(iOS)
+import PencilKit
+import CoreLocationUI
+import _CoreLocationUI_SwiftUI
+import CoreLocation
+import SwiftUI
 #endif
 
 #if canImport(Network)
@@ -169,6 +180,14 @@ struct P20WatchControls: View {
             Picker("P", selection: $p) { Text("A").tag(0); Text("B").tag(1) }
         }.frame(width: 180, height: 220).background(Color.white)
     }
+}
+#endif
+
+#if os(iOS)
+private var p20InputWait: Double { Double(ProcessInfo.processInfo.environment["SDKCOV_INPUT_WAIT"] ?? "") ?? 0 }
+final class P20CanvasDelegate: NSObject, PKCanvasViewDelegate {
+    var changes = 0
+    func canvasViewDrawingDidChange(_ v: PKCanvasView) { changes += 1 }
 }
 #endif
 
@@ -460,6 +479,80 @@ extension Registry {
             let total = (img.width / 2) * (img.height / 2)
             try expect(red > total / 20 && white > total / 4, "\(img.width)x\(img.height): red \(red) white \(white) of \(total)")
             return "\(img.width)x\(img.height) snapshot: red \(red * 100 / total)%, white \(white * 100 / total)%"
+        })
+        #endif
+
+        // MARK: _RealityKit_SwiftUI on visionOS: a RealityView attachment (SwiftUI text as an entity) in a window,
+        // made a tappable entity target (input target + collision shapes)
+        #if os(visionOS)
+        c.append(check("_RealityKit_SwiftUI", "reality-view-attachments", timeout: 60) {
+            let got = SDKCovFlag()
+            let host = try await onMain {
+                try hostInWindow(RealityView { content, attachments in
+                    guard let a = attachments.entity(for: "label") else { got.set("no attachment entity"); return }
+                    a.position = [0, 0.05, 0]
+                    a.components.set(InputTargetComponent())
+                    a.generateCollisionShapes(recursive: false)
+                    content.add(a)
+                    let b = a.visualBounds(relativeTo: nil).extents
+                    got.set(String(format: "attachment in scene %@, %.3f x %.3f m, collision %@, input target %@", a.scene != nil ? "yes" : "no", b.x, b.y,
+                                   a.components.has(CollisionComponent.self) ? "yes" : "no", a.components.has(InputTargetComponent.self) ? "yes" : "no"))
+                } attachments: {
+                    Attachment(id: "label") { Text("sdkcov attachment").font(.title).padding().glassBackgroundEffect() }
+                }
+                .gesture(TapGesture().targetedToAnyEntity().onEnded { _ in })
+                .frame(width: 400, height: 300))
+            }
+            defer { Task { @MainActor in host.view.removeFromSuperview(); host.removeFromParent() } }
+            guard let r = await got.wait(seconds: 20) else { throw Fail("RealityView's make closure never ran") }
+            // Apple's visionOS 27.2 simulator: the attachment entity is not in the scene yet inside make (added after it),
+            // 0.182 x 0.045 m, and generateCollisionShapes makes no shape for it (no model)
+            try expect(r == "attachment in scene no, 0.182 x 0.045 m, collision no, input target yes", "\(r) (Apple's simulator: not in scene yet, 0.182 x 0.045 m, no collision)")
+            return r
+        })
+        #endif
+
+        // MARK: input checks (inputs.sh pencil / locbutton on x86Sim; ref-mac.sh INPUT= on the Mac)
+        #if os(iOS)
+        // PencilKit: a finger stroke across a full-screen PKCanvasView (drawingPolicy anyInput) becomes a drawing
+        c.append(check("PencilKit", "input-canvas-stroke", timeout: 120) {
+            let wait = p20InputWait
+            let d = await onMain { P20CanvasDelegate() }
+            let (cv, done) = try await onMain { () -> (PKCanvasView, () -> Void) in
+                let vc = UIViewController(); vc.view.backgroundColor = .white
+                let cv = PKCanvasView(frame: vc.view.bounds); cv.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+                cv.drawingPolicy = .anyInput; cv.tool = PKInkingTool(.pen, color: .black, width: 8); cv.delegate = d
+                cv.backgroundColor = .white; cv.isOpaque = true
+                vc.view.addSubview(cv)
+                let (_, done) = try p6Show(vc)
+                return (cv, done)
+            }
+            defer { Task { @MainActor in done() } }
+            guard wait > 0 else { return "canvas on screen (SDKCOV_INPUT_WAIT unset: no stroke awaited)" }
+            let ok = await p6Wait(wait) { !cv.drawing.strokes.isEmpty }
+            let (n, pts, b, w, ch) = await onMain { (cv.drawing.strokes.count, cv.drawing.strokes.first?.path.count ?? 0, cv.drawing.bounds, cv.bounds.width, d.changes) }
+            try expect(ok, "no stroke in \(Int(wait)) s")
+            // the host strokes from 0.3 to 0.7 of the width: the drawing spans about 40% of it
+            let span = b.width / w
+            try expect(n == 1 && pts > 2 && (0.3...0.5).contains(span), "\(n) strokes, \(pts) points, span \(span)")
+            return "1 stroke, \(pts > 10 ? ">10" : "\(pts)") points, span \(String(format: "%.2f", span)) of the width, drawing changed \(ch > 0)"
+        })
+        // CoreLocationUI: a LocationButton tapped by the host runs its action (location access already granted when in use)
+        c.append(check("CoreLocationUI", "input-location-button-tap", timeout: 120) {
+            let wait = p20InputWait
+            let log = P6Log()
+            let done = try await onMain {
+                try p6HostSwiftUI(GeometryReader { g in
+                    LocationButton(.currentLocation) { log.add("action") }
+                        .symbolVariant(.fill).labelStyle(.titleAndIcon).font(.title)
+                        .position(x: g.size.width / 2, y: g.size.height / 2)
+                }.ignoresSafeArea().background(Color.white))
+            }
+            defer { Task { @MainActor in done() } }
+            guard wait > 0 else { return "location button on screen (SDKCOV_INPUT_WAIT unset: no tap awaited)" }
+            let ok = await p6Wait(wait) { !log.all.isEmpty }
+            try expect(ok, "the button's action never ran in \(Int(wait)) s")
+            return "tap ran the action \(log.all.count)x, authorization \(CLLocationManager().authorizationStatus.rawValue)"
         })
         #endif
 

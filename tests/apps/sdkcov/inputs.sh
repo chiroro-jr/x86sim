@@ -23,7 +23,7 @@ build=; want=
 for a in "$@"; do case $a in --no-build) build=--no-build ;; *) want="$want $a" ;; esac; done
 rt=$(cat "$X86SIM_DEVICE/runtime" 2>/dev/null); plat=${rt%%-*}
 case $plat in
-	ios) all="shake orientation biometric bioitem gamepad memwarn push tracking clip ctxmenu swipe sdrag ncontent cvmenu fpauth"
+	ios) all="shake orientation biometric bioitem gamepad memwarn push tracking clip ctxmenu swipe sdrag ncontent cvmenu pencil locbutton fpauth"
 		case $(cat "$X86SIM_DEVICE/model" 2>/dev/null) in iPad*) all="$all pointer keyboard drag" ;; esac ;; xros) all="shake biometric bioitem gamepad memwarn tracking" ;; tvos) all="gamepad memwarn tracking" ;;
 	*) echo "inputs: no input checks for $plat" >&2; exit 0 ;;
 esac
@@ -82,6 +82,10 @@ for k in ${want:-$all}; do
 				press 0.714 0.93 0.08; nap 2; press 0.4 0.453 0.08; nap 4; press 0.06 0.045 0.08; } ;;
 			esac; undo() { xs terminate com.apple.DocumentsApp; } ;;
 		cvmenu) id=func:UIKit.input-collection-context-menu; send() { press 0.2 0.5 1.5; } ; undo() { :; } ;;
+		# (P20) a finger stroke across the PencilKit canvas; a tap on the LocationButton in the middle of the screen (Apple:
+		# ref-mac.sh INPUT='drag 0.3 0.5 0.7 0.5 0 500' / INPUT='drag 0.5 0.5 0.5 0.5 100 2')
+		pencil) id=func:PencilKit.input-canvas-stroke; send() { stroke 0.3 0.5 0.7 0.5 0; } ; undo() { :; } ;;
+		locbutton) id=func:CoreLocationUI.input-location-button-tap; send() { press 0.5 0.5 0.1; } ; undo() { :; } ;;
 		sdrag) id=func:SwiftUI.input-transferable-drag-drop; send() { stroke 0.5 0.25 0.5 0.75 1.2; } ; undo() { :; } ;;
 		# the notification prompt's Allow tapped (iPhone 17 Pro layout), then a long press on the banner at the top (its middle at 0.10)
 		# iPad: nothing (Apple's iPad simulator never shows the prompt; the check asserts the request stays unanswered)
