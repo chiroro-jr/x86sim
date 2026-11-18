@@ -1388,14 +1388,16 @@
     "func:GameController.snapshot-controller-profile-input",
     "func:GameController.virtual-controller-connect",
     "func:GameController.event-interaction",
-    "func:GameController.controllers-keyboard-mouse"
+    "func:GameController.controllers-keyboard-mouse",
+    "func:GameController.input-keyboard-key"
    ],
    "gaps": [
     "[a] input-gamepad: await a real button press (SDKCOV_INPUT_WAIT, run.sh input mode)",
-    "[a] GCKeyboard / GCMouse input handlers (controllers-keyboard-mouse only reports counts)"
+    "[a] GCMouse input handlers (needs pointer capture)"
    ],
-   "note": "Extended/micro snapshots, physical input profile, GCVirtualController connect (iOS), GCEventInteraction, tvOS micro gamepad.",
+   "note": "Extended/micro snapshots, physical input profile, GCVirtualController connect (iOS), GCEventInteraction, tvOS micro gamepad. r27: a host K key through GCKeyboard.coalesced's key handler (Generic Keyboard) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
+   "r27": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -3051,9 +3053,7 @@
     "func:UIKit.input-extra-window-shown",
     "func:UIKit.scene-lifecycle-round-trip"
    ],
-   "gaps": [
-    "tvOS/watchOS: [a] scene lifecycle (background/foreground): the companion app sdkcovDoc is built for iOS / visionOS only"
-   ],
+   "gaps": [],
    "note": "P6 adds compositional/diffable pixels, navigation callback order, UITab tab bar, page+search controllers, trait/dark-mode pixels, accessibility rotors, sheet detents, UIMenu/edit menu, UITextInput+find, date/color/font pickers, UIUpdateLink + printing; iPad checks SKIP on the iPhone device. r17: a secure field with the password content type keeps its text and refuses copy / cut (a plain field copies) (Apple and x86Sim PASS, 2026-11-18). r17: a UIContextMenuInteraction presented as a long press ends (UIKit's _presentMenuAtLocation:), delegate config / actions / willDisplay / willEnd, menu labels on screen (iOS; visionOS shows the menu outside the app scene, Apple too) (Apple and x86Sim PASS, 2026-11-18). r20: a long press on a UICollectionView cell pushed on a navigation stack opens its context menu (x86Sim took it as a tap: simhid SwipeLocked bit, fixed) (Apple and x86Sim PASS, 2026-11-18). r21: a second UIWindow of the app's scene (p6Show) is key and on screen over the app's window, visionOS too (screenshots on both simulators) (Apple and x86Sim PASS, 2026-11-18). r26: sdkcov opens the companion app sdkcovDoc, which opens sdkcov: again: the window scene / application notifications in Apple's order with the activation states, same session after; UIKit does not save the scene's NSUserActivity (needsSave) on the way out (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
    "r17": true,
@@ -3250,15 +3250,16 @@
     "func:WidgetKit.widget-extension-descriptors",
     "func:WidgetKit.control-center-controls",
     "func:WidgetKit.center",
-    "func:WidgetKit.accessory-background-render"
+    "func:WidgetKit.accessory-background-render",
+    "func:WidgetKit.input-placed-widget-timeline"
    ],
    "gaps": [
-    "[a] timelines reach currentConfigurations (0 configured today): assert a kind",
     "[a] ControlCenter with a placed control"
    ],
-   "note": "widget extension registered and run by chronod (launch/placeholder/recommendations) on iOS/watchOS; x86sim needs feature \"widgets\" (chronod). r16: on iOS outside a widget the background draws nothing (only the text inks, ~3%) on Apple's simulator; watchOS draws it (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "widget extension registered and run by chronod (launch/placeholder/recommendations) on iOS/watchOS; x86sim needs feature \"widgets\" (chronod). r16: on iOS outside a widget the background draws nothing (only the text inks, ~3%) on Apple's simulator; watchOS draws it (Apple and x86Sim PASS, 2026-11-18). r27: the sdkcov widget placed on the home screen by touches (inputs.sh widget / ref-mac.sh PRE=): currentConfigurations lists sdkcov.static / systemSmall and reloadTimelines(ofKind:) asks the extension for a new timeline; Apple's gallery lists no widget whose extension never ran (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P3 App extensions, system services, communication & parental controls",
    "r16": true,
+   "r27": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -4449,14 +4450,14 @@
    "existing_checks": [
     "func:CryptoTokenKit.secure-element-tokens",
     "func:CryptoTokenKit.token-info-smartcard-keychain",
-    "func:CryptoTokenKit.watcher"
+    "func:CryptoTokenKit.watcher",
+    "func:CryptoTokenKit.persistent-token-keychain"
    ],
-   "gaps": [
-    "[a] TKTokenKeychainContents through a persistent token extension (iOS has one: ext/Token.swift, not bundled here)"
-   ],
-   "note": "setoken tokens + token info, insertion handler, empty TKSmartCardSlotManager (iOS/visionOS), SE keychain query; tvOS watcher sees 0 tokens on Apple too.",
+   "gaps": [],
+   "note": "setoken tokens + token info, insertion handler, empty TKSmartCardSlotManager (iOS/visionOS), SE keychain query; tvOS watcher sees 0 tokens on Apple too. r27: the bundled ctk-tokens extension gives no driver configuration on Apple's tvOS / watchOS simulators (asserted) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P8 Foundation, networking, security, identity & device management",
    "r26": true,
+   "r27": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -5633,16 +5634,16 @@
     "func:UIKit.input-extra-window-shown",
     "func:UIKit.context-menu-interaction-present",
     "func:UIKit.textfield-secure-content-type",
-    "func:UIKit.tv-menu-tree-text-input"
+    "func:UIKit.tv-menu-tree-text-input",
+    "func:UIKit.scene-lifecycle-round-trip"
    ],
-   "gaps": [
-    "[a] scene lifecycle (background/foreground): the companion app sdkcovDoc is built for iOS / visionOS only"
-   ],
-   "note": "P6 adds compositional/diffable pixels, navigation callback order, UITab tab bar, page+search controllers, trait/dark-mode pixels, accessibility rotors, sheet detents, UIMenu/edit menu, UITextInput+find, date/color/font pickers, UIUpdateLink + printing; iPad checks SKIP on the iPhone device. r21: a second UIWindow of the app's scene (p6Show) is key and on screen over the app's window, visionOS too (screenshots on both simulators) (Apple and x86Sim PASS, 2026-11-18). r23: the P13 context menu interaction and secure text field checks run on tvOS too (Apple and x86Sim PASS, 2026-11-18). r23: tvOS UIMenu tree, a button's primary action, UITextInput on a text field (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "P6 adds compositional/diffable pixels, navigation callback order, UITab tab bar, page+search controllers, trait/dark-mode pixels, accessibility rotors, sheet detents, UIMenu/edit menu, UITextInput+find, date/color/font pickers, UIUpdateLink + printing; iPad checks SKIP on the iPhone device. r21: a second UIWindow of the app's scene (p6Show) is key and on screen over the app's window, visionOS too (screenshots on both simulators) (Apple and x86Sim PASS, 2026-11-18). r23: the P13 context menu interaction and secure text field checks run on tvOS too (Apple and x86Sim PASS, 2026-11-18). r23: tvOS UIMenu tree, a button's primary action, UITextInput on a text field (Apple and x86Sim PASS, 2026-11-18). r27: sdkcovDoc built for tvOS (a plain window app): the same notification order as iOS (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
    "r21": true,
    "r23": true,
    "r26": true,
+   "r27": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -6614,14 +6615,14 @@
    "existing_checks": [
     "func:CryptoTokenKit.secure-element-tokens",
     "func:CryptoTokenKit.token-info-smartcard-keychain",
-    "func:CryptoTokenKit.watcher"
+    "func:CryptoTokenKit.watcher",
+    "func:CryptoTokenKit.persistent-token-keychain"
    ],
-   "gaps": [
-    "[a] TKTokenKeychainContents through a persistent token extension (iOS has one: ext/Token.swift, not bundled here)"
-   ],
-   "note": "setoken tokens + token info, insertion handler, empty TKSmartCardSlotManager (iOS/visionOS), SE keychain query; tvOS watcher sees 0 tokens on Apple too.",
+   "gaps": [],
+   "note": "setoken tokens + token info, insertion handler, empty TKSmartCardSlotManager (iOS/visionOS), SE keychain query; tvOS watcher sees 0 tokens on Apple too. r27: the bundled ctk-tokens extension gives no driver configuration on Apple's tvOS / watchOS simulators (asserted) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P8 Foundation, networking, security, identity & device management",
    "r26": true,
+   "r27": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -7416,13 +7417,12 @@
    "existing_checks": [
     "func:UIKit.image-color-font"
    ],
-   "gaps": [
-    "[a] scene lifecycle (background/foreground): the companion app sdkcovDoc is built for iOS / visionOS only"
-   ],
-   "note": "P6 adds compositional/diffable pixels, navigation callback order, UITab tab bar, page+search controllers, trait/dark-mode pixels, accessibility rotors, sheet detents, UIMenu/edit menu, UITextInput+find, date/color/font pickers, UIUpdateLink + printing; iPad checks SKIP on the iPhone device. r23: UIKit is not in the watchOS SDK: its UIKit context menu / text field gaps dropped.",
+   "gaps": [],
+   "note": "P6 adds compositional/diffable pixels, navigation callback order, UITab tab bar, page+search controllers, trait/dark-mode pixels, accessibility rotors, sheet detents, UIMenu/edit menu, UITextInput+find, date/color/font pickers, UIUpdateLink + printing; iPad checks SKIP on the iPhone device. r23: UIKit is not in the watchOS SDK: its UIKit context menu / text field gaps dropped. r27: watchOS app lifecycle is WatchKit's (func:WatchKit.input-lifecycle-round-trip).",
    "package": "P6 UI frameworks depth & platform UI",
    "r23": true,
    "r26": true,
+   "r27": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -7500,11 +7500,14 @@
     "func:WatchKit.background-refresh-schedule",
     "func:WatchKit.extended-runtime-session",
     "func:WatchKit.crown-sequencer",
-    "func:WatchKit.device-application"
+    "func:WatchKit.device-application",
+    "func:WatchKit.input-lifecycle-round-trip"
    ],
    "gaps": [],
+   "note": "r27: the Digital Crown then a host launch: WKApplication willResignActive / didEnterBackground / willEnterForeground / didBecomeActive with Apple's states (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
-   "rejudged": false,
+   "r27": true,
+   "rejudged": true,
    "status": "covered"
   },
   "WeatherKit": {
@@ -8640,14 +8643,14 @@
    "existing_checks": [
     "func:CryptoTokenKit.secure-element-tokens",
     "func:CryptoTokenKit.token-info-smartcard-keychain",
-    "func:CryptoTokenKit.watcher"
+    "func:CryptoTokenKit.watcher",
+    "func:CryptoTokenKit.persistent-token-keychain"
    ],
-   "gaps": [
-    "[a] TKTokenKeychainContents through a persistent token extension (iOS has one: ext/Token.swift, not bundled here)"
-   ],
-   "note": "setoken tokens + token info, insertion handler, empty TKSmartCardSlotManager (iOS/visionOS), SE keychain query; tvOS watcher sees 0 tokens on Apple too.",
+   "gaps": [],
+   "note": "setoken tokens + token info, insertion handler, empty TKSmartCardSlotManager (iOS/visionOS), SE keychain query; tvOS watcher sees 0 tokens on Apple too. r27: the persistent token extension on visionOS: as iOS (keychain items under the token id, key -26276) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P8 Foundation, networking, security, identity & device management",
    "r26": true,
+   "r27": true,
    "rejudged": true,
    "status": "covered"
   },
