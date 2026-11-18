@@ -19,6 +19,27 @@ import ExtensionKit
 #if canImport(WidgetKit)
 import WidgetKit
 #endif
+#if canImport(FileProvider) && (os(iOS) || os(visionOS))
+/// fileproviderd's FPItem for a URL in a domain (FileProvider's FPItemManager, as Files fetches it): its
+/// contentModificationDate (seconds since 1970) / creationDate, or what went wrong
+func p3FPItemDate(_ url: URL) async -> String {
+    guard let cls = NSClassFromString("FPItemManager") as? NSObject.Type,
+          let mgr = cls.perform(NSSelectorFromString("defaultManager"))?.takeUnretainedValue() as? NSObject else { return "no FPItemManager" }
+    let sel = NSSelectorFromString("fetchItemForURL:completionHandler:")
+    guard mgr.responds(to: sel) else { return "no fetchItemForURL" }
+    typealias F = @convention(c) (NSObject, Selector, NSURL, @escaping @convention(block) (NSObject?, NSError?) -> Void) -> Void
+    let f = unsafeBitCast(mgr.method(for: sel), to: F.self)
+    let box = P3Box<String>()
+    f(mgr, sel, url as NSURL) { item, err in
+        guard let item else { box.put("error \(err.map { "\($0.domain) \($0.code)" } ?? "nil")"); return }
+        let d = item.value(forKey: "contentModificationDate") as? Date, c = item.value(forKey: "creationDate") as? Date
+        box.put("mod \(d.map { Int($0.timeIntervalSince1970) } ?? -1) created \(c.map { Int($0.timeIntervalSince1970) } ?? -1)")
+    }
+    _ = await p3Wait(10) { box.value != nil }
+    return box.value ?? "no answer in 10 s"
+}
+#endif
+
 #if canImport(ActivityKit) && os(iOS)
 import ActivityKit
 #endif
@@ -297,7 +318,8 @@ extension Registry {
             try expect(names.contains("hello.txt") && names.contains("docs"), "root lists \(names) (marks \(p3MarkNames()))")
             steps.append("lists \(names)")
             // reading a dataless file materializes it: fetchContents in the extension
-            let text = try String(contentsOf: root.appendingPathComponent("hello.txt"), encoding: .utf8)
+            let hello = root.appendingPathComponent("hello.txt")
+            let text = try String(contentsOf: hello, encoding: .utf8)
             try expect(text == "hello from the sdkcov file provider", "hello.txt reads \(text.debugDescription)")
             try expect(!p3Marks("fp-fetch", since: since).isEmpty, "no fetchContents mark")
             let sub = ((try? FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent("docs").path)) ?? []).sorted()
@@ -307,6 +329,18 @@ extension Registry {
             let created = await p3Wait(30) { !p3Marks("fp-create", since: since).isEmpty }
             steps.append("create \(p3Marks("fp-create", since: since).last ?? "none")")
             try await m.signalEnumerator(for: .workingSet)
+            // a downloaded file keeps the date it had (the items give no contentModificationDate: the time fileproviderd
+            // made them) and is fetched once: Files shows that date. Apple's simulator: note.txt (read once the domain
+            // is settled) always; hello.txt, read during the domain's first start, came back 1970 in some fresh-device
+            // runs there too (reported). fileproviderd's FPItem as Files gets it (FPItemManager)
+            let note = root.appendingPathComponent("docs/note.txt")
+            _ = try String(contentsOf: note, encoding: .utf8)
+            try await Task.sleep(for: .seconds(8))
+            let noteDate = await p3FPItemDate(note), helloDate = await p3FPItemDate(hello)
+            let fetches = p3Marks("fp-fetch", since: since)
+            steps.append("downloaded: note \(noteDate), hello \(helloDate), fetches \(fetches)")
+            try expect(noteDate.hasPrefix("mod 1") && !noteDate.hasPrefix("mod 1 "), "docs/note.txt after its download: \(noteDate) (fetches \(fetches))")
+            try expect(fetches.filter { $0 == "note" }.count == 1, "note.txt fetched \(fetches.filter { $0 == "note" }.count) times (once on Apple's simulator; fetches \(fetches))")
             try expect(created, "new.txt never reached createItem: \(steps)")
             return steps.joined(separator: "; ")
         })
