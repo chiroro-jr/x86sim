@@ -57,17 +57,18 @@
     "func:AVFoundation.asset-load-formats",
     "func:AVFoundation.capture-simulator-answers",
     "func:AVFoundation.player-item-failed-status",
-    "func:AVFoundation.export-metadata-file-length-limit"
+    "func:AVFoundation.export-metadata-file-length-limit",
+    "func:AVFoundation.content-key-session-clear-key"
    ],
    "gaps": [
-    "[a] AVContentKeySession (clear key) / AVAssetDownloadURLSession offline HLS",
     "[a] chapter metadata: timed-metadata-chapters reports chapters (empty) - assert chapterMetadataGroups from a chaptered m4a/mov",
     "[a] AVPlayerItemPlaybackStalled / failedToPlayToEndTime notifications"
    ],
-   "note": "asset writer/reader/image generator, CI video compositor + export + presets, HLS loopback with WebVTT, resource loader, timed metadata, AVMutableMovie, queue player/looper/seek/rate, sample-buffer renderers+synchronizer, multi-format loads; capture-simulator-answers asserts 0 cameras and input-less session error -11819 as on Apple. P11: an unplayable item fails with AVFoundationErrorDomain -11829 (Apple and x86Sim PASS, 2026-11-18). r17: export metadata (title) written through; a passthrough export with fileLengthLimit refused -11838 (Apple the same) (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "asset writer/reader/image generator, CI video compositor + export + presets, HLS loopback with WebVTT, resource loader, timed metadata, AVMutableMovie, queue player/looper/seek/rate, sample-buffer renderers+synchronizer, multi-format loads; capture-simulator-answers asserts 0 cameras and input-less session error -11819 as on Apple. P11: an unplayable item fails with AVFoundationErrorDomain -11829 (Apple and x86Sim PASS, 2026-11-18). r17: export metadata (title) written through; a passthrough export with fileLengthLimit refused -11838 (Apple the same) (Apple and x86Sim PASS, 2026-11-18). r24: AVContentKeySession clear key: the request arrives, the clear key response fails it (-11800) on both (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
    "r15": true,
    "r17": true,
+   "r24": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -526,14 +527,14 @@
     "func:CFNetwork.urlsession-https-pinned-loopback",
     "func:CFNetwork.urlsession-redirect-cookies-gzip-auth-chunked",
     "func:CFNetwork.stream-task-cfhttpmessage",
-    "func:CFNetwork.session-loopback-http-proxy"
+    "func:CFNetwork.session-loopback-http-proxy",
+    "func:CFNetwork.urlsession-http2-loopback-tls"
    ],
-   "gaps": [
-    "[a] HTTP/2 to loopback TLS (results show http/1.1 negotiated)"
-   ],
-   "note": "Loopback HTTP/HTTPS (pinned, untrusted refused -1202), redirects/cookies/gzip/auth/chunked, URLSessionStreamTask echo and CFHTTPMessage build/parse. r17: an http request through a loopback HTTP proxy (NWListener) set in connectionProxyDictionary: absolute-URI request line (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "Loopback HTTP/HTTPS (pinned, untrusted refused -1202), redirects/cookies/gzip/auth/chunked, URLSessionStreamTask echo and CFHTTPMessage build/parse. r17: an http request through a loopback HTTP proxy (NWListener) set in connectionProxyDictionary: absolute-URI request line (Apple and x86Sim PASS, 2026-11-18). r24: URLSession to a minimal loopback h2 server (ALPN h2): preface, streams 1 and 3 on one connection, metrics h2 (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P8 Foundation, networking, security, identity & device management",
    "r17": true,
+   "r24": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -663,14 +664,14 @@
   },
   "ComputeGraph": {
    "existing_checks": [
-    "func:ComputeGraph.graph-build-serialize-assemble"
+    "func:ComputeGraph.graph-build-serialize-assemble",
+    "func:ComputeGraph.pipelines-simulation-advance"
    ],
-   "gaps": [
-    "[a] evaluate an assembled graph"
-   ],
-   "note": "Builds a 3-node graph, json + propertyList round trips, edge/node removal, shared library definitions. r20: Assembly of the input + add graph asserted: uniform buffer 0 B, 0 uniforms (the constant is inlined) (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "Builds a 3-node graph, json + propertyList round trips, edge/node removal, shared library definitions. r20: Assembly of the input + add graph asserted: uniform buffer 0 B, 0 uniforms (the constant is inlined) (Apple and x86Sim PASS, 2026-11-18). r24: the assembly compiled to Pipelines, a ComputeGraphSimulation advanced one step (command buffer completed) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
    "r20": true,
+   "r24": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -824,17 +825,16 @@
     "func:CoreImage.filters-context-qr",
     "func:CoreImage.metal-vs-software-filter-chain",
     "func:CoreImage.color-kernel-processor-kernel",
-    "func:CoreImage.detector-rectangle-face"
+    "func:CoreImage.detector-rectangle-face",
+    "func:CoreImage.heif-raw-text-detector"
    ],
-   "gaps": [
-    "[a] CIRAWFilter / CIImage from HEIF/RAW, CIKernel from a compiled Metal library",
-    "[a] CIDetector text features, a face found in a face image"
-   ],
-   "note": "P11: CIColorKernel from source, CIImageProcessorKernel CPU buffer path (Apple and x86Sim PASS, 2026-11-18). r16: CoreImage [[stitchable]] kernels (composeImageFilterFunctionsFromModules) compile on x86Sim since the libComposeFilters dlopen fix (Vision optical flow on visionOS). r17: CIDetector rectangle bounds on a drawn rectangle, no face in it (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "P11: CIColorKernel from source, CIImageProcessorKernel CPU buffer path (Apple and x86Sim PASS, 2026-11-18). r16: CoreImage [[stitchable]] kernels (composeImageFilterFunctionsFromModules) compile on x86Sim since the libComposeFilters dlopen fix (Vision optical flow on visionOS). r17: CIDetector rectangle bounds on a drawn rectangle, no face in it (Apple and x86Sim PASS, 2026-11-18). r24: HEIF written and read back by pixels, DNG not writable by ImageIO, junk RAW data still gets a filter, camera models (tvOS 0), CIDetector text: 1 feature with 8 sub-features (CIKernel from a Metal library and a face image still open) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
    "r15": true,
    "r16": true,
    "r17": true,
+   "r24": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -865,13 +865,14 @@
   },
   "CoreLocationUI": {
    "existing_checks": [
-    "func:CoreLocationUI.location-button-layout"
+    "func:CoreLocationUI.location-button-layout",
+    "func:CoreLocationUI.input-location-button-tap"
    ],
-   "gaps": [
-    "[a] LocationButton tap -> one-time authorization (input)"
-   ],
+   "gaps": [],
+   "note": "r24: a host tap runs the LocationButton action (inputs.sh locbutton) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P5 Health, home, location, sensors & accessories",
-   "rejudged": false,
+   "r24": true,
+   "rejudged": true,
    "status": "covered"
   },
   "CoreMIDI": {
@@ -1237,13 +1238,13 @@
    "apple_sim_na_done": true,
    "existing_checks": [
     "func:FamilyControls.authorization-status",
-    "func:FamilyControls.authorization-selection"
+    "func:FamilyControls.authorization-selection",
+    "func:FamilyControls.activity-picker-render"
    ],
-   "gaps": [
-    "[a] FamilyActivityPicker render"
-   ],
-   "note": "done: asserts notDetermined, selection Codable, and the 4099 refusal.",
+   "gaps": [],
+   "note": "done: asserts notDetermined, selection Codable, and the 4099 refusal. r24: FamilyActivityPicker hosted: a remote scene (_UISceneHostingView) drawing ~2% (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P3 App extensions, system services, communication & parental controls",
+   "r24": true,
    "rejudged": true,
    "status": "apple-sim-na"
   },
@@ -1421,14 +1422,14 @@
    "existing_checks": [
     "func:GameplayKit.agents-strategists-rules-ecs-trees-noise",
     "func:GameplayKit.random-pathfinding-statemachine",
-    "func:GameplayKit.obstacle-graph-pathfinding"
+    "func:GameplayKit.obstacle-graph-pathfinding",
+    "func:GameplayKit.gkscene-from-sks"
    ],
-   "gaps": [
-    "[a] GKScene loaded from an .sks file"
-   ],
-   "note": "Agents/goals, minmax + Monte Carlo strategists, rule system, ECS, quadtree, R-tree, noise, pathfinding, state machine. P11: GKObstacleGraph path around a buffered polygon obstacle (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "Agents/goals, minmax + Monte Carlo strategists, rule system, ECS, quadtree, R-tree, noise, pathfinding, state machine. P11: GKObstacleGraph path around a buffered polygon obstacle (Apple and x86Sim PASS, 2026-11-18). r24: GKScene(fileNamed:) of a bundled .sks in Xcode's scene format (root + _gkScene): scene, children, one entity with GKSKNodeComponent + GKAgent2D (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
    "r15": true,
+   "r24": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -1742,11 +1743,10 @@
     "func:LocalAuthentication.context-evaluate-errors-rights",
     "func:LocalAuthentication.policies"
    ],
-   "gaps": [
-    "[a] evaluatePolicy with simulated enrolled biometry (input-biometric needs run.sh input mode)"
-   ],
-   "note": "LAEnvironment state (iOS/visionOS biometry not enrolled; tvOS/watchOS no mechanisms), canEvaluate/evaluate errors, invalidated context, domainState, LARight -1020 / LARightStore -1019, all as on Apple.",
+   "gaps": [],
+   "note": "LAEnvironment state (iOS/visionOS biometry not enrolled; tvOS/watchOS no mechanisms), canEvaluate/evaluate errors, invalidated context, domainState, LARight -1020 / LARightStore -1019, all as on Apple. r24: ref-mac.sh BIOMETRIC=1 (enrollmentChanged + BiometricKit_Sim pearl match): matched on both (Apple's Face ID UI times out its first activations: retried) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P8 Foundation, networking, security, identity & device management",
+   "r24": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -1923,13 +1923,13 @@
   "MediaPlayer": {
    "existing_checks": [
     "func:MediaPlayer.nowplaying-remote-commands",
-    "func:MediaPlayer.queue-player-library-commands"
+    "func:MediaPlayer.queue-player-library-commands",
+    "func:MediaPlayer.library-authorized-queries"
    ],
-   "gaps": [
-    "[a] MPMediaQuery on an authorized library (auth 0 on the sim: grant media-library TCC so songs/albums queries run)"
-   ],
-   "note": "now playing info + remote commands, application queue player state/modes, MPNowPlayingSession, MPVolumeView has no slider on Apple sim too.",
+   "gaps": [],
+   "note": "now playing info + remote commands, application queue player state/modes, MPNowPlayingSession, MPVolumeView has no slider on Apple sim too. r24: media library access granted (run.sh / ref-mac.sh): songs/albums/artists/playlists queries (iOS: 5 playlists), getPlaylist creates one; visionOS needed medialibraryd (fixed: the app died on an empty database) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
+   "r24": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -2122,11 +2122,10 @@
     "func:MusicKit.authorization-status",
     "func:MusicKit.objects-subscription-catalog-answers"
    ],
-   "gaps": [
-    "[a] ApplicationMusicPlayer queue/state asserted (today reported only)"
-   ],
-   "note": "done on iOS/tvOS: Song/Artwork/MusicItemID decode asserted, subscription + catalog search answer permissionDenied without hanging, as on Apple.",
+   "gaps": [],
+   "note": "done on iOS/tvOS: Song/Artwork/MusicItemID decode asserted, subscription + catalog search answer permissionDenied without hanging, as on Apple. r24: already asserted (stopped, empty queue): gap stale (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
+   "r24": true,
    "rejudged": true,
    "status": "apple-sim-na"
   },
@@ -2317,13 +2316,14 @@
   "PencilKit": {
    "existing_checks": [
     "func:PencilKit.ipad-canvas-tool-picker",
-    "func:PencilKit.drawing-roundtrip-image"
+    "func:PencilKit.drawing-roundtrip-image",
+    "func:PencilKit.input-canvas-stroke"
    ],
-   "gaps": [
-    "[a] PKCanvasView drawing via touch input"
-   ],
+   "gaps": [],
+   "note": "r24: a host finger stroke on a PKCanvasView (inputs.sh pencil; ref-mac.sh INPUT drag) becomes one stroke spanning 41% (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
-   "rejudged": false,
+   "r24": true,
+   "rejudged": true,
    "status": "covered"
   },
   "PermissionKit": {
@@ -2484,15 +2484,15 @@
     "func:RealityKit.particles-audio-resource",
     "func:RealityKit.entities-meshes",
     "func:RealityKit.video-material-entity",
-    "func:RealityKit.shader-graph-material"
+    "func:RealityKit.shader-graph-material",
+    "func:RealityKit.arview-nonar-snapshot"
    ],
-   "gaps": [
-    "[a] ARView in nonAR camera mode render"
-   ],
-   "note": "RealityRenderer offscreen pixels, ECS system/animation/raycast, physics collisions, LowLevelMesh/LowLevelTexture, .reality round trip + usdz load, particles, audio resource on iOS/tvOS/visionOS. r20: VideoMaterial(avPlayer:) on a ModelEntity plane keeps its player (Apple and x86Sim PASS, 2026-11-18). r23: ShaderGraphMaterial(named:from: Data) of a MaterialX preview-surface USDA: parameters Rough / Tint, set / get, parameterNameNotFound for an unknown input, invalidTypeFound for a missing material path (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "RealityRenderer offscreen pixels, ECS system/animation/raycast, physics collisions, LowLevelMesh/LowLevelTexture, .reality round trip + usdz load, particles, audio resource on iOS/tvOS/visionOS. r20: VideoMaterial(avPlayer:) on a ModelEntity plane keeps its player (Apple and x86Sim PASS, 2026-11-18). r23: ShaderGraphMaterial(named:from: Data) of a MaterialX preview-surface USDA: parameters Rough / Tint, set / get, parameterNameNotFound for an unknown input, invalidTypeFound for a missing material path (Apple and x86Sim PASS, 2026-11-18). r24: ARView nonAR snapshot of an unlit red box (12% red) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
    "r20": true,
    "r23": true,
+   "r24": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -2615,14 +2615,14 @@
     "func:Security.pkcs12-certificates-trust-evaluation",
     "func:Security.seckey-algorithms-exchange-interop",
     "func:Security.access-control-keychain",
-    "func:Security.shared-web-credential-add"
+    "func:Security.shared-web-credential-add",
+    "func:Security.input-biometry-item"
    ],
-   "gaps": [
-    "[a] SecAccessControl .biometryAny item read with enrolled biometry (needs run.sh input mode)"
-   ],
-   "note": "Keychain CRUD/persistent refs, RSA/EC/ECIES algorithm matrix, PKCS#12 + trust evaluation, access-control items. r17: SecAddSharedWebCredential without an associated domain: NSOSStatusErrorDomain -909 (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "Keychain CRUD/persistent refs, RSA/EC/ECIES algorithm matrix, PKCS#12 + trust evaluation, access-control items. r17: SecAddSharedWebCredential without an associated domain: NSOSStatusErrorDomain -909 (Apple and x86Sim PASS, 2026-11-18). r24: a .biometryAny keychain item: the simulator keychain reads it without interaction too, and with the matched context (inputs.sh bioitem) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P8 Foundation, networking, security, identity & device management",
    "r17": true,
+   "r24": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -3209,15 +3209,15 @@
     "func:WebKit.content-rules-download-find-data-store",
     "func:WebKit.webview-load-javascript",
     "func:WebKit.indexeddb-put-get",
-    "func:WebKit.find-interaction-navigator"
+    "func:WebKit.find-interaction-navigator",
+    "func:WebKit.service-worker-register-fetch",
+    "func:WebKit.web-extension-load"
    ],
-   "gaps": [
-    "[a] service workers",
-    "[a] WKWebExtension (iOS 18.4+)"
-   ],
-   "note": "content rule list blocking, find, WKDownload, WKWebsiteDataStore records fetch/remove, navigation delegate order, UI panels, JS bridges, custom schemes, cookies. r17: IndexedDB in a page with an https origin: put, get, count (Apple and x86Sim PASS, 2026-11-18). r17: WKWebView's find navigator shown with 3 results, findNext moves the highlight, dismissed (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "content rule list blocking, find, WKDownload, WKWebsiteDataStore records fetch/remove, navigation delegate order, UI panels, JS bridges, custom schemes, cookies. r17: IndexedDB in a page with an https origin: put, get, count (Apple and x86Sim PASS, 2026-11-18). r17: WKWebView's find navigator shown with 3 results, findNext moves the highlight, dismissed (Apple and x86Sim PASS, 2026-11-18). r24: a WKWebView outside app-bound domains has no navigator.serviceWorker even on http://localhost (asserted) (Apple and x86Sim PASS, 2026-11-18). r24: a manifest v3 WKWebExtension loaded into a WKWebExtensionController (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
    "r17": true,
+   "r24": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -3874,17 +3874,18 @@
     "func:AVFoundation.asset-load-formats",
     "func:AVFoundation.capture-simulator-answers",
     "func:AVFoundation.player-item-failed-status",
-    "func:AVFoundation.export-metadata-file-length-limit"
+    "func:AVFoundation.export-metadata-file-length-limit",
+    "func:AVFoundation.content-key-session-clear-key"
    ],
    "gaps": [
-    "[a] AVContentKeySession (clear key) / AVAssetDownloadURLSession offline HLS",
     "[a] chapter metadata: timed-metadata-chapters reports chapters (empty) - assert chapterMetadataGroups from a chaptered m4a/mov",
     "[a] AVPlayerItemPlaybackStalled / failedToPlayToEndTime notifications"
    ],
-   "note": "asset writer/reader/image generator, CI video compositor + export + presets, HLS loopback with WebVTT, resource loader, timed metadata, AVMutableMovie, queue player/looper/seek/rate, sample-buffer renderers+synchronizer, multi-format loads; capture-simulator-answers asserts 0 cameras and input-less session error -11819 as on Apple. P11: an unplayable item fails with AVFoundationErrorDomain -11829 (Apple and x86Sim PASS, 2026-11-18). r17: export metadata (title) written through; a passthrough export with fileLengthLimit refused -11838 (Apple the same) (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "asset writer/reader/image generator, CI video compositor + export + presets, HLS loopback with WebVTT, resource loader, timed metadata, AVMutableMovie, queue player/looper/seek/rate, sample-buffer renderers+synchronizer, multi-format loads; capture-simulator-answers asserts 0 cameras and input-less session error -11819 as on Apple. P11: an unplayable item fails with AVFoundationErrorDomain -11829 (Apple and x86Sim PASS, 2026-11-18). r17: export metadata (title) written through; a passthrough export with fileLengthLimit refused -11838 (Apple the same) (Apple and x86Sim PASS, 2026-11-18). r24: AVContentKeySession clear key: the request arrives, the clear key response fails it (-11800) on both (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
    "r15": true,
    "r17": true,
+   "r24": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -4100,14 +4101,14 @@
     "func:CFNetwork.urlsession-https-pinned-loopback",
     "func:CFNetwork.urlsession-redirect-cookies-gzip-auth-chunked",
     "func:CFNetwork.stream-task-cfhttpmessage",
-    "func:CFNetwork.session-loopback-http-proxy"
+    "func:CFNetwork.session-loopback-http-proxy",
+    "func:CFNetwork.urlsession-http2-loopback-tls"
    ],
-   "gaps": [
-    "[a] HTTP/2 to loopback TLS (results show http/1.1 negotiated)"
-   ],
-   "note": "Loopback HTTP/HTTPS (pinned, untrusted refused -1202), redirects/cookies/gzip/auth/chunked, URLSessionStreamTask echo and CFHTTPMessage build/parse. r17: an http request through a loopback HTTP proxy (NWListener) set in connectionProxyDictionary: absolute-URI request line (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "Loopback HTTP/HTTPS (pinned, untrusted refused -1202), redirects/cookies/gzip/auth/chunked, URLSessionStreamTask echo and CFHTTPMessage build/parse. r17: an http request through a loopback HTTP proxy (NWListener) set in connectionProxyDictionary: absolute-URI request line (Apple and x86Sim PASS, 2026-11-18). r24: URLSession to a minimal loopback h2 server (ALPN h2): preface, streams 1 and 3 on one connection, metrics h2 (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P8 Foundation, networking, security, identity & device management",
    "r17": true,
+   "r24": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -4163,14 +4164,14 @@
   },
   "ComputeGraph": {
    "existing_checks": [
-    "func:ComputeGraph.graph-build-serialize-assemble"
+    "func:ComputeGraph.graph-build-serialize-assemble",
+    "func:ComputeGraph.pipelines-simulation-advance"
    ],
-   "gaps": [
-    "[a] evaluate an assembled graph"
-   ],
-   "note": "Builds a 3-node graph, json + propertyList round trips, edge/node removal, shared library definitions. r20: Assembly of the input + add graph asserted: uniform buffer 0 B, 0 uniforms (the constant is inlined) (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "Builds a 3-node graph, json + propertyList round trips, edge/node removal, shared library definitions. r20: Assembly of the input + add graph asserted: uniform buffer 0 B, 0 uniforms (the constant is inlined) (Apple and x86Sim PASS, 2026-11-18). r24: the assembly compiled to Pipelines, a ComputeGraphSimulation advanced one step (command buffer completed) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
    "r20": true,
+   "r24": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -4271,17 +4272,16 @@
     "func:CoreImage.filters-context-qr",
     "func:CoreImage.metal-vs-software-filter-chain",
     "func:CoreImage.color-kernel-processor-kernel",
-    "func:CoreImage.detector-rectangle-face"
+    "func:CoreImage.detector-rectangle-face",
+    "func:CoreImage.heif-raw-text-detector"
    ],
-   "gaps": [
-    "[a] CIRAWFilter / CIImage from HEIF/RAW, CIKernel from a compiled Metal library",
-    "[a] CIDetector text features, a face found in a face image"
-   ],
-   "note": "P11: CIColorKernel from source, CIImageProcessorKernel CPU buffer path (Apple and x86Sim PASS, 2026-11-18). r16: CoreImage [[stitchable]] kernels (composeImageFilterFunctionsFromModules) compile on x86Sim since the libComposeFilters dlopen fix (Vision optical flow on visionOS). r17: CIDetector rectangle bounds on a drawn rectangle, no face in it (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "P11: CIColorKernel from source, CIImageProcessorKernel CPU buffer path (Apple and x86Sim PASS, 2026-11-18). r16: CoreImage [[stitchable]] kernels (composeImageFilterFunctionsFromModules) compile on x86Sim since the libComposeFilters dlopen fix (Vision optical flow on visionOS). r17: CIDetector rectangle bounds on a drawn rectangle, no face in it (Apple and x86Sim PASS, 2026-11-18). r24: HEIF written and read back by pixels, DNG not writable by ImageIO, junk RAW data still gets a filter, camera models (tvOS 0), CIDetector text: 1 feature with 8 sub-features (CIKernel from a Metal library and a face image still open) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
    "r15": true,
    "r16": true,
    "r17": true,
+   "r24": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -4625,14 +4625,14 @@
    "existing_checks": [
     "func:GameplayKit.agents-strategists-rules-ecs-trees-noise",
     "func:GameplayKit.random-pathfinding-statemachine",
-    "func:GameplayKit.obstacle-graph-pathfinding"
+    "func:GameplayKit.obstacle-graph-pathfinding",
+    "func:GameplayKit.gkscene-from-sks"
    ],
-   "gaps": [
-    "[a] GKScene loaded from an .sks file"
-   ],
-   "note": "Agents/goals, minmax + Monte Carlo strategists, rule system, ECS, quadtree, R-tree, noise, pathfinding, state machine. P11: GKObstacleGraph path around a buffered polygon obstacle (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "Agents/goals, minmax + Monte Carlo strategists, rule system, ECS, quadtree, R-tree, noise, pathfinding, state machine. P11: GKObstacleGraph path around a buffered polygon obstacle (Apple and x86Sim PASS, 2026-11-18). r24: GKScene(fileNamed:) of a bundled .sks in Xcode's scene format (root + _gkScene): scene, children, one entity with GKSKNodeComponent + GKAgent2D (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
    "r15": true,
+   "r24": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -4902,11 +4902,10 @@
     "func:MediaPlayer.nowplaying-remote-commands",
     "func:MediaPlayer.now-playing-session-commands"
    ],
-   "gaps": [
-    "[a] MPMediaQuery on an authorized library (auth 0 on the sim: grant media-library TCC so songs/albums queries run)"
-   ],
-   "note": "now playing info + remote commands, application queue player state/modes, MPNowPlayingSession, MPVolumeView has no slider on Apple sim too.",
+   "gaps": [],
+   "note": "now playing info + remote commands, application queue player state/modes, MPNowPlayingSession, MPVolumeView has no slider on Apple sim too. r24: MPMediaQuery is not in the tvOS SDK: gap dropped.",
    "package": "P1 Media & AV",
+   "r24": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -5052,11 +5051,10 @@
     "func:MusicKit.authorization-status",
     "func:MusicKit.objects-subscription-catalog-answers"
    ],
-   "gaps": [
-    "[a] ApplicationMusicPlayer queue/state asserted (today reported only)"
-   ],
-   "note": "done on iOS/tvOS: Song/Artwork/MusicItemID decode asserted, subscription + catalog search answer permissionDenied without hanging, as on Apple.",
+   "gaps": [],
+   "note": "done on iOS/tvOS: Song/Artwork/MusicItemID decode asserted, subscription + catalog search answer permissionDenied without hanging, as on Apple. r24: already asserted (stopped, empty queue): gap stale (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
+   "r24": true,
    "rejudged": true,
    "status": "apple-sim-na"
   },
@@ -6102,17 +6100,17 @@
     "func:AVFoundation.queue-player-seek-rate-looper",
     "func:AVFoundation.sample-buffer-renderers-synchronizer",
     "func:AVFoundation.asset-load-formats",
-    "func:AVFoundation.player-item-failed-status"
+    "func:AVFoundation.player-item-failed-status",
+    "func:AVFoundation.content-key-session-clear-key"
    ],
    "gaps": [
-    "[a] AVContentKeySession (clear key) / AVAssetDownloadURLSession offline HLS",
     "[a] chapter metadata: timed-metadata-chapters reports chapters (empty) - assert chapterMetadataGroups from a chaptered m4a/mov",
-    "[a] AVPlayerItemPlaybackStalled / failedToPlayToEndTime notifications",
-    "[a] AVAssetExportSession fileLengthLimit / metadata write-through on export"
+    "[a] AVPlayerItemPlaybackStalled / failedToPlayToEndTime notifications"
    ],
-   "note": "asset writer/reader/image generator, CI video compositor + export + presets, HLS loopback with WebVTT, resource loader, timed metadata, AVMutableMovie, queue player/looper/seek/rate, sample-buffer renderers+synchronizer, multi-format loads; capture-simulator-answers asserts 0 cameras and input-less session error -11819 as on Apple. P11: an unplayable item fails with AVFoundationErrorDomain -11829 (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "asset writer/reader/image generator, CI video compositor + export + presets, HLS loopback with WebVTT, resource loader, timed metadata, AVMutableMovie, queue player/looper/seek/rate, sample-buffer renderers+synchronizer, multi-format loads; capture-simulator-answers asserts 0 cameras and input-less session error -11819 as on Apple. P11: an unplayable item fails with AVFoundationErrorDomain -11829 (Apple and x86Sim PASS, 2026-11-18). r24: AVContentKeySession clear key: the request arrives, the clear key response fails it (-11800) on both (Apple and x86Sim PASS, 2026-11-18). r24: AVAssetExportSession is not in the watchOS SDK: gap dropped.",
    "package": "P1 Media & AV",
    "r15": true,
+   "r24": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -6255,15 +6253,15 @@
     "func:CFNetwork.urlsession-https-pinned-loopback",
     "func:CFNetwork.urlsession-redirect-cookies-gzip-auth-chunked",
     "func:CFNetwork.stream-task-cfhttpmessage",
-    "func:CFNetwork.session-loopback-http-proxy"
+    "func:CFNetwork.session-loopback-http-proxy",
+    "func:CFNetwork.urlsession-http2-loopback-tls"
    ],
-   "gaps": [
-    "[a] HTTP/2 to loopback TLS (results show http/1.1 negotiated)"
-   ],
-   "note": "Loopback HTTP/HTTPS (pinned, untrusted refused -1202), redirects/cookies/gzip/auth/chunked, URLSessionStreamTask echo and CFHTTPMessage build/parse. r17: an http request through a loopback HTTP proxy (NWListener) set in connectionProxyDictionary: absolute-URI request line (Apple and x86Sim PASS, 2026-11-18). r23: CFHTTPMessage is not in the watchOS SDK: gap dropped.",
+   "gaps": [],
+   "note": "Loopback HTTP/HTTPS (pinned, untrusted refused -1202), redirects/cookies/gzip/auth/chunked, URLSessionStreamTask echo and CFHTTPMessage build/parse. r17: an http request through a loopback HTTP proxy (NWListener) set in connectionProxyDictionary: absolute-URI request line (Apple and x86Sim PASS, 2026-11-18). r23: CFHTTPMessage is not in the watchOS SDK: gap dropped. r24: URLSession to a minimal loopback h2 server (ALPN h2): preface, streams 1 and 3 on one connection, metrics h2 (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P8 Foundation, networking, security, identity & device management",
    "r17": true,
    "r23": true,
+   "r24": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -7193,15 +7191,15 @@
    "existing_checks": [
     "func:SceneKit.offscreen-render",
     "func:SceneKit.watch-scene-file-morpher-skinner",
-    "func:SceneKit.audio-source-player"
+    "func:SceneKit.audio-source-player",
+    "func:SceneKit.watch-particles-shadows"
    ],
-   "gaps": [
-    "[a] SCNParticleSystem, light shadows"
-   ],
-   "note": "offscreen-render + watch-scene-file-morpher-skinner: .scn keyed-archive round trip, morpher / skinner kept, SCNAction (no SCNScene.write / Core Animation on watchOS). r17: SCNAudioSource / SCNAudioPlayer on watchOS too (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "offscreen-render + watch-scene-file-morpher-skinner: .scn keyed-archive round trip, morpher / skinner kept, SCNAction (no SCNScene.write / Core Animation on watchOS). r17: SCNAudioSource / SCNAudioPlayer on watchOS too (Apple and x86Sim PASS, 2026-11-18). r24: watchOS particle system + shadow-casting light, keyed-archive round trip (Apple and x86Sim PASS, 2026-11-18).",
    "p9": true,
    "package": "P2 Graphics, 3D, AR & games",
    "r17": true,
+   "r24": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -7323,17 +7321,18 @@
     "func:SwiftUI.timeline-transition-frame-sampling",
     "func:SwiftUI.tabview-page-selection",
     "func:SwiftUI.image-renderer-layout",
-    "func:SwiftUI.watch-date-picker-render"
+    "func:SwiftUI.watch-date-picker-render",
+    "func:SwiftUI.watch-controls-render"
    ],
    "gaps": [
-    "[a] port controls-bindings-textfield-focus-submit (Toggle/Slider/Stepper/Picker bindings)",
     "[a] contextMenu, toolbar items",
     "[a] List swipeActions"
    ],
-   "note": "layout/Grid/custom Layout pixels, animation timing, Observation invalidation, lazy stacks/scroll position, NavigationStack path, sheet/cover/alert/dialog, controls+TextField focus, TimelineView, TabView now on all platforms that support them. r21: Menu, Picker .menu style, popover, DocumentGroup / FileDocument and draggable / dropDestination are unavailable on watchOS (unavailable in the 27.2 SDK: swiftc -typecheck, 2026-11-18). r23: a watchOS DatePicker drawn by ImageRenderer (180x60, ~640 non-white pixels) (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "layout/Grid/custom Layout pixels, animation timing, Observation invalidation, lazy stacks/scroll position, NavigationStack path, sheet/cover/alert/dialog, controls+TextField focus, TimelineView, TabView now on all platforms that support them. r21: Menu, Picker .menu style, popover, DocumentGroup / FileDocument and draggable / dropDestination are unavailable on watchOS (unavailable in the 27.2 SDK: swiftc -typecheck, 2026-11-18). r23: a watchOS DatePicker drawn by ImageRenderer (180x60, ~640 non-white pixels) (Apple and x86Sim PASS, 2026-11-18). r24: watchOS Toggle / Slider / Stepper / Picker drawn by ImageRenderer (by pixels) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
    "r21": true,
    "r23": true,
+   "r24": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -7911,17 +7910,18 @@
     "func:AVFoundation.asset-load-formats",
     "func:AVFoundation.capture-simulator-answers",
     "func:AVFoundation.player-item-failed-status",
-    "func:AVFoundation.export-metadata-file-length-limit"
+    "func:AVFoundation.export-metadata-file-length-limit",
+    "func:AVFoundation.content-key-session-clear-key"
    ],
    "gaps": [
-    "[a] AVContentKeySession (clear key) / AVAssetDownloadURLSession offline HLS",
     "[a] chapter metadata: timed-metadata-chapters reports chapters (empty) - assert chapterMetadataGroups from a chaptered m4a/mov",
     "[a] AVPlayerItemPlaybackStalled / failedToPlayToEndTime notifications"
    ],
-   "note": "asset writer/reader/image generator, CI video compositor + export + presets, HLS loopback with WebVTT, resource loader, timed metadata, AVMutableMovie, queue player/looper/seek/rate, sample-buffer renderers+synchronizer, multi-format loads; capture-simulator-answers asserts 0 cameras and input-less session error -11819 as on Apple. P11: an unplayable item fails with AVFoundationErrorDomain -11829 (Apple and x86Sim PASS, 2026-11-18). r17: export metadata (title) written through; a passthrough export with fileLengthLimit refused -11838 (Apple the same) (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "asset writer/reader/image generator, CI video compositor + export + presets, HLS loopback with WebVTT, resource loader, timed metadata, AVMutableMovie, queue player/looper/seek/rate, sample-buffer renderers+synchronizer, multi-format loads; capture-simulator-answers asserts 0 cameras and input-less session error -11819 as on Apple. P11: an unplayable item fails with AVFoundationErrorDomain -11829 (Apple and x86Sim PASS, 2026-11-18). r17: export metadata (title) written through; a passthrough export with fileLengthLimit refused -11838 (Apple the same) (Apple and x86Sim PASS, 2026-11-18). r24: AVContentKeySession clear key: the request arrives, the clear key response fails it (-11800) on both (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
    "r15": true,
    "r17": true,
+   "r24": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -8101,11 +8101,11 @@
     "func:BackgroundAssets.asset-pack-status-download"
    ],
    "gaps": [
-    "[a] BADownloaderExtension: a scheduled BADownload running in the downloader extension (extension registered, seen by ExtensionFoundation monitor on tvOS/visionOS)",
-    "[run] x86 result missing (only ref ran)"
+    "[a] BADownloaderExtension: a scheduled BADownload running in the downloader extension (extension registered, seen by ExtensionFoundation monitor on tvOS/visionOS)"
    ],
-   "note": "asset-pack-status-download asserts the error answers on iOS/tvOS/visionOS; tvOS also checks downloads list.",
+   "note": "asset-pack-status-download asserts the error answers on iOS/tvOS/visionOS; tvOS also checks downloads list. r24: x86Sim visionOS run PASS (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P3 App extensions, system services, communication & parental controls",
+   "r24": true,
    "rejudged": true,
    "status": "apple-sim-na"
   },
@@ -8164,14 +8164,14 @@
     "func:CFNetwork.urlsession-https-pinned-loopback",
     "func:CFNetwork.urlsession-redirect-cookies-gzip-auth-chunked",
     "func:CFNetwork.stream-task-cfhttpmessage",
-    "func:CFNetwork.session-loopback-http-proxy"
+    "func:CFNetwork.session-loopback-http-proxy",
+    "func:CFNetwork.urlsession-http2-loopback-tls"
    ],
-   "gaps": [
-    "[a] HTTP/2 to loopback TLS (results show http/1.1 negotiated)"
-   ],
-   "note": "Loopback HTTP/HTTPS (pinned, untrusted refused -1202), redirects/cookies/gzip/auth/chunked, URLSessionStreamTask echo and CFHTTPMessage build/parse. r17: an http request through a loopback HTTP proxy (NWListener) set in connectionProxyDictionary: absolute-URI request line (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "Loopback HTTP/HTTPS (pinned, untrusted refused -1202), redirects/cookies/gzip/auth/chunked, URLSessionStreamTask echo and CFHTTPMessage build/parse. r17: an http request through a loopback HTTP proxy (NWListener) set in connectionProxyDictionary: absolute-URI request line (Apple and x86Sim PASS, 2026-11-18). r24: URLSession to a minimal loopback h2 server (ALPN h2): preface, streams 1 and 3 on one connection, metrics h2 (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P8 Foundation, networking, security, identity & device management",
    "r17": true,
+   "r24": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -8184,11 +8184,11 @@
    ],
    "gaps": [
     "[a] CXCallDirectoryManager status (needs a call directory extension)",
-    "[run] rerun incoming-outgoing-calls on ref (FAIL predates the error assertion; detail matches the asserted errors)",
-    "[run] x86 result missing"
+    "[run] rerun incoming-outgoing-calls on ref (FAIL predates the error assertion; detail matches the asserted errors)"
    ],
-   "note": "iOS: incoming reported, observed, ended; outgoing start/mute/end through the provider delegate; watch/vision assert the refusals.",
+   "note": "iOS: incoming reported, observed, ended; outgoing start/mute/end through the provider delegate; watch/vision assert the refusals. r24: x86Sim visionOS run: incoming error 0, requesttransaction 1 (as asserted) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P3 App extensions, system services, communication & parental controls",
+   "r24": true,
    "rejudged": true,
    "status": "apple-sim-na"
   },
@@ -8282,14 +8282,14 @@
   },
   "ComputeGraph": {
    "existing_checks": [
-    "func:ComputeGraph.graph-build-serialize-assemble"
+    "func:ComputeGraph.graph-build-serialize-assemble",
+    "func:ComputeGraph.pipelines-simulation-advance"
    ],
-   "gaps": [
-    "[a] evaluate an assembled graph"
-   ],
-   "note": "Builds a 3-node graph, json + propertyList round trips, edge/node removal, shared library definitions. r20: Assembly of the input + add graph asserted: uniform buffer 0 B, 0 uniforms (the constant is inlined) (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "Builds a 3-node graph, json + propertyList round trips, edge/node removal, shared library definitions. r20: Assembly of the input + add graph asserted: uniform buffer 0 B, 0 uniforms (the constant is inlined) (Apple and x86Sim PASS, 2026-11-18). r24: the assembly compiled to Pipelines, a ComputeGraphSimulation advanced one step (command buffer completed) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
    "r20": true,
+   "r24": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -8430,17 +8430,16 @@
     "func:CoreImage.filters-context-qr",
     "func:CoreImage.metal-vs-software-filter-chain",
     "func:CoreImage.color-kernel-processor-kernel",
-    "func:CoreImage.detector-rectangle-face"
+    "func:CoreImage.detector-rectangle-face",
+    "func:CoreImage.heif-raw-text-detector"
    ],
-   "gaps": [
-    "[a] CIRAWFilter / CIImage from HEIF/RAW, CIKernel from a compiled Metal library",
-    "[a] CIDetector text features, a face found in a face image"
-   ],
-   "note": "P11: CIColorKernel from source, CIImageProcessorKernel CPU buffer path (Apple and x86Sim PASS, 2026-11-18). r16: CoreImage [[stitchable]] kernels (composeImageFilterFunctionsFromModules) compile on x86Sim since the libComposeFilters dlopen fix (Vision optical flow on visionOS). r17: CIDetector rectangle bounds on a drawn rectangle, no face in it (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "P11: CIColorKernel from source, CIImageProcessorKernel CPU buffer path (Apple and x86Sim PASS, 2026-11-18). r16: CoreImage [[stitchable]] kernels (composeImageFilterFunctionsFromModules) compile on x86Sim since the libComposeFilters dlopen fix (Vision optical flow on visionOS). r17: CIDetector rectangle bounds on a drawn rectangle, no face in it (Apple and x86Sim PASS, 2026-11-18). r24: HEIF written and read back by pixels, DNG not writable by ImageIO, junk RAW data still gets a filter, camera models (tvOS 0), CIDetector text: 1 feature with 8 sub-features (CIKernel from a Metal library and a face image still open) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
    "r15": true,
    "r16": true,
    "r17": true,
+   "r24": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -8876,14 +8875,14 @@
    "existing_checks": [
     "func:GameplayKit.agents-strategists-rules-ecs-trees-noise",
     "func:GameplayKit.random-pathfinding-statemachine",
-    "func:GameplayKit.obstacle-graph-pathfinding"
+    "func:GameplayKit.obstacle-graph-pathfinding",
+    "func:GameplayKit.gkscene-from-sks"
    ],
-   "gaps": [
-    "[a] GKScene loaded from an .sks file"
-   ],
-   "note": "Agents/goals, minmax + Monte Carlo strategists, rule system, ECS, quadtree, R-tree, noise, pathfinding, state machine. P11: GKObstacleGraph path around a buffered polygon obstacle (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "Agents/goals, minmax + Monte Carlo strategists, rule system, ECS, quadtree, R-tree, noise, pathfinding, state machine. P11: GKObstacleGraph path around a buffered polygon obstacle (Apple and x86Sim PASS, 2026-11-18). r24: GKScene(fileNamed:) of a bundled .sks in Xcode's scene format (root + _gkScene): scene, children, one entity with GKSKNodeComponent + GKAgent2D (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
    "r15": true,
+   "r24": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -9153,10 +9152,11 @@
     "func:LocalAuthentication.policies"
    ],
    "gaps": [
-    "[a] evaluatePolicy with simulated enrolled biometry (input-biometric needs run.sh input mode)"
+    "[c] Apple's visionOS simulator never enrolls Optic ID (no biometrickitd, the enrollment state reads back 0): canEvaluatePolicy -7; x86Sim enrolls and matches"
    ],
    "note": "LAEnvironment state (iOS/visionOS biometry not enrolled; tvOS/watchOS no mechanisms), canEvaluate/evaluate errors, invalidated context, domainState, LARight -1020 / LARightStore -1019, all as on Apple.",
    "package": "P8 Foundation, networking, security, identity & device management",
+   "r24": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -9290,14 +9290,13 @@
   "MediaPlayer": {
    "existing_checks": [
     "func:MediaPlayer.nowplaying-remote-commands",
-    "func:MediaPlayer.queue-player-library-commands"
+    "func:MediaPlayer.queue-player-library-commands",
+    "func:MediaPlayer.library-authorized-queries"
    ],
-   "gaps": [
-    "[a] MPMediaQuery on an authorized library (auth 0 on the sim: grant media-library TCC so songs/albums queries run)",
-    "[a] add NSAppleMusicUsageDescription so the queue player / library path runs (today skipped)"
-   ],
-   "note": "now playing info + remote commands, application queue player state/modes, MPNowPlayingSession, MPVolumeView has no slider on Apple sim too.",
+   "gaps": [],
+   "note": "now playing info + remote commands, application queue player state/modes, MPNowPlayingSession, MPVolumeView has no slider on Apple sim too. r24: media library access granted (run.sh / ref-mac.sh): songs/albums/artists/playlists queries (iOS: 5 playlists), getPlaylist creates one; visionOS needed medialibraryd (fixed: the app died on an empty database) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
+   "r24": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -9830,12 +9829,11 @@
     "func:SafariServices.safari-view-controller",
     "func:SafariServices.reading-list-add-xros"
    ],
-   "gaps": [
-    "[b: visionOS SSReadingList.addItem kills the app in about half the runs: SafariServices passes a wrong-type object to xpc_dictionary_set_value(kWebBookmarksItemKey) (libxpc \"XPC API Misuse: Given object not of required type\"); Apple: added every run] Reading List add on visionOS"
-   ],
-   "note": "r23: SSReadingList add on visionOS (Apple: added; x86Sim: added or the app dies in libxpc, open); SFAuthenticationSession is not in the visionOS SDK (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "r23: SSReadingList add on visionOS (Apple: added; x86Sim: added or the app dies in libxpc, open); SFAuthenticationSession is not in the visionOS SDK (Apple and x86Sim PASS, 2026-11-18). r24: fixed: webbookmarksd was not a visionOS job, so the WebBookmarks connection was invalidated and its handler raced the add (nil message -> libxpc API misuse); boot-a64 runs it on demand, 5/5 added (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
    "r23": true,
+   "r24": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -9863,13 +9861,15 @@
     "func:Security.keychain-update-query-persistent-keys",
     "func:Security.pkcs12-certificates-trust-evaluation",
     "func:Security.seckey-algorithms-exchange-interop",
-    "func:Security.access-control-keychain"
+    "func:Security.access-control-keychain",
+    "func:Security.input-biometry-item"
    ],
    "gaps": [
-    "[a] SecAccessControl .biometryAny item read with enrolled biometry (needs run.sh input mode)"
+    "[c] needs enrolled biometry, which Apple's visionOS simulator never has (x86Sim: PASS)"
    ],
    "note": "Keychain CRUD/persistent refs, RSA/EC/ECIES algorithm matrix, PKCS#12 + trust evaluation, access-control items.",
    "package": "P8 Foundation, networking, security, identity & device management",
+   "r24": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -10363,15 +10363,15 @@
     "func:WebKit.content-rules-download-find-data-store",
     "func:WebKit.webview-load-javascript",
     "func:WebKit.indexeddb-put-get",
-    "func:WebKit.find-interaction-navigator"
+    "func:WebKit.find-interaction-navigator",
+    "func:WebKit.service-worker-register-fetch",
+    "func:WebKit.web-extension-load"
    ],
-   "gaps": [
-    "[a] service workers",
-    "[a] WKWebExtension (iOS 18.4+)"
-   ],
-   "note": "content rule list blocking, find, WKDownload, WKWebsiteDataStore records fetch/remove, navigation delegate order, UI panels, JS bridges, custom schemes, cookies. r17: IndexedDB in a page with an https origin: put, get, count (Apple and x86Sim PASS, 2026-11-18). r17: WKWebView's find navigator shown with 3 results, findNext moves the highlight, dismissed (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "content rule list blocking, find, WKDownload, WKWebsiteDataStore records fetch/remove, navigation delegate order, UI panels, JS bridges, custom schemes, cookies. r17: IndexedDB in a page with an https origin: put, get, count (Apple and x86Sim PASS, 2026-11-18). r17: WKWebView's find navigator shown with 3 results, findNext moves the highlight, dismissed (Apple and x86Sim PASS, 2026-11-18). r24: a WKWebView outside app-bound domains has no navigator.serviceWorker even on http://localhost (asserted) (Apple and x86Sim PASS, 2026-11-18). r24: a manifest v3 WKWebExtension loaded into a WKWebExtensionController (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
    "r17": true,
+   "r24": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -10773,13 +10773,13 @@
   },
   "_RealityKit_SwiftUI": {
    "existing_checks": [
-    "func:_RealityKit_SwiftUI.reality-view-in-window"
+    "func:_RealityKit_SwiftUI.reality-view-in-window",
+    "func:_RealityKit_SwiftUI.reality-view-attachments"
    ],
-   "gaps": [
-    "[a] RealityView attachments and entity gestures"
-   ],
-   "note": "RealityView make (tvOS/visionOS) and make + update with entity in scene (iOS).",
+   "gaps": [],
+   "note": "RealityView make (tvOS/visionOS) and make + update with entity in scene (iOS). r24: RealityView attachment entity (0.182 x 0.045 m, not yet in the scene inside make, no collision shape generated) with an entity tap gesture attached (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
+   "r24": true,
    "rejudged": true,
    "status": "covered"
   },
