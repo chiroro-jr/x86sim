@@ -23,15 +23,16 @@
     "func:AVFAudio.audio-player-playback",
     "func:AVFAudio.source-node-time-pitch-offline",
     "func:AVFAudio.sequencer-sampler-offline",
-    "func:AVFAudio.session-preferred-rate-io-duration"
+    "func:AVFAudio.session-preferred-rate-io-duration",
+    "func:AVFAudio.microphone-recorder-engine-input"
    ],
    "gaps": [
-    "[a] AVAudioRecorder / AVAudioEngine.inputNode capture (sim mic input): assert record + file length",
     "[a] AVAudioSession interruption / route-change notifications"
    ],
-   "note": "offline render with effects, realtime output, AAC convert, speech-to-buffer, TimePitch/Varispeed, AVAudioSequencer+Sampler (SMF), spatial environment node (visionOS); Apple visionOS speech-synthesis-to-buffer FAILs while x86 passes. P11: AVAudioSession preferred sample rate / IO buffer duration applied on activation. AVAudioSinkNode cannot be pulled by a manual-render engine (\"player started when in a disconnected state\" on Apple too): gap dropped (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "offline render with effects, realtime output, AAC convert, speech-to-buffer, TimePitch/Varispeed, AVAudioSequencer+Sampler (SMF), spatial environment node (visionOS); Apple visionOS speech-synthesis-to-buffer FAILs while x86 passes. P11: AVAudioSession preferred sample rate / IO buffer duration applied on activation. AVAudioSinkNode cannot be pulled by a manual-render engine (\"player started when in a disconnected state\" on Apple too): gap dropped (Apple and x86Sim PASS, 2026-11-18). r16: AVAudioRecorder + AVAudioEngine input tap in .playAndRecord. A Mac with a microphone records (x86Sim: simaudio's, fixed this round: the duplex aggregate); Apple's reference Mac mini has no input device (recorder does not start, input node 0 Hz): each asserts the answer for the device it finds (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
    "r15": true,
+   "r16": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -97,27 +98,30 @@
   "Accelerate": {
    "existing_checks": [
     "func:Accelerate.vdsp-vimage-blas-sparse",
-    "func:Accelerate.lapack-solve-eigen"
+    "func:Accelerate.lapack-solve-eigen",
+    "func:Accelerate.bnns-graph-builder-execute"
    ],
-   "gaps": [
-    "[a] BNNS Graph compile/execute"
-   ],
-   "note": "FFT, sgemm, vImage, simd; LAPACK dgesv solve + dsyev eigenvalues (Apple and x86Sim PASS on all four, 2026-11-18)",
+   "gaps": [],
+   "note": "FFT, sgemm, vImage, simd; LAPACK dgesv solve + dsyev eigenvalues (Apple and x86Sim PASS on all four, 2026-11-18) r16: a BNNSGraph built with BNNSGraph.makeContext (argument, scalar ops, a reduction), executed with allocated tensors (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P8 Foundation, networking, security, identity & device management",
    "r14": true,
    "r15": true,
+   "r16": true,
    "rejudged": true,
    "status": "covered"
   },
   "Accessibility": {
    "existing_checks": [
-    "func:Accessibility.chart-descriptor-custom-content"
+    "func:Accessibility.chart-descriptor-custom-content",
+    "func:Accessibility.settings-announcement"
    ],
    "gaps": [
-    "[a] AccessibilityNotification.Announcement post, AXBrailleMap, AXSettings queries"
+    "[a] AXBrailleMap / AXBrailleTranslator"
    ],
+   "note": "r16: a fresh device's AccessibilitySettings (animated images on, the rest off), Announcement / LayoutChanged posted (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
-   "rejudged": false,
+   "r16": true,
+   "rejudged": true,
    "status": "covered"
   },
   "AccessoryLiveActivities": {
@@ -363,14 +367,15 @@
     "func:AudioToolbox.audiofilestream-adts-parse",
     "func:AudioToolbox.auaudiounit-effects-auv3",
     "func:AudioToolbox.musicsequence-smf-player",
-    "func:AudioToolbox.system-sound-play"
+    "func:AudioToolbox.system-sound-play",
+    "func:AudioToolbox.audioqueue-input-record"
    ],
    "gaps": [
-    "[a] AudioQueue input (record) on the sim mic",
     "[a] AudioComponentInstanceNew RemoteIO with a realtime render callback"
    ],
-   "note": "AudioQueueOfflineRender, AudioFileStream ADTS parse, AUDelay/AUNBandEQ render + in-process AUv3 (0 registered on visionOS on both), MusicSequence SMF + MusicPlayer, system sound play.",
+   "note": "AudioQueueOfflineRender, AudioFileStream ADTS parse, AUDelay/AUNBandEQ render + in-process AUv3 (0 registered on visionOS on both), MusicSequence SMF + MusicPlayer, system sound play. r16: an AudioQueue input fills ~1.2 s of 16 kHz with a microphone (x86Sim), start fails -66628 without one (Apple's Mac mini) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
+   "r16": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -779,27 +784,29 @@
   "CoreGraphics": {
    "existing_checks": [
     "func:CoreGraphics.bitmap-paths-gradients-pdf",
-    "func:CoreGraphics.pdf-scanner-gradient-jpeg-provider"
+    "func:CoreGraphics.pdf-scanner-gradient-jpeg-provider",
+    "func:CoreGraphics.shading-function-pattern"
    ],
-   "gaps": [
-    "[a] CGShading with a CGFunction, CGPattern"
-   ],
-   "note": "P11: CGPDFScanner operators of a generated PDF, linear gradient pixels, JPEG through CGImage(jpegDataProviderSource:) (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "P11: CGPDFScanner operators of a generated PDF, linear gradient pixels, JPEG through CGImage(jpegDataProviderSource:) (Apple and x86Sim PASS, 2026-11-18). r16: an axial CGShading through a CGFunction, a colored CGPattern, pixels asserted (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
    "r15": true,
+   "r16": true,
    "rejudged": true,
    "status": "covered"
   },
   "CoreHaptics": {
    "existing_checks": [
-    "func:CoreHaptics.pattern-engine"
+    "func:CoreHaptics.pattern-engine",
+    "func:CoreHaptics.ahap-parse"
    ],
    "gaps": [
-    "[a] engine: Apple-sim N/A (pattern API covered); AHAP file parse"
+    "[c] engine: no haptics hardware in the simulator (pattern API covered)"
    ],
-   "note": "engine part Apple-sim N/A",
+   "note": "engine part Apple-sim N/A r16: an AHAP pattern from a dictionary and from a file (0.6 s, events + parameter curve) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P5 Health, home, location, sensors & accessories",
-   "rejudged": false,
+   "r16": true,
+   "rejudged": true,
    "status": "covered"
   },
   "CoreImage": {
@@ -812,9 +819,10 @@
     "[a] CIRAWFilter / CIImage from HEIF/RAW, CIKernel from a compiled Metal library",
     "[a] CIDetector face/text (Vision-backed: verify on Apple sim)"
    ],
-   "note": "P11: CIColorKernel from source, CIImageProcessorKernel CPU buffer path (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "P11: CIColorKernel from source, CIImageProcessorKernel CPU buffer path (Apple and x86Sim PASS, 2026-11-18). r16: CoreImage [[stitchable]] kernels (composeImageFilterFunctionsFromModules) compile on x86Sim since the libComposeFilters dlopen fix (Vision optical flow on visionOS).",
    "package": "P2 Graphics, 3D, AR & games",
    "r15": true,
+   "r16": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -2694,14 +2702,15 @@
    "existing_checks": [
     "func:Speech.recognizer-availability",
     "func:Speech.recognize-synthesized-file",
-    "func:Speech.speech-analyzer-transcribe-file"
+    "func:Speech.speech-analyzer-transcribe-file",
+    "func:Speech.audio-buffer-request"
    ],
    "gaps": [
-    "[a] SFSpeechAudioBufferRecognitionRequest (buffer path) asserting the same kLSRErrorDomain 300",
     "[a] speech-analyzer-transcribe-file: assert AssetInventory status unsupported (not-installed path currently asserts nothing)"
    ],
-   "note": "done: recognize-synthesized-file asserts fox transcript or kLSRErrorDomain 300; SpeechAnalyzer reports assets unsupported on iOS/tvOS/visionOS like Apple.",
+   "note": "done: recognize-synthesized-file asserts fox transcript or kLSRErrorDomain 300; SpeechAnalyzer reports assets unsupported on iOS/tvOS/visionOS like Apple. r16: the buffer path answers kLSRErrorDomain 300 like the URL request (Apple's iOS simulator: no answer within 60 s; both accepted) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
+   "r16": true,
    "rejudged": true,
    "status": "apple-sim-na"
   },
@@ -2784,17 +2793,18 @@
     "func:SwiftUI.controls-bindings-textfield-focus-submit",
     "func:SwiftUI.timeline-transition-frame-sampling",
     "func:SwiftUI.tabview-page-selection",
-    "func:SwiftUI.image-renderer-layout"
+    "func:SwiftUI.image-renderer-layout",
+    "func:SwiftUI.toolbar-menu-picker-datepicker-popover"
    ],
    "gaps": [
-    "[a] Menu/contextMenu, toolbar items",
+    "[a] contextMenu",
     "[a] DocumentGroup / FileDocument",
     "[a] drag & drop with Transferable (draggable/dropDestination)",
-    "[a] List swipeActions, popover",
-    "[a] DatePicker / Picker menu style"
+    "[a] List swipeActions (needs a swipe input)"
    ],
-   "note": "layout/Grid/custom Layout pixels, animation timing, Observation invalidation, lazy stacks/scroll position, NavigationStack path, sheet/cover/alert/dialog, controls+TextField focus, TimelineView, TabView now on all platforms that support them.",
+   "note": "layout/Grid/custom Layout pixels, animation timing, Observation invalidation, lazy stacks/scroll position, NavigationStack path, sheet/cover/alert/dialog, controls+TextField focus, TimelineView, TabView now on all platforms that support them. r16: toolbar item as a trailing bar item, Menu and menu Picker as primary-action UIButtons (3 choices), compact UIDatePicker, a popover (visionOS: sheet) presented and dismissed from the model (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
+   "r16": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -2871,13 +2881,13 @@
    "existing_checks": [
     "func:TipKit.rules-events-parameters",
     "func:TipKit.tip-ui-view-render",
-    "func:TipKit.configure"
+    "func:TipKit.configure",
+    "func:TipKit.reset-show-all-for-testing"
    ],
-   "gaps": [
-    "[a] Tips.resetDatastore / showAllTipsForTesting"
-   ],
-   "note": "#Rule with parameter + event donations, invalidate(reason:), TipUIView sizes and popover (iOS/visionOS).",
+   "gaps": [],
+   "note": "#Rule with parameter + event donations, invalidate(reason:), TipUIView sizes and popover (iOS/visionOS). r16: resetDatastore refused after configure (tipsDatastoreAlreadyConfigured), showAll / hideAll / showTips accepted (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P3 App extensions, system services, communication & parental controls",
+   "r16": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -3123,10 +3133,10 @@
    "existing_checks": [
     "func:WatchConnectivity.session-activate"
    ],
-   "gaps": [
-    "[a] assert WCSession.isSupported() == false (today SKIP)"
-   ],
+   "gaps": [],
+   "note": " r16: iOS answers isSupported() true; session-activate asserts activation state 2, not paired (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P3 App extensions, system services, communication & parental controls",
+   "r16": true,
    "rejudged": false,
    "status": "apple-sim-na"
   },
@@ -3179,15 +3189,16 @@
    "existing_checks": [
     "func:WidgetKit.widget-extension-descriptors",
     "func:WidgetKit.control-center-controls",
-    "func:WidgetKit.center"
+    "func:WidgetKit.center",
+    "func:WidgetKit.accessory-background-render"
    ],
    "gaps": [
     "[a] timelines reach currentConfigurations (0 configured today): assert a kind",
-    "[a] ControlCenter with a placed control",
-    "[a] render AccessoryWidgetBackground / widget views (port watchOS accessory-background-render)"
+    "[a] ControlCenter with a placed control"
    ],
-   "note": "widget extension registered and run by chronod (launch/placeholder/recommendations) on iOS/watchOS; x86sim needs feature \"widgets\" (chronod).",
+   "note": "widget extension registered and run by chronod (launch/placeholder/recommendations) on iOS/watchOS; x86sim needs feature \"widgets\" (chronod). r16: on iOS outside a widget the background draws nothing (only the text inks, ~3%) on Apple's simulator; watchOS draws it (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P3 App extensions, system services, communication & parental controls",
+   "r16": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -3697,12 +3708,14 @@
   },
   "_SwiftData_SwiftUI": {
    "existing_checks": [
-    "func:_SwiftData_SwiftUI.query-hosted-port"
+    "func:_SwiftData_SwiftUI.query-hosted-port",
+    "func:_SwiftData_SwiftUI.query-in-hosted-view"
    ],
    "gaps": [],
-   "note": "query-hosted-port: @Query in a view on screen sees the 7 inserted notes (Apple).",
+   "note": "query-hosted-port: @Query in a view on screen sees the 7 inserted notes (Apple). r16: @Query in a hosted view sees 7 notes and an eighth after an insert (was tvOS only) (Apple and x86Sim PASS, 2026-11-18).",
    "p9": true,
    "package": "P4 Data, cloud, contacts/calendars & commerce",
+   "r16": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -3783,15 +3796,16 @@
     "func:AVFAudio.speech-synthesis-to-buffer",
     "func:AVFAudio.source-node-time-pitch-offline",
     "func:AVFAudio.sequencer-sampler-offline",
-    "func:AVFAudio.session-preferred-rate-io-duration"
+    "func:AVFAudio.session-preferred-rate-io-duration",
+    "func:AVFAudio.microphone-recorder-engine-input"
    ],
    "gaps": [
-    "[a] AVAudioRecorder / AVAudioEngine.inputNode capture (sim mic input): assert record + file length",
     "[a] AVAudioSession interruption / route-change notifications"
    ],
-   "note": "offline render with effects, realtime output, AAC convert, speech-to-buffer, TimePitch/Varispeed, AVAudioSequencer+Sampler (SMF), spatial environment node (visionOS); Apple visionOS speech-synthesis-to-buffer FAILs while x86 passes. P11: AVAudioSession preferred sample rate / IO buffer duration applied on activation. AVAudioSinkNode cannot be pulled by a manual-render engine (\"player started when in a disconnected state\" on Apple too): gap dropped (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "offline render with effects, realtime output, AAC convert, speech-to-buffer, TimePitch/Varispeed, AVAudioSequencer+Sampler (SMF), spatial environment node (visionOS); Apple visionOS speech-synthesis-to-buffer FAILs while x86 passes. P11: AVAudioSession preferred sample rate / IO buffer duration applied on activation. AVAudioSinkNode cannot be pulled by a manual-render engine (\"player started when in a disconnected state\" on Apple too): gap dropped (Apple and x86Sim PASS, 2026-11-18). r16: AVAudioRecorder + AVAudioEngine input tap in .playAndRecord. A Mac with a microphone records (x86Sim: simaudio's, fixed this round: the duplex aggregate); Apple's reference Mac mini has no input device (recorder does not start, input node 0 Hz): each asserts the answer for the device it finds (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
    "r15": true,
+   "r16": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -3855,27 +3869,30 @@
   "Accelerate": {
    "existing_checks": [
     "func:Accelerate.vdsp-vimage-blas-sparse",
-    "func:Accelerate.lapack-solve-eigen"
+    "func:Accelerate.lapack-solve-eigen",
+    "func:Accelerate.bnns-graph-builder-execute"
    ],
-   "gaps": [
-    "[a] BNNS Graph compile/execute"
-   ],
-   "note": "FFT, sgemm, vImage, simd; LAPACK dgesv solve + dsyev eigenvalues (Apple and x86Sim PASS on all four, 2026-11-18)",
+   "gaps": [],
+   "note": "FFT, sgemm, vImage, simd; LAPACK dgesv solve + dsyev eigenvalues (Apple and x86Sim PASS on all four, 2026-11-18) r16: a BNNSGraph built with BNNSGraph.makeContext (argument, scalar ops, a reduction), executed with allocated tensors (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P8 Foundation, networking, security, identity & device management",
    "r14": true,
    "r15": true,
+   "r16": true,
    "rejudged": true,
    "status": "covered"
   },
   "Accessibility": {
    "existing_checks": [
-    "func:Accessibility.chart-descriptor-custom-content"
+    "func:Accessibility.chart-descriptor-custom-content",
+    "func:Accessibility.settings-announcement"
    ],
    "gaps": [
-    "[a] AccessibilityNotification.Announcement post, AXBrailleMap, AXSettings queries"
+    "[a] AXBrailleMap / AXBrailleTranslator"
    ],
+   "note": "r16: a fresh device's AccessibilitySettings (animated images on, the rest off), Announcement / LayoutChanged posted (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
-   "rejudged": false,
+   "r16": true,
+   "rejudged": true,
    "status": "covered"
   },
   "AdSupport": {
@@ -3940,14 +3957,15 @@
     "func:AudioToolbox.audiofilestream-adts-parse",
     "func:AudioToolbox.auaudiounit-effects-auv3",
     "func:AudioToolbox.musicsequence-smf-player",
-    "func:AudioToolbox.system-sound-play"
+    "func:AudioToolbox.system-sound-play",
+    "func:AudioToolbox.audioqueue-input-record"
    ],
    "gaps": [
-    "[a] AudioQueue input (record) on the sim mic",
     "[a] AudioComponentInstanceNew RemoteIO with a realtime render callback"
    ],
-   "note": "AudioQueueOfflineRender, AudioFileStream ADTS parse, AUDelay/AUNBandEQ render + in-process AUv3 (0 registered on visionOS on both), MusicSequence SMF + MusicPlayer, system sound play.",
+   "note": "AudioQueueOfflineRender, AudioFileStream ADTS parse, AUDelay/AUNBandEQ render + in-process AUv3 (0 registered on visionOS on both), MusicSequence SMF + MusicPlayer, system sound play. r16: an AudioQueue input fills ~1.2 s of 16 kHz with a microphone (x86Sim), start fails -66628 without one (Apple's Mac mini) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
+   "r16": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -4170,27 +4188,29 @@
   "CoreGraphics": {
    "existing_checks": [
     "func:CoreGraphics.bitmap-paths-gradients-pdf",
-    "func:CoreGraphics.pdf-scanner-gradient-jpeg-provider"
+    "func:CoreGraphics.pdf-scanner-gradient-jpeg-provider",
+    "func:CoreGraphics.shading-function-pattern"
    ],
-   "gaps": [
-    "[a] CGShading with a CGFunction, CGPattern"
-   ],
-   "note": "P11: CGPDFScanner operators of a generated PDF, linear gradient pixels, JPEG through CGImage(jpegDataProviderSource:) (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "P11: CGPDFScanner operators of a generated PDF, linear gradient pixels, JPEG through CGImage(jpegDataProviderSource:) (Apple and x86Sim PASS, 2026-11-18). r16: an axial CGShading through a CGFunction, a colored CGPattern, pixels asserted (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
    "r15": true,
+   "r16": true,
    "rejudged": true,
    "status": "covered"
   },
   "CoreHaptics": {
    "existing_checks": [
-    "func:CoreHaptics.pattern-engine"
+    "func:CoreHaptics.pattern-engine",
+    "func:CoreHaptics.ahap-parse"
    ],
    "gaps": [
-    "[a] engine: Apple-sim N/A (pattern API covered); AHAP file parse"
+    "[c] engine: no haptics hardware in the simulator (pattern API covered)"
    ],
-   "note": "engine part Apple-sim N/A",
+   "note": "engine part Apple-sim N/A r16: an AHAP pattern from a dictionary and from a file (0.6 s, events + parameter curve) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P5 Health, home, location, sensors & accessories",
-   "rejudged": false,
+   "r16": true,
+   "rejudged": true,
    "status": "covered"
   },
   "CoreImage": {
@@ -4203,9 +4223,10 @@
     "[a] CIRAWFilter / CIImage from HEIF/RAW, CIKernel from a compiled Metal library",
     "[a] CIDetector face/text (Vision-backed: verify on Apple sim)"
    ],
-   "note": "P11: CIColorKernel from source, CIImageProcessorKernel CPU buffer path (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "P11: CIColorKernel from source, CIImageProcessorKernel CPU buffer path (Apple and x86Sim PASS, 2026-11-18). r16: CoreImage [[stitchable]] kernels (composeImageFilterFunctionsFromModules) compile on x86Sim since the libComposeFilters dlopen fix (Vision optical flow on visionOS).",
    "package": "P2 Graphics, 3D, AR & games",
    "r15": true,
+   "r16": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -5490,14 +5511,15 @@
   "TipKit": {
    "existing_checks": [
     "func:TipKit.rules-events-parameters",
-    "func:TipKit.configure"
+    "func:TipKit.configure",
+    "func:TipKit.reset-show-all-for-testing"
    ],
    "gaps": [
-    "[a] SwiftUI TipView render",
-    "[a] Tips.resetDatastore / showAllTipsForTesting"
+    "[a] SwiftUI TipView render"
    ],
-   "note": "#Rule with parameter + event donations, invalidate(reason:), TipUIView sizes and popover (iOS/visionOS).",
+   "note": "#Rule with parameter + event donations, invalidate(reason:), TipUIView sizes and popover (iOS/visionOS). r16: resetDatastore refused after configure (tipsDatastoreAlreadyConfigured), showAll / hideAll / showTips accepted (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P3 App extensions, system services, communication & parental controls",
+   "r16": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -5954,10 +5976,9 @@
    "existing_checks": [
     "func:_SwiftData_SwiftUI.query-in-hosted-view"
    ],
-   "gaps": [
-    "[a] port query-in-hosted-view to iOS/watchOS/visionOS"
-   ],
+   "gaps": [],
    "package": "P4 Data, cloud, contacts/calendars & commerce",
+   "r16": true,
    "rejudged": false,
    "status": "covered"
   },
@@ -5991,16 +6012,17 @@
     "func:AVFAudio.engine-realtime-output",
     "func:AVFAudio.file-converter-aac",
     "func:AVFAudio.session-category",
-    "func:AVFAudio.speech-synthesis-to-buffer"
+    "func:AVFAudio.speech-synthesis-to-buffer",
+    "func:AVFAudio.microphone-recorder-engine-input",
+    "func:AVFAudio.source-node-mixer-offline"
    ],
    "gaps": [
-    "[a] AVAudioRecorder / AVAudioEngine.inputNode capture (sim mic input): assert record + file length",
-    "[a] AVAudioSession interruption / route-change notifications (setPreferredSampleRate / IOBufferDuration are unavailable on watchOS)",
-    "[a] port source-node-time-pitch-offline / sequencer-sampler-offline where the units exist on watchOS"
+    "[a] AVAudioSession interruption / route-change notifications (setPreferredSampleRate / IOBufferDuration are unavailable on watchOS)"
    ],
-   "note": "offline render with effects, realtime output, AAC convert, speech-to-buffer, TimePitch/Varispeed, AVAudioSequencer+Sampler (SMF), spatial environment node (visionOS); Apple visionOS speech-synthesis-to-buffer FAILs while x86 passes.",
+   "note": "offline render with effects, realtime output, AAC convert, speech-to-buffer, TimePitch/Varispeed, AVAudioSequencer+Sampler (SMF), spatial environment node (visionOS); Apple visionOS speech-synthesis-to-buffer FAILs while x86 passes. r16: AVAudioRecorder + AVAudioEngine input tap in .playAndRecord. A Mac with a microphone records (x86Sim: simaudio's, fixed this round: the duplex aggregate); Apple's reference Mac mini has no input device (recorder does not start, input node 0 Hz): each asserts the answer for the device it finds (Apple and x86Sim PASS, 2026-11-18). r16: AVAudioSourceNode through the main mixer rendered offline (AVAudioUnitTimePitch / Varispeed / Sampler and AVAudioSequencer are API_UNAVAILABLE(watchos): the time-pitch / sequencer checks cannot be ported) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
    "r15": true,
+   "r16": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -6041,27 +6063,30 @@
   "Accelerate": {
    "existing_checks": [
     "func:Accelerate.vdsp-vimage-blas-sparse",
-    "func:Accelerate.lapack-solve-eigen"
+    "func:Accelerate.lapack-solve-eigen",
+    "func:Accelerate.bnns-graph-builder-execute"
    ],
-   "gaps": [
-    "[a] BNNS Graph compile/execute"
-   ],
-   "note": "FFT, sgemm, vImage, simd; LAPACK dgesv solve + dsyev eigenvalues (Apple and x86Sim PASS on all four, 2026-11-18)",
+   "gaps": [],
+   "note": "FFT, sgemm, vImage, simd; LAPACK dgesv solve + dsyev eigenvalues (Apple and x86Sim PASS on all four, 2026-11-18) r16: a BNNSGraph built with BNNSGraph.makeContext (argument, scalar ops, a reduction), executed with allocated tensors (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P8 Foundation, networking, security, identity & device management",
    "r14": true,
    "r15": true,
+   "r16": true,
    "rejudged": true,
    "status": "covered"
   },
   "Accessibility": {
    "existing_checks": [
-    "func:Accessibility.chart-descriptor-custom-content"
+    "func:Accessibility.chart-descriptor-custom-content",
+    "func:Accessibility.settings-announcement"
    ],
    "gaps": [
-    "[a] AccessibilityNotification.Announcement post, AXBrailleMap, AXSettings queries"
+    "[a] AXBrailleMap / AXBrailleTranslator"
    ],
+   "note": "r16: a fresh device's AccessibilitySettings (animated images on, the rest off), Announcement / LayoutChanged posted (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
-   "rejudged": false,
+   "r16": true,
+   "rejudged": true,
    "status": "covered"
   },
   "AppIntents": {
@@ -6336,14 +6361,14 @@
   "CoreGraphics": {
    "existing_checks": [
     "func:CoreGraphics.bitmap-paths-gradients-pdf",
-    "func:CoreGraphics.pdf-scanner-gradient-jpeg-provider"
+    "func:CoreGraphics.pdf-scanner-gradient-jpeg-provider",
+    "func:CoreGraphics.shading-function-pattern"
    ],
-   "gaps": [
-    "[a] CGShading with a CGFunction, CGPattern"
-   ],
-   "note": "P11: CGPDFScanner operators of a generated PDF, linear gradient pixels, JPEG through CGImage(jpegDataProviderSource:) (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "P11: CGPDFScanner operators of a generated PDF, linear gradient pixels, JPEG through CGImage(jpegDataProviderSource:) (Apple and x86Sim PASS, 2026-11-18). r16: an axial CGShading through a CGFunction, a colored CGPattern, pixels asserted (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
    "r15": true,
+   "r16": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -6388,11 +6413,11 @@
     "func:CoreML.updatable-knn-update-task"
    ],
    "gaps": [
-    "[a] MLState stateful models (makeState, prediction(from:using:))",
-    "[a] port model-asset-batch-async-compute-plan without the compile step (MLModelAsset(specification:), batch/async)"
+    "[a] MLState stateful models (makeState, prediction(from:using:))"
    ],
-   "note": "compile/load/predict, MLModelAsset from spec bytes, batch + concurrent async predictions, MLComputePlan layer device usage, MLUpdateTask KNN training + write/reload (watchOS too).",
+   "note": "compile/load/predict, MLModelAsset from spec bytes, batch + concurrent async predictions, MLComputePlan layer device usage, MLUpdateTask KNN training + write/reload (watchOS too). r16: model-asset-batch-async-compute-plan cannot be ported: MLModelAsset(specification:) and MLModel.compileModel are unavailable on watchOS (no model without a compiled bundle).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
+   "r16": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -7268,14 +7293,15 @@
   "TipKit": {
    "existing_checks": [
     "func:TipKit.rules-events-parameters",
-    "func:TipKit.configure"
+    "func:TipKit.configure",
+    "func:TipKit.reset-show-all-for-testing"
    ],
    "gaps": [
-    "[a] SwiftUI TipView render",
-    "[a] Tips.resetDatastore / showAllTipsForTesting"
+    "[a] SwiftUI TipView render"
    ],
-   "note": "#Rule with parameter + event donations, invalidate(reason:), TipUIView sizes and popover (iOS/visionOS).",
+   "note": "#Rule with parameter + event donations, invalidate(reason:), TipUIView sizes and popover (iOS/visionOS). r16: resetDatastore refused after configure (tipsDatastoreAlreadyConfigured), showAll / hideAll / showTips accepted (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P3 App extensions, system services, communication & parental controls",
+   "r16": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -7705,12 +7731,14 @@
   },
   "_SwiftData_SwiftUI": {
    "existing_checks": [
-    "func:_SwiftData_SwiftUI.query-hosted-port"
+    "func:_SwiftData_SwiftUI.query-hosted-port",
+    "func:_SwiftData_SwiftUI.query-in-hosted-view"
    ],
    "gaps": [],
-   "note": "query-hosted-port: @Query in a view on screen sees the 7 inserted notes (Apple).",
+   "note": "query-hosted-port: @Query in a view on screen sees the 7 inserted notes (Apple). r16: @Query in a hosted view sees 7 notes and an eighth after an insert (was tvOS only) (Apple and x86Sim PASS, 2026-11-18).",
    "p9": true,
    "package": "P4 Data, cloud, contacts/calendars & commerce",
+   "r16": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -7775,15 +7803,16 @@
     "func:AVFAudio.environment-node-spatial-offline",
     "func:AVFAudio.source-node-time-pitch-offline",
     "func:AVFAudio.sequencer-sampler-offline",
-    "func:AVFAudio.session-preferred-rate-io-duration"
+    "func:AVFAudio.session-preferred-rate-io-duration",
+    "func:AVFAudio.microphone-recorder-engine-input"
    ],
    "gaps": [
-    "[a] AVAudioRecorder / AVAudioEngine.inputNode capture (sim mic input): assert record + file length",
     "[a] AVAudioSession interruption / route-change notifications"
    ],
-   "note": "offline render with effects, realtime output, AAC convert, speech-to-buffer, TimePitch/Varispeed, AVAudioSequencer+Sampler (SMF), spatial environment node (visionOS); Apple visionOS speech-synthesis-to-buffer FAILs while x86 passes. P11: AVAudioSession preferred sample rate / IO buffer duration applied on activation. AVAudioSinkNode cannot be pulled by a manual-render engine (\"player started when in a disconnected state\" on Apple too): gap dropped (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "offline render with effects, realtime output, AAC convert, speech-to-buffer, TimePitch/Varispeed, AVAudioSequencer+Sampler (SMF), spatial environment node (visionOS); Apple visionOS speech-synthesis-to-buffer FAILs while x86 passes. P11: AVAudioSession preferred sample rate / IO buffer duration applied on activation. AVAudioSinkNode cannot be pulled by a manual-render engine (\"player started when in a disconnected state\" on Apple too): gap dropped (Apple and x86Sim PASS, 2026-11-18). r16: AVAudioRecorder + AVAudioEngine input tap in .playAndRecord. A Mac with a microphone records (x86Sim: simaudio's, fixed this round: the duplex aggregate); Apple's reference Mac mini has no input device (recorder does not start, input node 0 Hz): each asserts the answer for the device it finds (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
    "r15": true,
+   "r16": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -7848,27 +7877,30 @@
   "Accelerate": {
    "existing_checks": [
     "func:Accelerate.vdsp-vimage-blas-sparse",
-    "func:Accelerate.lapack-solve-eigen"
+    "func:Accelerate.lapack-solve-eigen",
+    "func:Accelerate.bnns-graph-builder-execute"
    ],
-   "gaps": [
-    "[a] BNNS Graph compile/execute"
-   ],
-   "note": "FFT, sgemm, vImage, simd; LAPACK dgesv solve + dsyev eigenvalues (Apple and x86Sim PASS on all four, 2026-11-18)",
+   "gaps": [],
+   "note": "FFT, sgemm, vImage, simd; LAPACK dgesv solve + dsyev eigenvalues (Apple and x86Sim PASS on all four, 2026-11-18) r16: a BNNSGraph built with BNNSGraph.makeContext (argument, scalar ops, a reduction), executed with allocated tensors (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P8 Foundation, networking, security, identity & device management",
    "r14": true,
    "r15": true,
+   "r16": true,
    "rejudged": true,
    "status": "covered"
   },
   "Accessibility": {
    "existing_checks": [
-    "func:Accessibility.chart-descriptor-custom-content"
+    "func:Accessibility.chart-descriptor-custom-content",
+    "func:Accessibility.settings-announcement"
    ],
    "gaps": [
-    "[a] AccessibilityNotification.Announcement post, AXBrailleMap, AXSettings queries"
+    "[a] AXBrailleMap / AXBrailleTranslator"
    ],
+   "note": "r16: a fresh device's AccessibilitySettings (animated images on, the rest off), Announcement / LayoutChanged posted (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
-   "rejudged": false,
+   "r16": true,
+   "rejudged": true,
    "status": "covered"
   },
   "AdServices": {
@@ -7930,14 +7962,15 @@
     "func:AudioToolbox.audiofilestream-adts-parse",
     "func:AudioToolbox.auaudiounit-effects-auv3",
     "func:AudioToolbox.musicsequence-smf-player",
-    "func:AudioToolbox.system-sound-play"
+    "func:AudioToolbox.system-sound-play",
+    "func:AudioToolbox.audioqueue-input-record"
    ],
    "gaps": [
-    "[a] AudioQueue input (record) on the sim mic",
     "[a] AudioComponentInstanceNew RemoteIO with a realtime render callback"
    ],
-   "note": "AudioQueueOfflineRender, AudioFileStream ADTS parse, AUDelay/AUNBandEQ render + in-process AUv3 (0 registered on visionOS on both), MusicSequence SMF + MusicPlayer, system sound play.",
+   "note": "AudioQueueOfflineRender, AudioFileStream ADTS parse, AUDelay/AUNBandEQ render + in-process AUv3 (0 registered on visionOS on both), MusicSequence SMF + MusicPlayer, system sound play. r16: an AudioQueue input fills ~1.2 s of 16 kHz with a microphone (x86Sim), start fails -66628 without one (Apple's Mac mini) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
+   "r16": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -8283,27 +8316,29 @@
   "CoreGraphics": {
    "existing_checks": [
     "func:CoreGraphics.bitmap-paths-gradients-pdf",
-    "func:CoreGraphics.pdf-scanner-gradient-jpeg-provider"
+    "func:CoreGraphics.pdf-scanner-gradient-jpeg-provider",
+    "func:CoreGraphics.shading-function-pattern"
    ],
-   "gaps": [
-    "[a] CGShading with a CGFunction, CGPattern"
-   ],
-   "note": "P11: CGPDFScanner operators of a generated PDF, linear gradient pixels, JPEG through CGImage(jpegDataProviderSource:) (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "P11: CGPDFScanner operators of a generated PDF, linear gradient pixels, JPEG through CGImage(jpegDataProviderSource:) (Apple and x86Sim PASS, 2026-11-18). r16: an axial CGShading through a CGFunction, a colored CGPattern, pixels asserted (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
    "r15": true,
+   "r16": true,
    "rejudged": true,
    "status": "covered"
   },
   "CoreHaptics": {
    "existing_checks": [
-    "func:CoreHaptics.pattern-engine"
+    "func:CoreHaptics.pattern-engine",
+    "func:CoreHaptics.ahap-parse"
    ],
    "gaps": [
-    "[a] engine: Apple-sim N/A (pattern API covered); AHAP file parse"
+    "[c] engine: no haptics hardware in the simulator (pattern API covered)"
    ],
-   "note": "engine part Apple-sim N/A",
+   "note": "engine part Apple-sim N/A r16: an AHAP pattern from a dictionary and from a file (0.6 s, events + parameter curve) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P5 Health, home, location, sensors & accessories",
-   "rejudged": false,
+   "r16": true,
+   "rejudged": true,
    "status": "covered"
   },
   "CoreImage": {
@@ -8316,9 +8351,10 @@
     "[a] CIRAWFilter / CIImage from HEIF/RAW, CIKernel from a compiled Metal library",
     "[a] CIDetector face/text (Vision-backed: verify on Apple sim)"
    ],
-   "note": "P11: CIColorKernel from source, CIImageProcessorKernel CPU buffer path (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "P11: CIColorKernel from source, CIImageProcessorKernel CPU buffer path (Apple and x86Sim PASS, 2026-11-18). r16: CoreImage [[stitchable]] kernels (composeImageFilterFunctionsFromModules) compile on x86Sim since the libComposeFilters dlopen fix (Vision optical flow on visionOS).",
    "package": "P2 Graphics, 3D, AR & games",
    "r15": true,
+   "r16": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -9813,14 +9849,15 @@
    "existing_checks": [
     "func:Speech.recognizer-availability",
     "func:Speech.recognize-synthesized-file",
-    "func:Speech.speech-analyzer-transcribe-file"
+    "func:Speech.speech-analyzer-transcribe-file",
+    "func:Speech.audio-buffer-request"
    ],
    "gaps": [
-    "[a] SFSpeechAudioBufferRecognitionRequest (buffer path) asserting the same kLSRErrorDomain 300",
     "[a] speech-analyzer-transcribe-file: assert AssetInventory status unsupported (not-installed path currently asserts nothing)"
    ],
-   "note": "done: recognize-synthesized-file asserts fox transcript or kLSRErrorDomain 300; SpeechAnalyzer reports assets unsupported on iOS/tvOS/visionOS like Apple.",
+   "note": "done: recognize-synthesized-file asserts fox transcript or kLSRErrorDomain 300; SpeechAnalyzer reports assets unsupported on iOS/tvOS/visionOS like Apple. r16: the buffer path answers kLSRErrorDomain 300 like the URL request (Apple's iOS simulator: no answer within 60 s; both accepted) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
+   "r16": true,
    "rejudged": true,
    "status": "apple-sim-na"
   },
@@ -9906,17 +9943,18 @@
     "func:SwiftUI.controls-bindings-textfield-focus-submit",
     "func:SwiftUI.timeline-transition-frame-sampling",
     "func:SwiftUI.tabview-page-selection",
-    "func:SwiftUI.image-renderer-layout"
+    "func:SwiftUI.image-renderer-layout",
+    "func:SwiftUI.toolbar-menu-picker-datepicker-popover"
    ],
    "gaps": [
-    "[a] Menu/contextMenu, toolbar items",
+    "[a] contextMenu",
     "[a] DocumentGroup / FileDocument",
     "[a] drag & drop with Transferable (draggable/dropDestination)",
-    "[a] List swipeActions, popover",
-    "[a] DatePicker / Picker menu style"
+    "[a] List swipeActions (needs a swipe input)"
    ],
-   "note": "layout/Grid/custom Layout pixels, animation timing, Observation invalidation, lazy stacks/scroll position, NavigationStack path, sheet/cover/alert/dialog, controls+TextField focus, TimelineView, TabView now on all platforms that support them.",
+   "note": "layout/Grid/custom Layout pixels, animation timing, Observation invalidation, lazy stacks/scroll position, NavigationStack path, sheet/cover/alert/dialog, controls+TextField focus, TimelineView, TabView now on all platforms that support them. r16: toolbar item as a trailing bar item, Menu and menu Picker as primary-action UIButtons (3 choices), compact UIDatePicker, a popover (visionOS: sheet) presented and dismissed from the model (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
+   "r16": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -9980,13 +10018,13 @@
    "existing_checks": [
     "func:TipKit.rules-events-parameters",
     "func:TipKit.tip-ui-view-render",
-    "func:TipKit.configure"
+    "func:TipKit.configure",
+    "func:TipKit.reset-show-all-for-testing"
    ],
-   "gaps": [
-    "[a] Tips.resetDatastore / showAllTipsForTesting"
-   ],
-   "note": "#Rule with parameter + event donations, invalidate(reason:), TipUIView sizes and popover (iOS/visionOS).",
+   "gaps": [],
+   "note": "#Rule with parameter + event donations, invalidate(reason:), TipUIView sizes and popover (iOS/visionOS). r16: resetDatastore refused after configure (tipsDatastoreAlreadyConfigured), showAll / hideAll / showTips accepted (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P3 App extensions, system services, communication & parental controls",
+   "r16": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -10150,12 +10188,12 @@
     "func:Vision.optical-flow-homographic"
    ],
    "gaps": [
-    "[c] faces/landmarks/body/hand/classify/saliency: Apple sim has no inference context - checks accept the error (done)",
-    "[b: optical flow field all zero on x86Sim visionOS] optical-flow-homographic: Apple computes a moving field (2597 px, mean 6.8, 3.8), x86Sim a 200x160 2C0f buffer of zeros"
+    "[c] faces/landmarks/body/hand/classify/saliency: Apple sim has no inference context - checks accept the error (done)"
    ],
-   "note": "rectangles/contours, translational registration recovers the shift, horizon; NN requests complete-or-error like Apple (saliency NSOSStatus -1). P11: identity homography for the test pair (Apple too), optical flow computed on Apple's visionOS simulator; x86Sim FAILs (zero field, open).",
+   "note": "rectangles/contours, translational registration recovers the shift, horizon; NN requests complete-or-error like Apple (saliency NSOSStatus -1). P11: identity homography for the test pair (Apple too), optical flow computed (2597 moving px, mean 6.8, 3.8); x86Sim's zero field was CoreImage's stitchable VNCIMultiplicationFilter kernel failing to compile (libComposeFilters not found through the symlinked GPUCompiler Libraries directory), fixed in arm64jit r16 (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
    "r15": true,
+   "r16": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -10190,10 +10228,10 @@
    "existing_checks": [
     "func:WatchConnectivity.session-activate"
    ],
-   "gaps": [
-    "[a] assert WCSession.isSupported() == false (today SKIP)"
-   ],
+   "gaps": [],
+   "note": " r16: session-activate asserts WCSession.isSupported() false (no paired watch) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P3 App extensions, system services, communication & parental controls",
+   "r16": true,
    "rejudged": false,
    "status": "apple-sim-na"
   },
@@ -10699,12 +10737,14 @@
   },
   "_SwiftData_SwiftUI": {
    "existing_checks": [
-    "func:_SwiftData_SwiftUI.query-hosted-port"
+    "func:_SwiftData_SwiftUI.query-hosted-port",
+    "func:_SwiftData_SwiftUI.query-in-hosted-view"
    ],
    "gaps": [],
-   "note": "query-hosted-port: @Query in a view on screen sees the 7 inserted notes (Apple).",
+   "note": "query-hosted-port: @Query in a view on screen sees the 7 inserted notes (Apple). r16: @Query in a hosted view sees 7 notes and an eighth after an insert (was tvOS only) (Apple and x86Sim PASS, 2026-11-18).",
    "p9": true,
    "package": "P4 Data, cloud, contacts/calendars & commerce",
+   "r16": true,
    "rejudged": true,
    "status": "covered"
   },
