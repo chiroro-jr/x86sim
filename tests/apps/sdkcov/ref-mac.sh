@@ -6,6 +6,10 @@
 #   ipad     the iOS app on an iPad (iPad Air 11-inch (M3), as x86Sim's cov-ipad) instead of an iPhone 17 Pro
 # Env TRACKING=1 (with --only func:AppTrackingTransparency.input-tracking-granted): the app's tracking answered Allow
 #   ahead (its kTCCServiceUserTracking row) and SDKCOV_INPUT_WAIT=40 in its launch environment, as inputs.sh tracking
+# Env INPUT='CMD[;CMD...]' (with --only): host touches / keys sent every few seconds while the app runs, as inputs.sh
+#   does on x86Sim, through mac/indigo.m (SimulatorKit's Indigo HID, built on the Mac): e.g. INPUT='drag 0.5 0.5 0.5 0.5
+#   1500 32' (a long press), with SDKCOV_INPUT_WAIT=$WAIT (default 40) in the app's launch environment
+# Env SHOTS='S1 S2 ...' (with --only): screenshots S seconds after the launch, OUT/shot-S.png
 # Env CLIP=1 (with --only func:AppClip.input-clip-launch): the App Clip launched 10 s in with _XCAppClipURL, as inputs.sh clip
 #   --only   one launch running just the checks whose id contains one of these (as run.sh --only); their results
 #            are printed (the app's stderr is OUT/sdkcov-1.err), no report
@@ -38,7 +42,7 @@ APP=${SDKCOV_APPS:-$X86SIM_SCRATCH/apps}/sdkcov-$plat.app
 # the whole run happens on the Mac in one ssh session: the app goes over as a tar on stdin, the results come back
 # (the remote script is an argument: stdin carries the app)
 read -r -d '' REMOTE <<'MAC'
-plat=$1 rtname=$2 dtype=$3 rt=$4 secs=$5 only=$6 name=$7 tracking=${8:-} clip=${9:-}
+plat=$1 rtname=$2 dtype=$3 rt=$4 secs=$5 only=$6 name=$7 tracking=${8:-} clip=${9:-} input=${10:-} shots=${11:-} iwait=${12:-40}
 set -u
 W=$(mktemp -d /tmp/sdkcov-ref.XXXXXX); cd "$W"; tar xf - -C "$W"
 exec 3>&1 1>&2
@@ -89,6 +93,8 @@ fi ;; esac
 	(service, client, client_type, auth_value, auth_reason, auth_version, flags) values
 	('kTCCServiceUserTracking', 'com.x86sim.test.sdkcov', 0, 2, 2, 1, 0)" || echo "ref-mac: tracking not granted"; export SIMCTL_CHILD_SDKCOV_INPUT_WAIT=40; }
 [ -n "$clip" ] && export SIMCTL_CHILD_SDKCOV_INPUT_WAIT=40
+if [ -n "$input" ]; then export SIMCTL_CHILD_SDKCOV_INPUT_WAIT=$iwait
+	clang -fobjc-arc -o "$W/indigo" "$W/indigo.m" -framework Foundation -framework AppKit -framework IOKit || { echo "ref-mac: indigo build failed"; input=; }; fi
 data=$(xcrun simctl get_app_container "$dev" com.x86sim.test.sdkcov data)
 res=$data/Documents/x86test-results.txt
 t0=$(date +%s); n=0 miss=0
@@ -98,13 +104,16 @@ if [ -n "$only" ]; then   # one launch; its stderr is the result
 	sleep 5
 	[ -n "$clip" ] && { sleep 5; SIMCTL_CHILD__XCAppClipURL=https://example.com/sdkcov xcrun simctl launch "$dev" com.x86sim.test.sdkcov.Clip >/dev/null; }
 	while [ $(( $(date +%s) - t0 )) -lt "$secs" ] && ! grep -q "X86TEST sdkcov done " "$W/sdkcov-1.err" 2>/dev/null; do
+		for s in $shots; do [ $(( $(date +%s) - t0 )) -ge "$s" ] && [ ! -e "$W/shot-$s.png" ] && xcrun simctl io "$dev" screenshot "$W/shot-$s.png" >/dev/null 2>&1; done
+		[ -n "$input" ] && [ $(( $(date +%s) - t0 )) -ge 8 ] && { IFS=';' read -ra cmds <<< "$input"
+			for c in "${cmds[@]}"; do "$W/indigo" "$dev" $c >/dev/null; done; }
 		# gone only after 3 misses in a row (as run.sh: one empty answer ended a run with the app still going)
 		if xcrun simctl spawn "$dev" launchctl list 2>/dev/null | grep -q "com.x86sim.test.sdkcov"; then miss=0
 		else miss=$((miss + 1)); [ $miss -ge 3 ] && break; fi
 		sleep 2
 	done
 	xcrun simctl terminate "$dev" com.x86sim.test.sdkcov >/dev/null 2>&1; sleep 1; kill %1 2>/dev/null
-	cd "$W" && tar cf - sdkcov-*.err 2>/dev/null >&3
+	cd "$W" && tar cf - sdkcov-*.err shot-*.png 2>/dev/null >&3
 	exit 0
 fi
 while [ $(( $(date +%s) - t0 )) -lt "$secs" ]; do
@@ -119,8 +128,8 @@ cp "$res" "$W/results.txt" 2>/dev/null; cp "$data/Documents/sdkcov-coverage.json
 xcrun simctl io "$dev" screenshot "$W/screen.png" >/dev/null 2>&1
 cd "$W" && tar cf - results.txt coverage.json screen.png sdkcov-*.err 2>/dev/null >&3
 MAC
-tar cf - -C "$(dirname "$APP")" "$(basename "$APP")" |
-	ssh -o BatchMode=yes "$MAC" "bash -c $(printf '%q' "$REMOTE") ref $plat $rtname $dtype '${RUNTIME:-}' ${SECS:-900} '$only' $name '${TRACKING:-}' '${CLIP:-}'" > "$OUT/ref.tar"
+tar cf - -C "$(dirname "$APP")" "$(basename "$APP")" -C "$S/mac" indigo.m |
+	ssh -o BatchMode=yes "$MAC" "bash -c $(printf '%q' "$REMOTE") ref $plat $rtname $dtype '${RUNTIME:-}' ${SECS:-900} '$only' $name '${TRACKING:-}' '${CLIP:-}' '${INPUT:-}' '${SHOTS:-}' '${WAIT:-40}'" > "$OUT/ref.tar"
 (cd "$OUT" && tar xf ref.tar && rm ref.tar)
 if [ -n "$only" ]; then
 	tr -d '\r' < "$OUT/sdkcov-1.err" | grep "^X86TEST" | grep -v -e " only " -e " done " | cut -d' ' -f3-

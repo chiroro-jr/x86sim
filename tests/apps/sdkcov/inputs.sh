@@ -3,7 +3,7 @@
 # --only) with SDKCOV_INPUT_WAIT set, while this script sends its input every few seconds through the x86sim CLI
 # (host/simhid), as Apple's simulator would (DeviceHub's Shake / Rotate / Face ID menus, a game controller).
 # Usage: tests/apps/sdkcov/inputs.sh <device> [--no-build] [shake|orientation|biometric|gamepad|memwarn|push|pointer|keyboard|
-# drag tracking clip ...]   (default: all the device's platform has; pointer / keyboard / drag: iPad, checks/More_iPadOS.swift)
+# drag tracking clip ctxmenu swipe sdrag ncontent ...]   (default: all the device's platform has; pointer / keyboard / drag: iPad, checks/More_iPadOS.swift)
 # On Apple's simulator the same inputs are: notifyutil -p com.apple.UIKit.SimulatorShake (simctl spawn), devicectl
 # device orientation set, notifyutil -s com.apple.BiometricKit.enrollmentChanged 1 + devicectl device simulate
 # biometrics --success, an Indigo game controller message (SimulatorKit IndigoHIDMessageForGameControllerEvent) and
@@ -23,13 +23,20 @@ build=; want=
 for a in "$@"; do case $a in --no-build) build=--no-build ;; *) want="$want $a" ;; esac; done
 rt=$(cat "$X86SIM_DEVICE/runtime" 2>/dev/null); plat=${rt%%-*}
 case $plat in
-	ios) all="shake orientation biometric gamepad memwarn push tracking clip"
+	ios) all="shake orientation biometric gamepad memwarn push tracking clip ctxmenu swipe sdrag ncontent"
 		case $(cat "$X86SIM_DEVICE/model" 2>/dev/null) in iPad*) all="$all pointer keyboard drag" ;; esac ;; xros) all="shake biometric gamepad memwarn tracking" ;; tvos) all="gamepad memwarn tracking" ;;
 	*) echo "inputs: no input checks for $plat" >&2; exit 0 ;;
 esac
 xs() { "$X86SIM_ROOT/cli/x86sim" "$@"; }
 name=$(basename "$X86SIM_DEVICE"); name=${name#device-a64-}
 WAIT=${WAIT:-40}
+ALLOW=${ALLOW:-0.68 0.593}   # the notification prompt's Allow button (screen fractions)
+nap() { timeout "$1" tail -f /dev/null; }
+# press X Y SECS: one finger down for SECS; stroke X1 Y1 X2 Y2 HOLD: down, HOLD s still, 10 moves to X2 Y2, up
+press() { xs raw "touch down $1 $2"; nap "$3"; xs raw "touch up $1 $2"; }
+stroke() { local i; xs raw "touch down $1 $2"; [ "$5" = 0 ] || nap "$5"
+	for i in 1 2 3 4 5 6 7 8 9 10; do xs raw "touch move $(echo "$1 $2 $3 $4 $i" | awk '{printf "%.3f %.3f", $1 + ($3 - $1) * $5 / 10, $2 + ($4 - $2) * $5 / 10}')"; done
+	nap 0.3; xs raw "touch up $3 $4"; }
 fails=0
 for k in ${want:-$all}; do
 	case $k in
@@ -59,6 +66,14 @@ for k in ${want:-$all}; do
 			xs raw "touch down 0.25 0.5"; timeout 1.2 tail -f /dev/null
 			for i in 1 2 3 4 5 6 7 8 9 10; do xs raw "touch move 0.$((25 + i * 5)) 0.5"; done
 			timeout 0.5 tail -f /dev/null; xs raw "touch up 0.75 0.5"; } ; undo() { :; } ;;
+		# touches (checks/P14_Touch.swift lays its views out at these screen fractions; ref-mac.sh INPUT= sends the same
+		# through Indigo): a long press on the SwiftUI context menu view, a full right-to-left swipe on the list row, a
+		# long press on the draggable text moved onto the drop destination
+		ctxmenu) id=func:SwiftUI.input-context-menu-long-press; send() { press 0.5 0.5 1.5; } ; undo() { :; } ;;
+		swipe) id=func:SwiftUI.input-list-swipe-actions; send() { stroke 0.95 0.35 0.05 0.35 0; } ; undo() { :; } ;;
+		sdrag) id=func:SwiftUI.input-transferable-drag-drop; send() { stroke 0.5 0.25 0.5 0.75 1.2; } ; undo() { :; } ;;
+		# the notification prompt's Allow tapped (iPhone 17 Pro layout), then a long press on the banner at the top (its middle at 0.10)
+		ncontent) id=func:UserNotificationsUI.input-expand-content-extension; send() { press $ALLOW 0.1; press 0.5 0.10 1.5; } ; undo() { :; } ;;
 		*) echo "inputs: unknown check $k" >&2; exit 2 ;;
 	esac
 	# per device: two devices of one platform don't share (and delete) each other's OUT
