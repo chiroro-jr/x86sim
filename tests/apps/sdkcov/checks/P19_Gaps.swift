@@ -720,8 +720,8 @@ extension Registry {
                 return "\(nb) \(tb) \(qi) \(nc)"
             }
             let asks = src.log.all
-            // Apple's simulator: asked for the image's editing mode (iOS 3 bar items, visionOS none); x86Sim's visionOS asks
-            // it again on every remote preview update (19 times in a second, Apple once): counted, not asserted
+            // Apple's simulator: asked for the image's editing mode (iOS 3 bar items, visionOS none) once; x86Sim's visionOS
+            // asked it 19 times in a second in r23, once in every r25 run: counted, not asserted
             try expect(Set(asks) == ["editingMode png"], "delegate \(asks) (Apple's simulator: editingMode png)")
             #if os(iOS)
             try expect(remote, "no Quick Look view service in 30 s: \(diag)")
