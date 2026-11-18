@@ -5,6 +5,7 @@ import Synchronization
 import CoreMedia
 import CoreGraphics
 import UniformTypeIdentifiers
+import Security
 #if canImport(AVFoundation) && !os(watchOS)
 import AVFoundation
 #endif
@@ -13,6 +14,14 @@ import BackgroundAssets
 #endif
 #if canImport(AppIntents)
 import AppIntents
+#endif
+#if canImport(_USDKit_RealityKit) && !os(watchOS)
+import _USDKit_RealityKit
+import RealityKit
+#endif
+#if os(watchOS)
+import SwiftUI
+import Charts
 #endif
 
 /// the strings in a value's reflection (Mirror), depth first, at most `depth` levels down
@@ -197,6 +206,36 @@ func p21PlayCutoff(fail: Bool, secs: Double) async throws -> (notes: [String], d
 }
 #endif
 
+#if os(watchOS)
+/// ten bars, one colour each, in a chart scrolled horizontally: 3 x units visible from x = 5
+let p21Colors: [(UInt8, UInt8, UInt8)] = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0), (255, 0, 255), (0, 255, 255), (255, 128, 0), (128, 0, 255), (0, 128, 64), (128, 64, 0)]
+struct P21ScrollChart: View {
+    let scroll: Bool
+    var body: some View {
+        let ch = Chart(0..<10, id: \.self) { i in
+            BarMark(x: .value("x", i), y: .value("y", 5)).foregroundStyle(Color(red: Double(p21Colors[i].0) / 255, green: Double(p21Colors[i].1) / 255, blue: Double(p21Colors[i].2) / 255))
+        }.chartXAxis(.hidden).chartYAxis(.hidden)
+        Group {
+            if scroll { ch.chartScrollableAxes(.horizontal).chartXVisibleDomain(length: 3).chartScrollPosition(initialX: 5) } else { ch }
+        }.frame(width: 200, height: 120).background(Color.black)
+    }
+}
+/// which of the ten bars ImageRenderer drew, and the main colours
+@MainActor func p21ChartBars(scroll: Bool) throws -> ([Int], String) {
+    guard let img = { let r = ImageRenderer(content: P21ScrollChart(scroll: scroll)); r.scale = 1; return r.cgImage }() else { throw Fail("ImageRenderer gave no image") }
+    let bm = bitmap(img.width, img.height); bm.draw(img, in: CGRect(x: 0, y: 0, width: img.width, height: img.height))
+    var counts = [Int](repeating: 0, count: 10)
+    var hist: [String: Int] = [:]
+    for y in 0..<img.height { for x in 0..<img.width {
+        let p = pixel(bm, x, y)
+        if let i = p21Colors.firstIndex(where: { abs(Int($0.0) - Int(p[0])) < 24 && abs(Int($0.1) - Int(p[1])) < 24 && abs(Int($0.2) - Int(p[2])) < 24 }) { counts[i] += 1 }
+        if x % 4 == 0 && y % 4 == 0 { hist["\(p[0] / 16 * 16),\(p[1] / 16 * 16),\(p[2] / 16 * 16)", default: 0] += 1 }
+    } }
+    let top = hist.sorted { $0.value > $1.value }.prefix(4).map { "\($0.key):\($0.value)" }
+    return (counts.indices.filter { counts[$0] > 40 }, "\(img.width)x\(img.height) colours \(top)")
+}
+#endif
+
 extension Registry {
     static var p21: [Check] {
         var c: [Check] = []
@@ -265,6 +304,98 @@ extension Registry {
             let want: Set = ["Count books in ${applicationName}", "How many books in ${applicationName}", "Open a book in ${applicationName}"]
             try expect(phrases == want && ["Count books", "Open book", "books.vertical", "book"].allSatisfy(flat.contains), "strings \(all)")
             return "phrases \(phrases.sorted()), titles Count books / Open book, images books.vertical / book, \(flat.count) strings in all"
+        })
+        #endif
+
+        // MARK: Charts on watchOS: chartScrollableAxes / chartXVisibleDomain / chartScrollPosition, drawn by ImageRenderer:
+        // which of the ten bars (one colour each) are in the picture
+        #if os(watchOS)
+        c.append(check("Charts", "scrollable-axes-watch-pixels", timeout: 30) {
+            let (plain, pd) = try await onMain { try p21ChartBars(scroll: false) }
+            let (seen, sd) = try await onMain { try p21ChartBars(scroll: true) }
+            let r = "plain chart: bars \(plain) (\(pd)); scrollable, 3 visible from 5: bars \(seen) (\(sd))"
+            // Apple's watchOS simulator: the plain chart draws all ten bars, the scrollable one nothing in ImageRenderer
+            try expect(plain == Array(0..<10) && seen.isEmpty, r)
+            return r
+        })
+        #endif
+
+        // MARK: _USDKit_RealityKit: a USD stage rendered into RealityKit entities (USDStageComponent.render)
+        #if canImport(_USDKit_RealityKit) && !os(watchOS)
+        c.append(check("USDKit", "stage-render-to-entities", timeout: 60) {
+            let stage = try USDStage(string: """
+            #usda 1.0
+            (
+                defaultPrim = "World"
+                metersPerUnit = 1
+            )
+            def Xform "World"
+            {
+                def Sphere "Ball"
+                {
+                    double radius = 0.5
+                }
+                def Cube "Box"
+                {
+                    double size = 1
+                    double3 xformOp:translate = (2, 0, 0)
+                    uniform token[] xformOpOrder = ["xformOp:translate"]
+                }
+            }
+            """)
+            @MainActor func run() async -> (String, Int, String) {
+                let e = Entity()
+                #if os(iOS)
+                // in a scene (an ARView without AR), as an app would show it
+                let v = ARView(frame: CGRect(x: 0, y: 0, width: 64, height: 64), cameraMode: .nonAR, automaticallyConfigureSession: false)
+                let a = AnchorEntity(world: .zero); a.addChild(e); v.scene.addAnchor(a)
+                defer { v.scene.removeAnchor(a) }
+                #endif
+                let res = await USDStageComponent.render(stage, to: e)
+                // the component way: set on an entity, then wait for its render
+                let e2 = Entity()
+                #if os(iOS)
+                a.addChild(e2)
+                #endif
+                e2.components.set(await USDStageComponent(stage))
+                let res2 = await USDStageComponent.waitForRenderCompletion(on: e2)
+                let comp = "component: \(res2.status), \(res2.errors.count) errors, \(e2.children.count) children, bounds \(e2.visualBounds(relativeTo: nil).isEmpty ? "empty" : String(format: "%.1f..%.1f", e2.visualBounds(relativeTo: nil).min.x, e2.visualBounds(relativeTo: nil).max.x)), auto \(e2.components[USDStageComponent.self]?.rendersAutomatically ?? false)"
+                func all(_ x: Entity) -> [Entity] { [x] + x.children.flatMap(all) }
+                let es = all(e)
+                let models = es.filter { $0.components[ModelComponent.self] != nil }
+                let b = e.visualBounds(relativeTo: nil)
+                return ("\(res.status)", res.errors.count, "\(es.count) entities, \(models.count) with a model, bounds \(String(format: "%.1f..%.1f", b.min.x, b.max.x)); \(comp)")
+            }
+            let (status, errs, desc) = await run()
+            // Apple's simulator: the static render into a plain entity fails (no errors listed), the component on an entity
+            // completes
+            try expect(status == "failed" && errs == 0 && desc.contains("component: completed, 0 errors"), "render \(status), \(errs) errors, \(desc)")
+            return "render \(status), \(desc)"
+        })
+        #endif
+
+        // MARK: Security on tvOS / watchOS: a keychain item protected by .biometryAny (no biometry on either), added and
+        // read back without UI
+        #if os(tvOS) || os(watchOS)
+        c.append(check("Security", "biometry-item-no-biometry", timeout: 30) {
+            var ae: Unmanaged<CFError>?
+            guard let ac = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleWhenUnlockedThisDeviceOnly, .biometryAny, &ae) else { throw Fail("access control \(String(describing: ae?.takeRetainedValue()))") }
+            let base: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "sdkcov.p21.bio", kSecAttrAccount as String: "item"]
+            SecItemDelete(base as CFDictionary)
+            var add = base; add[kSecAttrAccessControl as String] = ac; add[kSecValueData as String] = Data("bio secret".utf8)
+            let st = SecItemAdd(add as CFDictionary, nil)
+            defer { SecItemDelete(base as CFDictionary) }
+            var q = base; q[kSecReturnData as String] = true
+            var out: CFTypeRef?
+            let st1 = SecItemCopyMatching(q as CFDictionary, &out)
+            let v = (out as? Data).map { String(decoding: $0, as: UTF8.self) } ?? "nil"
+            var qa = base; qa[kSecReturnAttributes as String] = true
+            var attrs: CFTypeRef?
+            let st2 = SecItemCopyMatching(qa as CFDictionary, &attrs)
+            let r = "add \(st), read \(st1) \(v), attributes \(st2)"
+            // Apple's tvOS / watchOS simulators: added and read back without any prompt (the constraint not enforced)
+            try expect(st == errSecSuccess && st1 == errSecSuccess && v == "bio secret" && st2 == errSecSuccess, r)
+            return r
         })
         #endif
         return c
