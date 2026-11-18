@@ -415,6 +415,8 @@ WATCH_UI_SLIM="com.apple.backboardd com.apple.Carousel com.apple.TextInput.kbd c
 # invalidated without it, and the invalidation handler clearing the connection raced -addReadingListItemWithURL:,
 # which then built its message from a nil connection: libxpc "XPC API Misuse" killed the app in about half the runs
 # (func:SafariServices.reading-list-add-xros; Apple's visionOS simulator runs the daemon).
+# medialibraryd (on demand, as on iOS above): without it an app's MPMediaQuery opened the never-created music library
+# database and died (ML3DatabaseException "no such table: _MLDatabaseProperties"; func:MediaPlayer.library-authorized-queries).
 XR_UI="com.apple.installcoordinationd com.apple.backboardd com.apple.SurfBoard com.apple.vhmdd com.apple.wakeboardd
 	com.apple.homed com.apple.healthd com.apple.geod com.apple.navd
 	com.apple.RealityEnvironment
@@ -431,7 +433,7 @@ XR_UI="com.apple.installcoordinationd com.apple.backboardd com.apple.SurfBoard c
 	com.apple.gamed com.apple.gamesaved
 	com.apple.linkd com.apple.mediaanalysisd com.apple.mediaanalysisd.service com.apple.siriactionsd
 	com.apple.managedassetsd com.apple.eligibilityd com.apple.telephonyutilities.callservicesd com.apple.videosubscriptionsd com.apple.shazamd
-	com.apple.WebBookmarks.webbookmarksd"
+	com.apple.WebBookmarks.webbookmarksd com.apple.medialibraryd"
 XR_UI_SLIM="com.apple.backboardd com.apple.SurfBoard com.apple.vhmdd com.apple.wakeboardd com.apple.RealityEnvironment com.apple.TextInput.kbd
 	com.apple.FileCoordination"
 # No fpsim2host on tvOS / watchOS: their FileProvider has no FPSimulatorSupportInterface (no Files app), so it exited 1
