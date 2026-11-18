@@ -1,6 +1,9 @@
 // indigo <udid> CMD...: host input into a booted Apple simulator through SimulatorKit's Indigo HID (as Simulator.app)
 //   key <usage> [modusage]       a key press (HID page 7 usage), with a modifier held (227 = left command)
 //   touch down|move|up <nx> <ny> one touch event, 0..1 of the screen
+//   tap <nx> <ny>                a tap (down, 80 ms, up: two `touch` runs take a long press on Apple)
+//   sleep <ms>                   just wait (between the commands of one INPUT sequence)
+//   press <nx> <ny> <ms>          touch down, held still for ms, up (no moves: inputs.sh press)
 //   drag <nx1> <ny1> <nx2> <ny2> <holdms> <ms>   touch down, hold, move, up (a drag and drop)
 //   mouse create|remove          the pointer-capture mouse service
 //   msg <name>                   just build+send a no-arg message (IndigoHIDMessageToCreatePointerService...)
@@ -52,6 +55,12 @@ int main(int argc, char **argv) { @autoreleasepool {
 	} else if (!strcmp(c, "touch")) {
 		int t = !strcmp(argv[3], "down") ? NSEventTypeLeftMouseDown : !strcmp(argv[3], "up") ? NSEventTypeLeftMouseUp : NSEventTypeLeftMouseDragged;
 		touch(t, atof(argv[4]), atof(argv[5]));
+	} else if (!strcmp(c, "tap")) {
+		touch(NSEventTypeLeftMouseDown, atof(argv[3]), atof(argv[4])); usleep(80000); touch(NSEventTypeLeftMouseUp, atof(argv[3]), atof(argv[4]));
+	} else if (!strcmp(c, "sleep")) {
+		usleep(atoi(argv[3]) * 1000);
+	} else if (!strcmp(c, "press")) {
+		touch(NSEventTypeLeftMouseDown, atof(argv[3]), atof(argv[4])); usleep(atoi(argv[5]) * 1000); touch(NSEventTypeLeftMouseUp, atof(argv[3]), atof(argv[4]));
 	} else if (!strcmp(c, "drag")) {
 		if (argc > 9) g_edge = atoi(argv[9]);
 		double x1 = atof(argv[3]), y1 = atof(argv[4]), x2 = atof(argv[5]), y2 = atof(argv[6]); int hold = atoi(argv[7]), ms = atoi(argv[8]);

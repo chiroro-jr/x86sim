@@ -23,8 +23,8 @@ build=; want=
 for a in "$@"; do case $a in --no-build) build=--no-build ;; *) want="$want $a" ;; esac; done
 rt=$(cat "$X86SIM_DEVICE/runtime" 2>/dev/null); plat=${rt%%-*}
 case $plat in
-	ios) all="shake orientation biometric gamepad memwarn push tracking clip ctxmenu swipe sdrag ncontent"
-		case $(cat "$X86SIM_DEVICE/model" 2>/dev/null) in iPad*) all="$all pointer keyboard drag" ;; esac ;; xros) all="shake biometric gamepad memwarn tracking" ;; tvos) all="gamepad memwarn tracking" ;;
+	ios) all="shake orientation biometric gamepad memwarn push tracking clip ctxmenu swipe sdrag ncontent cvmenu fpauth"
+		case $(cat "$X86SIM_DEVICE/model" 2>/dev/null) in iPad*) all="$all pointer keyboard drag" ;; esac ;; xros) all="shake biometric gamepad memwarn tracking cvmenu" ;; tvos) all="gamepad memwarn tracking" ;;
 	*) echo "inputs: no input checks for $plat" >&2; exit 0 ;;
 esac
 xs() { "$X86SIM_ROOT/cli/x86sim" "$@"; }
@@ -71,6 +71,11 @@ for k in ${want:-$all}; do
 		# long press on the draggable text moved onto the drop destination
 		ctxmenu) id=func:SwiftUI.input-context-menu-long-press; send() { press 0.5 0.5 1.5; } ; undo() { :; } ;;
 		swipe) id=func:SwiftUI.input-list-swipe-actions; send() { stroke 0.95 0.35 0.05 0.35 0; } ; undo() { :; } ;;
+		# Files opened by the check: Apple's first-launch keyboard tip's Continue (here: the Shared tab), Browse twice (its
+		# root), the sdkcov location (the fourth row)
+		fpauth) id=func:FileProviderUI.input-files-authentication-error; send() { press 0.5 0.944 0.08; nap 1.5; press 0.714 0.93 0.08; nap 1.5
+			press 0.714 0.93 0.08; nap 2; press 0.4 0.453 0.08; nap 4; } ; undo() { xs terminate com.apple.DocumentsApp; } ;;
+		cvmenu) id=func:UIKit.input-collection-context-menu; send() { press 0.2 0.5 1.5; } ; undo() { :; } ;;
 		sdrag) id=func:SwiftUI.input-transferable-drag-drop; send() { stroke 0.5 0.25 0.5 0.75 1.2; } ; undo() { :; } ;;
 		# the notification prompt's Allow tapped (iPhone 17 Pro layout), then a long press on the banner at the top (its middle at 0.10)
 		ncontent) id=func:UserNotificationsUI.input-expand-content-extension; send() { press $ALLOW 0.1; press 0.5 0.10 1.5; } ; undo() { :; } ;;
