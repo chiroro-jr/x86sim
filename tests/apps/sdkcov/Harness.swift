@@ -236,6 +236,7 @@ struct SDKCovApp: App {
         WindowGroup(id: "sdkcov-volume") { SDKCovScenes.volume() }.windowStyle(.volumetric)
         ImmersiveSpace(id: "sdkcov-immersive") { SDKCovScenes.immersive() }
         ImmersiveSpace(id: "sdkcov-compositor") { SDKCovScenes.compositor() }
+        ImmersiveSpace(id: "sdkcov-compositor-config") { P22Compositor.space() }   // P22_Gaps.swift: a configured layer
         #endif
     }
 }

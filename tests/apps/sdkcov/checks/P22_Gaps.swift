@@ -61,6 +61,67 @@ func p22Atom(_ d: Data, _ type: String) -> (Int, Int)? {
     return nil
 }
 
+#if os(visionOS)
+import SwiftUI
+import CompositorServices
+import _CompositorServices_SwiftUI
+import Metal
+
+/// the immersive space "sdkcov-compositor-config" (Harness.swift): a CompositorLayer whose configuration asks for a
+/// depth buffer, foveation when supported and the layered layout; the first frames' drawables described
+enum P22Compositor {
+    static let caps = Mutex("no configuration asked"), frames = SDKCovFlag(), ended = SDKCovFlag(), state = Mutex("not started")
+    struct Config: CompositorLayerConfiguration {
+        func makeConfiguration(capabilities c: LayerRenderer.Capabilities, configuration cfg: inout LayerRenderer.Configuration) {
+            let fov = c.supportsFoveation
+            let layouts = c.supportedLayouts(options: fov ? [.foveationEnabled] : [])
+            caps.withLock { $0 = "foveation \(fov), layouts \(layouts.map { "\($0)" }), depth formats \(c.supportedDepthFormats.map(\.rawValue)), near \(c.supportedMinimumNearPlaneDistance)" }
+            cfg.depthFormat = .depth32Float
+            cfg.colorFormat = .bgra8Unorm_srgb
+            cfg.isFoveationEnabled = fov
+            cfg.layout = layouts.contains(.layered) ? .layered : (layouts.first ?? .dedicated)
+        }
+    }
+    @MainActor static func space() -> some ImmersiveSpaceContent {
+        CompositorLayer(configuration: Config()) { lr in
+            let t = Thread { loop(lr) }; t.name = "sdkcov compositor config"; t.start()
+        }
+    }
+    static func loop(_ lr: LayerRenderer) {
+        lr.waitUntilRunning()
+        guard let q = lr.device.makeCommandQueue() else { state.withLock { $0 = "no command queue" }; return }
+        var n = 0, info = ""
+        while true {
+            switch lr.state {
+            case .invalidated: ended.set("invalidated after \(n) frames"); return
+            case .paused: lr.waitUntilRunning(); continue
+            default: break
+            }
+            guard let f = lr.queryNextFrame() else { continue }
+            f.startUpdate(); f.endUpdate()
+            if let t = f.predictTiming() { LayerRenderer.Clock().wait(until: t.optimalInputTime) }
+            f.startSubmission()
+            guard let d = f.queryDrawable() else { continue }
+            let cb = q.makeCommandBuffer()!
+            let rp = MTLRenderPassDescriptor(), ct = d.colorTextures[0]
+            rp.colorAttachments[0].texture = ct; rp.colorAttachments[0].loadAction = .clear; rp.colorAttachments[0].storeAction = .store
+            if let dt = d.depthTextures.first { rp.depthAttachment.texture = dt; rp.depthAttachment.loadAction = .clear; rp.depthAttachment.clearDepth = 0; rp.depthAttachment.storeAction = .store }
+            if ct.textureType == .type2DArray { rp.renderTargetArrayLength = ct.arrayLength }
+            rp.rasterizationRateMap = d.rasterizationRateMaps.first
+            cb.makeRenderCommandEncoder(descriptor: rp)?.endEncoding()
+            if n == 0 {
+                let c = lr.configuration, dt = d.depthTextures.first
+                let vs = d.views.enumerated().map { i, v in "slice \(v.textureMap.sliceIndex) \(Int(v.textureMap.viewport.width))x\(Int(v.textureMap.viewport.height))" }
+                info = "config layout \(c.layout) foveation \(c.isFoveationEnabled) depth \(c.depthFormat.rawValue); color \(ct.pixelFormat.rawValue) type \(ct.textureType.rawValue) x\(ct.arrayLength); depth texture \(dt.map { "\($0.pixelFormat.rawValue) type \($0.textureType.rawValue) x\($0.arrayLength)" } ?? "none"); \(d.views.count) views \(vs); \(d.rasterizationRateMaps.count) rate maps; projection 0 finite \(d.computeProjection(viewIndex: 0).columns.0.x.isFinite)"
+            }
+            d.encodePresent(commandBuffer: cb); cb.commit(); f.endSubmission()
+            n += 1
+            if n == 10 { cb.waitUntilCompleted(); frames.set(info) }
+        }
+    }
+}
+#endif
+
 #if os(iOS) || os(visionOS)
 /// an NSUserActivity delegate noting UIKit's save of the scene's activity
 final class P22ActivityDelegate: NSObject, NSUserActivityDelegate, @unchecked Sendable {
@@ -289,6 +350,32 @@ extension Registry {
             // the key's reference needs the extension's token: Apple's simulator never gets one from it (-26276, the
             // extension not launched; no session)
             try expect(kst == -26276, d)
+            return d
+        })
+        #endif
+
+        // MARK: CompositorServices: a configured LayerRenderer (depth, foveation if supported, layered layout) in an
+        // immersive space: capabilities, the drawables' color / depth textures, views and rasterization rate maps
+        #if os(visionOS)
+        c.append(check("CompositorServices", "layer-configuration-drawables", timeout: 90) {
+            try skipIf(!sdkcovMultiScene, "the app declares one scene")
+            let a = try await sdkcovSceneActions()
+            let r = await a.openImmersiveSpace(id: "sdkcov-compositor-config")
+            guard case .opened = r else { throw Fail("openImmersiveSpace: \(r)") }
+            let got = await P22Compositor.frames.wait(seconds: 30)
+            await a.dismissImmersiveSpace()
+            let ended = await P22Compositor.ended.wait(seconds: 15)
+            let caps = P22Compositor.caps.withLock { $0 }
+            guard let got else { throw Fail("no frames (\(P22Compositor.state.withLock { $0 })); capabilities \(caps)") }
+            let d = "capabilities \(caps); \(got); after dismiss \(ended ?? "not invalidated")"
+            try expect(ended != nil, d)
+            // Apple's simulator: no foveation, layouts dedicated / shared / layered, depth32Float or depth32Float_stencil8;
+            // one view in a single-slice 2D array (its size is the device type's screen: 4K / 1080p)
+            for k in ["foveation false, layouts [\"cp_layer_renderer_layout(rawValue: 0)\", \"cp_layer_renderer_layout(rawValue: 1)\", \"cp_layer_renderer_layout(rawValue: 2)\"], depth formats [252, 260]",
+                      "config layout cp_layer_renderer_layout(rawValue: 2) foveation false depth 252; color 81 type 3 x1; depth texture 252 type 3 x1; 1 views [\"slice 0 ",
+                      "0 rate maps; projection 0 finite true"] {
+                try expect(d.contains(k), "missing '\(k)': \(d)")
+            }
             return d
         })
         #endif
