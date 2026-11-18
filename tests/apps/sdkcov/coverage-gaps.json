@@ -883,13 +883,13 @@
    "existing_checks": [
     "func:CoreML.compile-load-predict",
     "func:CoreML.model-asset-batch-async-compute-plan",
-    "func:CoreML.updatable-knn-update-task"
+    "func:CoreML.updatable-knn-update-task",
+    "func:CoreML.mlstate-stateful-prediction"
    ],
-   "gaps": [
-    "[a] MLState stateful models (makeState, prediction(from:using:))"
-   ],
-   "note": "compile/load/predict, MLModelAsset from spec bytes, batch + concurrent async predictions, MLComputePlan layer device usage, MLUpdateTask KNN training + write/reload (watchOS too).",
+   "gaps": [],
+   "note": "compile/load/predict, MLModelAsset from spec bytes, batch + concurrent async predictions, MLComputePlan layer device usage, MLUpdateTask KNN training + write/reload (watchOS too). r18: a coremltools 9 ML program with a fp16 state: makeState, prediction(from:using:) accumulates, independent states, withMultiArray (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
+   "r18": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -2131,13 +2131,13 @@
    "existing_checks": [
     "func:NaturalLanguage.language-tokens-tags",
     "func:NaturalLanguage.gazetteer-hypotheses-sentences",
-    "func:NaturalLanguage.embeddings-assets"
+    "func:NaturalLanguage.embeddings-assets",
+    "func:NaturalLanguage.nlmodel-custom-text-classifier"
    ],
-   "gaps": [
-    "[a] NLModel from a compiled text classifier (MLModel) via NLModel(contentsOf:)"
-   ],
-   "note": "language/tokens/tags, gazetteer + hypotheses + sentences, word/sentence/contextual embeddings (watchOS: no embedding assets on Apple either).",
+   "gaps": [],
+   "note": "language/tokens/tags, gazetteer + hypotheses + sentences, word/sentence/contextual embeddings (watchOS: no embedding assets on Apple either). r18: a CreateML MaxEnt text classifier (embedded .mlmodelc) through NLModel(mlModel:) / NLModel(contentsOf:): labels and hypotheses (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
+   "r18": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -2703,13 +2703,13 @@
   "SoundAnalysis": {
    "existing_checks": [
     "func:SoundAnalysis.classify-sound",
-    "func:SoundAnalysis.file-analyzer-windows"
+    "func:SoundAnalysis.file-analyzer-windows",
+    "func:SoundAnalysis.custom-mlmodel-classifier"
    ],
-   "gaps": [
-    "[a] SNClassifySoundRequest(mlModel:) with a custom sound classifier"
-   ],
-   "note": "stream classification (303 classes) + SNAudioFileAnalyzer windows/overlap.",
+   "gaps": [],
+   "note": "stream classification (303 classes) + SNAudioFileAnalyzer windows/overlap. r18: an MLSoundClassifier (sine vs noise) in SNClassifySoundRequest(mlModel:): a generated sine is tone, noise is noise (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
+   "r18": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -2811,18 +2811,19 @@
     "func:SwiftUI.timeline-transition-frame-sampling",
     "func:SwiftUI.tabview-page-selection",
     "func:SwiftUI.image-renderer-layout",
-    "func:SwiftUI.toolbar-menu-picker-datepicker-popover"
+    "func:SwiftUI.toolbar-menu-picker-datepicker-popover",
+    "func:SwiftUI.input-context-menu-long-press",
+    "func:SwiftUI.input-list-swipe-actions",
+    "func:SwiftUI.input-transferable-drag-drop"
    ],
    "gaps": [
-    "[a] contextMenu (needs a long-press input: SwiftUI's ContextMenuBridge answers no configuration outside the gesture, Apple's simulator too)",
-    "[a] DocumentGroup / FileDocument",
-    "[a] drag & drop with Transferable (draggable/dropDestination)",
-    "[a] List swipeActions (needs a swipe input)"
+    "[a] DocumentGroup / FileDocument"
    ],
-   "note": "layout/Grid/custom Layout pixels, animation timing, Observation invalidation, lazy stacks/scroll position, NavigationStack path, sheet/cover/alert/dialog, controls+TextField focus, TimelineView, TabView now on all platforms that support them. r16: toolbar item as a trailing bar item, Menu and menu Picker as primary-action UIButtons (3 choices), compact UIDatePicker, a popover (visionOS: sheet) presented and dismissed from the model (Apple and x86Sim PASS, 2026-11-18). r17: a contextMenu becomes a UIContextMenuInteraction with SwiftUI's ContextMenuBridge delegate, which answers no configuration outside a long-press gesture (Apple too): left for input",
+   "note": "layout/Grid/custom Layout pixels, animation timing, Observation invalidation, lazy stacks/scroll position, NavigationStack path, sheet/cover/alert/dialog, controls+TextField focus, TimelineView, TabView now on all platforms that support them. r16: toolbar item as a trailing bar item, Menu and menu Picker as primary-action UIButtons (3 choices), compact UIDatePicker, a popover (visionOS: sheet) presented and dismissed from the model (Apple and x86Sim PASS, 2026-11-18). r17: a contextMenu becomes a UIContextMenuInteraction with SwiftUI's ContextMenuBridge delegate, which answers no configuration outside a long-press gesture (Apple too): left for input r18: a long press from the host (inputs.sh ctxmenu; Indigo touches on the Mac) opens a contextMenu: both items in the menu window (Apple and x86Sim PASS, 2026-11-18). r18: a full trailing swipe from the host runs the first swipeActions button (Apple and x86Sim PASS, 2026-11-18). r18: a host drag moves a draggable(String) onto a dropDestination (isTargeted first, the string dropped) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
    "r16": true,
    "r17": true,
+   "r18": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -3070,18 +3071,20 @@
    ]
   },
   "UserNotificationsUI": {
+   "apple_sim_na": "Apple's simulator expands a notification of the extension's category (long look) but never launches the content extension",
+   "apple_sim_na_done": true,
    "existing_checks": [
     "func:UserNotificationsUI.content-extension-controller",
-    "func:UserNotificationsUI.content-extension-registered"
+    "func:UserNotificationsUI.content-extension-registered",
+    "func:UserNotificationsUI.input-expand-content-extension"
    ],
-   "gaps": [
-    "[c] the content extension runs only when the user expands a notification of its category (system UI, not unattended)"
-   ],
-   "note": "content-extension-registered: sdkcovNotifyContent.appex on com.apple.usernotifications.content-extension with category sdkcov.content, ratio 0.5 (LaunchServices + PlugInKit, Apple) (x86Sim PASS on each of its platforms, 2026-11-17)",
+   "gaps": [],
+   "note": "content-extension-registered: sdkcovNotifyContent.appex on com.apple.usernotifications.content-extension with category sdkcov.content, ratio 0.5 (LaunchServices + PlugInKit, Apple) (x86Sim PASS on each of its platforms, 2026-11-17) r18: alert authorization by a host tap on the prompt's Allow, banners of the content extension's category long-pressed: Apple's iOS 27.2 simulator shows the expanded notification with a blank extension area and never launches the extension (asserted: no marks) (Apple and x86Sim PASS, 2026-11-18).",
    "p10": true,
    "package": "P3 App extensions, system services, communication & parental controls",
+   "r18": true,
    "rejudged": true,
-   "status": "thin"
+   "status": "apple-sim-na"
   },
   "VideoSubscriberAccount": {
    "apple_sim_na": "no TV-provider service in the simulator (checkAccessStatus -5, user account update 4099)",
@@ -4289,13 +4292,13 @@
    "existing_checks": [
     "func:CoreML.compile-load-predict",
     "func:CoreML.model-asset-batch-async-compute-plan",
-    "func:CoreML.updatable-knn-update-task"
+    "func:CoreML.updatable-knn-update-task",
+    "func:CoreML.mlstate-stateful-prediction"
    ],
-   "gaps": [
-    "[a] MLState stateful models (makeState, prediction(from:using:))"
-   ],
-   "note": "compile/load/predict, MLModelAsset from spec bytes, batch + concurrent async predictions, MLComputePlan layer device usage, MLUpdateTask KNN training + write/reload (watchOS too).",
+   "gaps": [],
+   "note": "compile/load/predict, MLModelAsset from spec bytes, batch + concurrent async predictions, MLComputePlan layer device usage, MLUpdateTask KNN training + write/reload (watchOS too). r18: a coremltools 9 ML program with a fp16 state: makeState, prediction(from:using:) accumulates, independent states, withMultiArray (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
+   "r18": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -5046,13 +5049,13 @@
    "existing_checks": [
     "func:NaturalLanguage.language-tokens-tags",
     "func:NaturalLanguage.gazetteer-hypotheses-sentences",
-    "func:NaturalLanguage.embeddings-assets"
+    "func:NaturalLanguage.embeddings-assets",
+    "func:NaturalLanguage.nlmodel-custom-text-classifier"
    ],
-   "gaps": [
-    "[a] NLModel from a compiled text classifier (MLModel) via NLModel(contentsOf:)"
-   ],
-   "note": "language/tokens/tags, gazetteer + hypotheses + sentences, word/sentence/contextual embeddings (watchOS: no embedding assets on Apple either).",
+   "gaps": [],
+   "note": "language/tokens/tags, gazetteer + hypotheses + sentences, word/sentence/contextual embeddings (watchOS: no embedding assets on Apple either). r18: a CreateML MaxEnt text classifier (embedded .mlmodelc) through NLModel(mlModel:) / NLModel(contentsOf:): labels and hypotheses (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
+   "r18": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -5360,13 +5363,13 @@
   "SoundAnalysis": {
    "existing_checks": [
     "func:SoundAnalysis.classify-sound",
-    "func:SoundAnalysis.file-analyzer-windows"
+    "func:SoundAnalysis.file-analyzer-windows",
+    "func:SoundAnalysis.custom-mlmodel-classifier"
    ],
-   "gaps": [
-    "[a] SNClassifySoundRequest(mlModel:) with a custom sound classifier"
-   ],
-   "note": "stream classification (303 classes) + SNAudioFileAnalyzer windows/overlap.",
+   "gaps": [],
+   "note": "stream classification (303 classes) + SNAudioFileAnalyzer windows/overlap. r18: an MLSoundClassifier (sine vs noise) in SNClassifySoundRequest(mlModel:): a generated sine is tone, noise is noise (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
+   "r18": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -6446,14 +6449,14 @@
   "CoreML": {
    "existing_checks": [
     "func:CoreML.arrays-features",
-    "func:CoreML.updatable-knn-update-task"
+    "func:CoreML.updatable-knn-update-task",
+    "func:CoreML.mlstate-stateful-prediction"
    ],
-   "gaps": [
-    "[a] MLState stateful models (makeState, prediction(from:using:))"
-   ],
-   "note": "compile/load/predict, MLModelAsset from spec bytes, batch + concurrent async predictions, MLComputePlan layer device usage, MLUpdateTask KNN training + write/reload (watchOS too). r16: model-asset-batch-async-compute-plan cannot be ported: MLModelAsset(specification:) and MLModel.compileModel are unavailable on watchOS (no model without a compiled bundle).",
+   "gaps": [],
+   "note": "compile/load/predict, MLModelAsset from spec bytes, batch + concurrent async predictions, MLComputePlan layer device usage, MLUpdateTask KNN training + write/reload (watchOS too). r16: model-asset-batch-async-compute-plan cannot be ported: MLModelAsset(specification:) and MLModel.compileModel are unavailable on watchOS (no model without a compiled bundle). r18: a coremltools 9 ML program with a fp16 state: makeState, prediction(from:using:) accumulates, independent states, withMultiArray (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
    "r16": true,
+   "r18": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -6987,13 +6990,13 @@
    "existing_checks": [
     "func:NaturalLanguage.language-tokens-tags",
     "func:NaturalLanguage.gazetteer-hypotheses-sentences",
-    "func:NaturalLanguage.embeddings-assets"
+    "func:NaturalLanguage.embeddings-assets",
+    "func:NaturalLanguage.nlmodel-custom-text-classifier"
    ],
-   "gaps": [
-    "[a] NLModel from a compiled text classifier (MLModel) via NLModel(contentsOf:)"
-   ],
-   "note": "language/tokens/tags, gazetteer + hypotheses + sentences, word/sentence/contextual embeddings (watchOS: no embedding assets on Apple either).",
+   "gaps": [],
+   "note": "language/tokens/tags, gazetteer + hypotheses + sentences, word/sentence/contextual embeddings (watchOS: no embedding assets on Apple either). r18: a CreateML MaxEnt text classifier (embedded .mlmodelc) through NLModel(mlModel:) / NLModel(contentsOf:): labels and hypotheses (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
+   "r18": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -7209,13 +7212,13 @@
   "SoundAnalysis": {
    "existing_checks": [
     "func:SoundAnalysis.classify-sound",
-    "func:SoundAnalysis.file-analyzer-windows"
+    "func:SoundAnalysis.file-analyzer-windows",
+    "func:SoundAnalysis.custom-mlmodel-classifier"
    ],
-   "gaps": [
-    "[a] SNClassifySoundRequest(mlModel:) with a custom sound classifier"
-   ],
-   "note": "stream classification (303 classes) + SNAudioFileAnalyzer windows/overlap.",
+   "gaps": [],
+   "note": "stream classification (303 classes) + SNAudioFileAnalyzer windows/overlap. r18: an MLSoundClassifier (sine vs noise) in SNClassifySoundRequest(mlModel:): a generated sine is tone, noise is noise (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
+   "r18": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -8436,13 +8439,13 @@
    "existing_checks": [
     "func:CoreML.compile-load-predict",
     "func:CoreML.model-asset-batch-async-compute-plan",
-    "func:CoreML.updatable-knn-update-task"
+    "func:CoreML.updatable-knn-update-task",
+    "func:CoreML.mlstate-stateful-prediction"
    ],
-   "gaps": [
-    "[a] MLState stateful models (makeState, prediction(from:using:))"
-   ],
-   "note": "compile/load/predict, MLModelAsset from spec bytes, batch + concurrent async predictions, MLComputePlan layer device usage, MLUpdateTask KNN training + write/reload (watchOS too).",
+   "gaps": [],
+   "note": "compile/load/predict, MLModelAsset from spec bytes, batch + concurrent async predictions, MLComputePlan layer device usage, MLUpdateTask KNN training + write/reload (watchOS too). r18: a coremltools 9 ML program with a fp16 state: makeState, prediction(from:using:) accumulates, independent states, withMultiArray (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
+   "r18": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -9457,13 +9460,13 @@
    "existing_checks": [
     "func:NaturalLanguage.language-tokens-tags",
     "func:NaturalLanguage.gazetteer-hypotheses-sentences",
-    "func:NaturalLanguage.embeddings-assets"
+    "func:NaturalLanguage.embeddings-assets",
+    "func:NaturalLanguage.nlmodel-custom-text-classifier"
    ],
-   "gaps": [
-    "[a] NLModel from a compiled text classifier (MLModel) via NLModel(contentsOf:)"
-   ],
-   "note": "language/tokens/tags, gazetteer + hypotheses + sentences, word/sentence/contextual embeddings (watchOS: no embedding assets on Apple either).",
+   "gaps": [],
+   "note": "language/tokens/tags, gazetteer + hypotheses + sentences, word/sentence/contextual embeddings (watchOS: no embedding assets on Apple either). r18: a CreateML MaxEnt text classifier (embedded .mlmodelc) through NLModel(mlModel:) / NLModel(contentsOf:): labels and hypotheses (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
+   "r18": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -9883,13 +9886,13 @@
   "SoundAnalysis": {
    "existing_checks": [
     "func:SoundAnalysis.classify-sound",
-    "func:SoundAnalysis.file-analyzer-windows"
+    "func:SoundAnalysis.file-analyzer-windows",
+    "func:SoundAnalysis.custom-mlmodel-classifier"
    ],
-   "gaps": [
-    "[a] SNClassifySoundRequest(mlModel:) with a custom sound classifier"
-   ],
-   "note": "stream classification (303 classes) + SNAudioFileAnalyzer windows/overlap.",
+   "gaps": [],
+   "note": "stream classification (303 classes) + SNAudioFileAnalyzer windows/overlap. r18: an MLSoundClassifier (sine vs noise) in SNClassifySoundRequest(mlModel:): a generated sine is tone, noise is noise (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
+   "r18": true,
    "rejudged": true,
    "status": "covered"
   },
