@@ -411,6 +411,10 @@ WATCH_UI_SLIM="com.apple.backboardd com.apple.Carousel com.apple.TextInput.kbd c
 # GMAvailabilityWrapper.isDeviceEligible was false, kbd's DataDeliveryServices skipped "prewarm-embedding-assets" (no
 # UAF com.apple.linguisticdata subscription, no mBERT asset) and NLContextualEmbedding.hasAvailableAssets stayed false
 # where Apple's visionOS simulator downloads the asset and answers true (P7_ML.swift).
+# webbookmarksd (on demand): SSReadingList's WebBookmarksXPCConnection to com.apple.WebBookmarks.webbookmarksd was
+# invalidated without it, and the invalidation handler clearing the connection raced -addReadingListItemWithURL:,
+# which then built its message from a nil connection: libxpc "XPC API Misuse" killed the app in about half the runs
+# (func:SafariServices.reading-list-add-xros; Apple's visionOS simulator runs the daemon).
 XR_UI="com.apple.installcoordinationd com.apple.backboardd com.apple.SurfBoard com.apple.vhmdd com.apple.wakeboardd
 	com.apple.homed com.apple.healthd com.apple.geod com.apple.navd
 	com.apple.RealityEnvironment
@@ -426,7 +430,8 @@ XR_UI="com.apple.installcoordinationd com.apple.backboardd com.apple.SurfBoard c
 	com.apple.contactsd com.apple.calaccessd com.apple.remindd com.apple.assetsd com.apple.mediaremoted
 	com.apple.gamed com.apple.gamesaved
 	com.apple.linkd com.apple.mediaanalysisd com.apple.mediaanalysisd.service com.apple.siriactionsd
-	com.apple.managedassetsd com.apple.eligibilityd com.apple.telephonyutilities.callservicesd com.apple.videosubscriptionsd com.apple.shazamd"
+	com.apple.managedassetsd com.apple.eligibilityd com.apple.telephonyutilities.callservicesd com.apple.videosubscriptionsd com.apple.shazamd
+	com.apple.WebBookmarks.webbookmarksd"
 XR_UI_SLIM="com.apple.backboardd com.apple.SurfBoard com.apple.vhmdd com.apple.wakeboardd com.apple.RealityEnvironment com.apple.TextInput.kbd
 	com.apple.FileCoordination"
 # No fpsim2host on tvOS / watchOS: their FileProvider has no FPSimulatorSupportInterface (no Files app), so it exited 1
