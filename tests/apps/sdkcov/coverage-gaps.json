@@ -58,17 +58,18 @@
     "func:AVFoundation.capture-simulator-answers",
     "func:AVFoundation.player-item-failed-status",
     "func:AVFoundation.export-metadata-file-length-limit",
-    "func:AVFoundation.content-key-session-clear-key"
+    "func:AVFoundation.content-key-session-clear-key",
+    "func:AVFoundation.chapters-text-track",
+    "func:AVFoundation.player-stalled-notification",
+    "func:AVFoundation.player-loader-error-mid-play"
    ],
-   "gaps": [
-    "[a] chapter metadata: timed-metadata-chapters reports chapters (empty) - assert chapterMetadataGroups from a chaptered m4a/mov",
-    "[a] AVPlayerItemPlaybackStalled / failedToPlayToEndTime notifications"
-   ],
-   "note": "asset writer/reader/image generator, CI video compositor + export + presets, HLS loopback with WebVTT, resource loader, timed metadata, AVMutableMovie, queue player/looper/seek/rate, sample-buffer renderers+synchronizer, multi-format loads; capture-simulator-answers asserts 0 cameras and input-less session error -11819 as on Apple. P11: an unplayable item fails with AVFoundationErrorDomain -11829 (Apple and x86Sim PASS, 2026-11-18). r17: export metadata (title) written through; a passthrough export with fileLengthLimit refused -11838 (Apple the same) (Apple and x86Sim PASS, 2026-11-18). r24: AVContentKeySession clear key: the request arrives, the clear key response fails it (-11800) on both (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "asset writer/reader/image generator, CI video compositor + export + presets, HLS loopback with WebVTT, resource loader, timed metadata, AVMutableMovie, queue player/looper/seek/rate, sample-buffer renderers+synchronizer, multi-format loads; capture-simulator-answers asserts 0 cameras and input-less session error -11819 as on Apple. P11: an unplayable item fails with AVFoundationErrorDomain -11829 (Apple and x86Sim PASS, 2026-11-18). r17: export metadata (title) written through; a passthrough export with fileLengthLimit refused -11838 (Apple the same) (Apple and x86Sim PASS, 2026-11-18). r24: AVContentKeySession clear key: the request arrives, the clear key response fails it (-11800) on both (Apple and x86Sim PASS, 2026-11-18). r25: QuickTime chapters (a text track associated as the video's chapter list, written by AVAssetWriter) read back as three chapter groups (Apple and x86Sim PASS, 2026-11-18). r25: a movie served by an AVAssetResourceLoader delegate that stops a third of the way into its media data: AVPlayerItemPlaybackStalled; a loader error mid-play gives the stall only (no failed-to-play-to-end, item stays ready) on both (player-loader-error-mid-play) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
    "r15": true,
    "r17": true,
    "r24": true,
+   "r25": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -303,14 +304,15 @@
     "func:AppIntents.open-intent-parameters-dependency-dialog",
     "func:AppIntents.app-shortcuts-provider",
     "func:AppIntents.donations",
-    "func:AppIntents.perform"
+    "func:AppIntents.perform",
+    "func:AppIntents.app-shortcut-phrases-titles"
    ],
    "gaps": [
-    "[a] ControlWidget toggles / SetValueIntent (with WidgetKit)",
-    "[a] AppShortcut phrases/titles asserted (app-shortcuts-provider only checks the count)"
+    "[a] ControlWidget toggles / SetValueIntent (with WidgetKit)"
    ],
-   "note": "EntityQuery by id/string/all/suggested, AppEnum, display reps, OpenIntent parameters + perform, AppDependencyManager, donations donate/delete by identifier.",
+   "note": "EntityQuery by id/string/all/suggested, AppEnum, display reps, OpenIntent parameters + perform, AppDependencyManager, donations donate/delete by identifier. r25: the provider's phrases (with the ${applicationName} placeholder), short titles and images read back by reflection (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
+   "r25": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -438,14 +440,15 @@
    "apple_sim_na_done": true,
    "existing_checks": [
     "func:BackgroundAssets.asset-pack-manager",
-    "func:BackgroundAssets.asset-pack-status-download"
+    "func:BackgroundAssets.asset-pack-status-download",
+    "func:BackgroundAssets.download-manager-schedule-cancel"
    ],
    "gaps": [
-    "[a] BADownloaderExtension: a scheduled BADownload running in the downloader extension (extension registered, seen by ExtensionFoundation monitor on tvOS/visionOS)",
-    "[a] bundle the downloader extension on iOS too"
+    "[a] BADownloaderExtension: a scheduled BADownload running in the downloader extension (extension registered, seen by ExtensionFoundation monitor on tvOS/visionOS)"
    ],
-   "note": "asset-pack-status-download asserts the error answers on iOS/tvOS/visionOS; tvOS also checks downloads list.",
+   "note": "asset-pack-status-download asserts the error answers on iOS/tvOS/visionOS; tvOS also checks downloads list. r25: BADownloadManager current downloads, a BAURLDownload scheduled, listed and cancelled; x86Sim failed (_GenericObjCError 0) until boot-a64 ran backgroundassets.user on iOS / visionOS too (fixed; tvOS had it) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P3 App extensions, system services, communication & parental controls",
+   "r25": true,
    "rejudged": true,
    "status": "apple-sim-na"
   },
@@ -3054,13 +3057,14 @@
   },
   "USDKit": {
    "existing_checks": [
-    "func:USDKit.stage-parse-edit-export"
+    "func:USDKit.stage-parse-edit-export",
+    "func:USDKit.stage-render-to-entities"
    ],
-   "gaps": [
-    "[a] _USDKit_RealityKit: convert a USD stage to RealityKit entities"
-   ],
+   "gaps": [],
+   "note": "r25: a USD stage rendered into RealityKit: USDStageComponent.render into a plain entity fails with no errors listed, the component set on an entity completes (no child entities) on both (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
-   "rejudged": false,
+   "r25": true,
+   "rejudged": true,
    "status": "covered"
   },
   "UniformTypeIdentifiers": {
@@ -3875,17 +3879,18 @@
     "func:AVFoundation.capture-simulator-answers",
     "func:AVFoundation.player-item-failed-status",
     "func:AVFoundation.export-metadata-file-length-limit",
-    "func:AVFoundation.content-key-session-clear-key"
+    "func:AVFoundation.content-key-session-clear-key",
+    "func:AVFoundation.chapters-text-track",
+    "func:AVFoundation.player-stalled-notification",
+    "func:AVFoundation.player-loader-error-mid-play"
    ],
-   "gaps": [
-    "[a] chapter metadata: timed-metadata-chapters reports chapters (empty) - assert chapterMetadataGroups from a chaptered m4a/mov",
-    "[a] AVPlayerItemPlaybackStalled / failedToPlayToEndTime notifications"
-   ],
-   "note": "asset writer/reader/image generator, CI video compositor + export + presets, HLS loopback with WebVTT, resource loader, timed metadata, AVMutableMovie, queue player/looper/seek/rate, sample-buffer renderers+synchronizer, multi-format loads; capture-simulator-answers asserts 0 cameras and input-less session error -11819 as on Apple. P11: an unplayable item fails with AVFoundationErrorDomain -11829 (Apple and x86Sim PASS, 2026-11-18). r17: export metadata (title) written through; a passthrough export with fileLengthLimit refused -11838 (Apple the same) (Apple and x86Sim PASS, 2026-11-18). r24: AVContentKeySession clear key: the request arrives, the clear key response fails it (-11800) on both (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "asset writer/reader/image generator, CI video compositor + export + presets, HLS loopback with WebVTT, resource loader, timed metadata, AVMutableMovie, queue player/looper/seek/rate, sample-buffer renderers+synchronizer, multi-format loads; capture-simulator-answers asserts 0 cameras and input-less session error -11819 as on Apple. P11: an unplayable item fails with AVFoundationErrorDomain -11829 (Apple and x86Sim PASS, 2026-11-18). r17: export metadata (title) written through; a passthrough export with fileLengthLimit refused -11838 (Apple the same) (Apple and x86Sim PASS, 2026-11-18). r24: AVContentKeySession clear key: the request arrives, the clear key response fails it (-11800) on both (Apple and x86Sim PASS, 2026-11-18). r25: QuickTime chapters (a text track associated as the video's chapter list, written by AVAssetWriter) read back as three chapter groups (Apple and x86Sim PASS, 2026-11-18). r25: a movie served by an AVAssetResourceLoader delegate that stops a third of the way into its media data: AVPlayerItemPlaybackStalled; a loader error mid-play gives the stall only (no failed-to-play-to-end, item stays ready) on both (player-loader-error-mid-play) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
    "r15": true,
    "r17": true,
    "r24": true,
+   "r25": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -3964,15 +3969,16 @@
     "func:AppIntents.open-intent-parameters-dependency-dialog",
     "func:AppIntents.app-shortcuts-provider",
     "func:AppIntents.donations",
-    "func:AppIntents.perform"
+    "func:AppIntents.perform",
+    "func:AppIntents.app-shortcut-phrases-titles"
    ],
    "gaps": [
     "[a] ControlWidget toggles / SetValueIntent (with WidgetKit)",
-    "[a] AppShortcut phrases/titles asserted (app-shortcuts-provider only checks the count)",
     "[run] donations: x86 FAIL 4099 (2026-11-15 20:04) predates the com.apple.linkd job in boot-a64.sh's tvOS list: rerun"
    ],
-   "note": "EntityQuery by id/string/all/suggested, AppEnum, display reps, OpenIntent parameters + perform, AppDependencyManager, donations donate/delete by identifier.",
+   "note": "EntityQuery by id/string/all/suggested, AppEnum, display reps, OpenIntent parameters + perform, AppDependencyManager, donations donate/delete by identifier. r25: the provider's phrases (with the ${applicationName} placeholder), short titles and images read back by reflection (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
+   "r25": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -5332,13 +5338,13 @@
     "func:Security.keychain-update-query-persistent-keys",
     "func:Security.pkcs12-certificates-trust-evaluation",
     "func:Security.seckey-algorithms-exchange-interop",
-    "func:Security.access-control-keychain"
+    "func:Security.access-control-keychain",
+    "func:Security.biometry-item-no-biometry"
    ],
-   "gaps": [
-    "[a] SecAccessControl .biometryAny item read with enrolled biometry (needs run.sh input mode)"
-   ],
-   "note": "Keychain CRUD/persistent refs, RSA/EC/ECIES algorithm matrix, PKCS#12 + trust evaluation, access-control items.",
+   "gaps": [],
+   "note": "Keychain CRUD/persistent refs, RSA/EC/ECIES algorithm matrix, PKCS#12 + trust evaluation, access-control items. r25: a .biometryAny keychain item added and read back without UI (no biometry on either platform; the simulator keychain does not enforce the constraint) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P8 Foundation, networking, security, identity & device management",
+   "r25": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -5631,13 +5637,14 @@
   },
   "USDKit": {
    "existing_checks": [
-    "func:USDKit.stage-parse-edit-export"
+    "func:USDKit.stage-parse-edit-export",
+    "func:USDKit.stage-render-to-entities"
    ],
-   "gaps": [
-    "[a] _USDKit_RealityKit: convert a USD stage to RealityKit entities"
-   ],
+   "gaps": [],
+   "note": "r25: a USD stage rendered into RealityKit: USDStageComponent.render into a plain entity fails with no errors listed, the component set on an entity completes (no child entities) on both (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
-   "rejudged": false,
+   "r25": true,
+   "rejudged": true,
    "status": "covered"
   },
   "UniformTypeIdentifiers": {
@@ -6104,13 +6111,13 @@
     "func:AVFoundation.content-key-session-clear-key"
    ],
    "gaps": [
-    "[a] chapter metadata: timed-metadata-chapters reports chapters (empty) - assert chapterMetadataGroups from a chaptered m4a/mov",
-    "[a] AVPlayerItemPlaybackStalled / failedToPlayToEndTime notifications"
+    "[a] chapters / playback stall: the iOS checks (P21) write their movies with AVAssetWriter, not ported to watchOS"
    ],
    "note": "asset writer/reader/image generator, CI video compositor + export + presets, HLS loopback with WebVTT, resource loader, timed metadata, AVMutableMovie, queue player/looper/seek/rate, sample-buffer renderers+synchronizer, multi-format loads; capture-simulator-answers asserts 0 cameras and input-less session error -11819 as on Apple. P11: an unplayable item fails with AVFoundationErrorDomain -11829 (Apple and x86Sim PASS, 2026-11-18). r24: AVContentKeySession clear key: the request arrives, the clear key response fails it (-11800) on both (Apple and x86Sim PASS, 2026-11-18). r24: AVAssetExportSession is not in the watchOS SDK: gap dropped.",
    "package": "P1 Media & AV",
    "r15": true,
    "r24": true,
+   "r25": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -6159,14 +6166,15 @@
     "func:AppIntents.open-intent-parameters-dependency-dialog",
     "func:AppIntents.app-shortcuts-provider",
     "func:AppIntents.donations",
-    "func:AppIntents.perform"
+    "func:AppIntents.perform",
+    "func:AppIntents.app-shortcut-phrases-titles"
    ],
    "gaps": [
-    "[a] ControlWidget toggles / SetValueIntent (with WidgetKit)",
-    "[a] AppShortcut phrases/titles asserted (app-shortcuts-provider only checks the count)"
+    "[a] ControlWidget toggles / SetValueIntent (with WidgetKit)"
    ],
-   "note": "EntityQuery by id/string/all/suggested, AppEnum, display reps, OpenIntent parameters + perform, AppDependencyManager, donations donate/delete by identifier.",
+   "note": "EntityQuery by id/string/all/suggested, AppEnum, display reps, OpenIntent parameters + perform, AppDependencyManager, donations donate/delete by identifier. r25: the provider's phrases (with the ${applicationName} placeholder), short titles and images read back by reflection (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
+   "r25": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -6298,16 +6306,16 @@
     "func:Charts.bar-scale-sector-pie-pixels",
     "func:Charts.bar-line-render",
     "func:Charts.rule-mark-pixel-position-selection",
-    "func:Charts.axis-label-positions-pixels"
+    "func:Charts.axis-label-positions-pixels",
+    "func:Charts.scrollable-axes-watch-pixels"
    ],
-   "gaps": [
-    "[a] chartScrollableAxes / chartScrollPosition hosted on watchOS (the P17 check needs a UIKit window)"
-   ],
-   "note": "BarMark scale and SectorMark pie sectors asserted by pixel colour on all four platforms. r20: a RuleMark at x 7.5 of 0...10 drawn at 0.749 of the plot width (ImageRenderer, chartXSelection set); a scrollable chart is a ScrollView ImageRenderer leaves blank (Apple too) (Apple and x86Sim PASS, 2026-11-18). r21 r22: x axis value labels at 0, 50 and 100 drawn by ImageRenderer: \"100\" at the trailing edge is dropped, the dark-pixel runs of \"0\" / \"50\" are asserted per platform (iOS/visionOS 5-9,205-216, tvOS 5-16,206-230, watchOS 3-6,203-211) (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "BarMark scale and SectorMark pie sectors asserted by pixel colour on all four platforms. r20: a RuleMark at x 7.5 of 0...10 drawn at 0.749 of the plot width (ImageRenderer, chartXSelection set); a scrollable chart is a ScrollView ImageRenderer leaves blank (Apple too) (Apple and x86Sim PASS, 2026-11-18). r21 r22: x axis value labels at 0, 50 and 100 drawn by ImageRenderer: \"100\" at the trailing edge is dropped, the dark-pixel runs of \"0\" / \"50\" are asserted per platform (iOS/visionOS 5-9,205-216, tvOS 5-16,206-230, watchOS 3-6,203-211) (Apple and x86Sim PASS, 2026-11-18). r25: watchOS chart by ImageRenderer: the plain chart draws all ten bars, the scrollable one (visible domain 3, scrolled to 5) nothing on both (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
    "r20": true,
    "r21": true,
    "r22": true,
+   "r25": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -7209,13 +7217,13 @@
     "func:Security.keychain-update-query-persistent-keys",
     "func:Security.pkcs12-certificates-trust-evaluation",
     "func:Security.seckey-algorithms-exchange-interop",
-    "func:Security.access-control-keychain"
+    "func:Security.access-control-keychain",
+    "func:Security.biometry-item-no-biometry"
    ],
-   "gaps": [
-    "[a] SecAccessControl .biometryAny item read with enrolled biometry (needs run.sh input mode)"
-   ],
-   "note": "Keychain CRUD/persistent refs, RSA/EC/ECIES algorithm matrix, PKCS#12 + trust evaluation, access-control items.",
+   "gaps": [],
+   "note": "Keychain CRUD/persistent refs, RSA/EC/ECIES algorithm matrix, PKCS#12 + trust evaluation, access-control items. r25: a .biometryAny keychain item added and read back without UI (no biometry on either platform; the simulator keychain does not enforce the constraint) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P8 Foundation, networking, security, identity & device management",
+   "r25": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -7911,17 +7919,18 @@
     "func:AVFoundation.capture-simulator-answers",
     "func:AVFoundation.player-item-failed-status",
     "func:AVFoundation.export-metadata-file-length-limit",
-    "func:AVFoundation.content-key-session-clear-key"
+    "func:AVFoundation.content-key-session-clear-key",
+    "func:AVFoundation.chapters-text-track",
+    "func:AVFoundation.player-stalled-notification",
+    "func:AVFoundation.player-loader-error-mid-play"
    ],
-   "gaps": [
-    "[a] chapter metadata: timed-metadata-chapters reports chapters (empty) - assert chapterMetadataGroups from a chaptered m4a/mov",
-    "[a] AVPlayerItemPlaybackStalled / failedToPlayToEndTime notifications"
-   ],
-   "note": "asset writer/reader/image generator, CI video compositor + export + presets, HLS loopback with WebVTT, resource loader, timed metadata, AVMutableMovie, queue player/looper/seek/rate, sample-buffer renderers+synchronizer, multi-format loads; capture-simulator-answers asserts 0 cameras and input-less session error -11819 as on Apple. P11: an unplayable item fails with AVFoundationErrorDomain -11829 (Apple and x86Sim PASS, 2026-11-18). r17: export metadata (title) written through; a passthrough export with fileLengthLimit refused -11838 (Apple the same) (Apple and x86Sim PASS, 2026-11-18). r24: AVContentKeySession clear key: the request arrives, the clear key response fails it (-11800) on both (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "asset writer/reader/image generator, CI video compositor + export + presets, HLS loopback with WebVTT, resource loader, timed metadata, AVMutableMovie, queue player/looper/seek/rate, sample-buffer renderers+synchronizer, multi-format loads; capture-simulator-answers asserts 0 cameras and input-less session error -11819 as on Apple. P11: an unplayable item fails with AVFoundationErrorDomain -11829 (Apple and x86Sim PASS, 2026-11-18). r17: export metadata (title) written through; a passthrough export with fileLengthLimit refused -11838 (Apple the same) (Apple and x86Sim PASS, 2026-11-18). r24: AVContentKeySession clear key: the request arrives, the clear key response fails it (-11800) on both (Apple and x86Sim PASS, 2026-11-18). r25: QuickTime chapters (a text track associated as the video's chapter list, written by AVAssetWriter) read back as three chapter groups (Apple and x86Sim PASS, 2026-11-18). r25: a movie served by an AVAssetResourceLoader delegate that stops a third of the way into its media data: AVPlayerItemPlaybackStalled; a loader error mid-play gives the stall only (no failed-to-play-to-end, item stays ready) on both (player-loader-error-mid-play) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
    "r15": true,
    "r17": true,
    "r24": true,
+   "r25": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -7998,14 +8007,15 @@
     "func:AppIntents.open-intent-parameters-dependency-dialog",
     "func:AppIntents.app-shortcuts-provider",
     "func:AppIntents.donations",
-    "func:AppIntents.perform"
+    "func:AppIntents.perform",
+    "func:AppIntents.app-shortcut-phrases-titles"
    ],
    "gaps": [
-    "[a] ControlWidget toggles / SetValueIntent (with WidgetKit)",
-    "[a] AppShortcut phrases/titles asserted (app-shortcuts-provider only checks the count)"
+    "[a] ControlWidget toggles / SetValueIntent (with WidgetKit)"
    ],
-   "note": "EntityQuery by id/string/all/suggested, AppEnum, display reps, OpenIntent parameters + perform, AppDependencyManager, donations donate/delete by identifier.",
+   "note": "EntityQuery by id/string/all/suggested, AppEnum, display reps, OpenIntent parameters + perform, AppDependencyManager, donations donate/delete by identifier. r25: the provider's phrases (with the ${applicationName} placeholder), short titles and images read back by reflection (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
+   "r25": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -8098,14 +8108,16 @@
    "apple_sim_na": "managed asset packs need App Store hosting: AssetPackManager answers each call with an error (asserted by asset-pack-status-download)",
    "apple_sim_na_done": true,
    "existing_checks": [
-    "func:BackgroundAssets.asset-pack-status-download"
+    "func:BackgroundAssets.asset-pack-status-download",
+    "func:BackgroundAssets.download-manager-schedule-cancel"
    ],
    "gaps": [
     "[a] BADownloaderExtension: a scheduled BADownload running in the downloader extension (extension registered, seen by ExtensionFoundation monitor on tvOS/visionOS)"
    ],
-   "note": "asset-pack-status-download asserts the error answers on iOS/tvOS/visionOS; tvOS also checks downloads list. r24: x86Sim visionOS run PASS (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "asset-pack-status-download asserts the error answers on iOS/tvOS/visionOS; tvOS also checks downloads list. r24: x86Sim visionOS run PASS (Apple and x86Sim PASS, 2026-11-18). r25: BADownloadManager current downloads, a BAURLDownload scheduled, listed and cancelled (boot-a64 now runs backgroundassets.user on visionOS too) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P3 App extensions, system services, communication & parental controls",
    "r24": true,
+   "r25": true,
    "rejudged": true,
    "status": "apple-sim-na"
   },
@@ -10202,13 +10214,14 @@
   },
   "USDKit": {
    "existing_checks": [
-    "func:USDKit.stage-parse-edit-export"
+    "func:USDKit.stage-parse-edit-export",
+    "func:USDKit.stage-render-to-entities"
    ],
-   "gaps": [
-    "[a] _USDKit_RealityKit: convert a USD stage to RealityKit entities"
-   ],
+   "gaps": [],
+   "note": "r25: a USD stage rendered into RealityKit: USDStageComponent.render into a plain entity fails with no errors listed, the component set on an entity completes (no child entities) on both (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
-   "rejudged": false,
+   "r25": true,
+   "rejudged": true,
    "status": "covered"
   },
   "UniformTypeIdentifiers": {

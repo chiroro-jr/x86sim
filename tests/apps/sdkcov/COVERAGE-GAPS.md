@@ -174,7 +174,7 @@ Remaining gaps here are optional depth.
 | AdServices | IV | attribution-token, attribution-token-sim-error | done (attributionToken errors in the simulator) | P4 |
 | AlarmKit | I | authorization-alarms-updates, manager-state, request-schedule-refused | done (requestAuthorization is denied without a prompt: SpringBoard's CFUserNotification server refuses mobiletimerd (no com.apple.springboard.CFUserNotification entitlement, and no runtime path counts as the system partition)) | P3 |
 | AppMigrationKit | I | extension-tester, status-identifiers | done (AppMigrationTester cannot start the app's migration extension from the app: exportController throws extensionKit 2 / RBSServiceErrorDomain 1) | P3 |
-| BackgroundAssets | IV | asset-pack-manager, asset-pack-status-download | [a] BADownloaderExtension: a scheduled BADownload running in the downloader extension (extension registered, seen by ExtensionFoundation monitor on tvOS/visionOS); I: [a] bundle the downloader extension on iOS too (managed asset packs need App Store hosting: AssetPackManager answers each call with an error (asserted by asset-pack-status-download)) | P3 |
+| BackgroundAssets | IV | asset-pack-manager, asset-pack-status-download, download-manager-schedule-cancel | [a] BADownloaderExtension: a scheduled BADownload running in the downloader extension (extension registered, seen by ExtensionFoundation monitor on tvOS/visionOS) (managed asset packs need App Store hosting: AssetPackManager answers each call with an error (asserted by asset-pack-status-download)) | P3 |
 | BackgroundTasks | ITV | continued-processing-request, register-submit | done (BGTaskScheduler.submit -> .unavailable in Apple's simulator (asserted by register-submit)) | P3 |
 | BrowserEngineKit | I | processes-without-entitlement | [a] BETextInput / BEScrollView behaviour (only a BEScrollView built) (browser process launches need the web-browser-engine entitlement + extensions) | P3 |
 | BrowserKit | I | content-filter-import-answers, data-exchange-types | [c] BEAvailability.isEligible(for:) raises NSInvalidArgumentException in Apple's sim (XPC proxy lacks the selector): not assertable (BEAvailability.isEligible raises in Apple's simulator) | P3 |
@@ -271,18 +271,17 @@ Remaining gaps here are optional depth.
 | framework | platforms | secondary gaps |
 |---|---|---|
 | ARKit | V | [c] assert the simulator provider answers (world true; planes/scene/hands/images/room false) in data-providers (today reported, not asserted); [c] assert WorldTrackingProvider.addAnchor -> addWorldAnchorFailed (both simulators; today reported, not asserted) |
-| AVFoundation | ITWV | [a] chapter metadata: timed-metadata-chapters reports chapters (empty) - assert chapterMetadataGroups from a chaptered m4a/mov; [a] AVPlayerItemPlaybackStalled / failedToPlayToEndTime notifications |
+| AVFoundation | ITWV | W: [a] chapters / playback stall: the iOS checks (P21) write their movies with AVAssetWriter, not ported to watchOS |
 | AVKit | ITWV | I: [a] AVPlayerViewControllerDelegate full-screen enter/exit transitions; T: [a] AVPlayerViewControllerDelegate full-screen enter/exit transitions; V: [a] AVPlayerViewControllerDelegate full-screen enter/exit transitions |
 | AVRouting | ITV | I: [a] DeviceDiscoveryExtension appex to drive AVCustomRoutingController route events (today asserts empty routes + no delegate events); V: [a] DeviceDiscoveryExtension appex to drive AVCustomRoutingController route events (today asserts empty routes + no delegate events) |
 | AdSupport | IT | [c] non-zero IDFA needs tracking authorized (ATT prompt answer) |
-| AppIntents | ITWV | [a] ControlWidget toggles / SetValueIntent (with WidgetKit); [a] AppShortcut phrases/titles asserted (app-shortcuts-provider only checks the count); T: [run] donations: x86 FAIL 4099 (2026-11-15 20:04) predates the com.apple.linkd job in boot-a64.sh's tvOS list: rerun |
+| AppIntents | ITWV | [a] ControlWidget toggles / SetValueIntent (with WidgetKit); T: [run] donations: x86 FAIL 4099 (2026-11-15 20:04) predates the com.apple.linkd job in boot-a64.sh's tvOS list: rerun |
 | AuthenticationServices | ITWV | I: [c] ASAuthorizationController.performRequests with a passkey request: Apple's iPad sim shows its passkey sheet and the app hangs (assert the sheet without blocking); I: [a] ASAuthorizationProviderExtension / ASCredentialProviderViewController objects (AutoFill/SSO extension side); W: [a] ASAuthorizationProviderExtension / ASCredentialProviderViewController objects (AutoFill/SSO extension side) |
 | BackgroundAssets | T | [a] BADownloaderExtension: a scheduled BADownload running in the downloader extension (extension registered, seen by ExtensionFoundation monitor on tvOS/visionOS) |
 | BrowserEngineCore | I | [c] JIT witness supported is a CPU feature (1 Apple silicon, 0 on x86): not assertable across hosts |
 | BusinessChat | I | [a] BCChatAction.openTranscript URL (deprecated) |
 | CallKit | I | [b: Call Directory answers: x86Sim's CallKit CallDirectory service answers disabled (1) / reload error 6; Apple's fails to create its store at the Mac's /var/mobile/Library/CallDirectory (513) and answers error 0 to both] |
 | CarPlay | I | [a] CPTemplateApplicationScene in CarPlay simulator window (Apple sim has I/O > External Displays > CarPlay) |
-| Charts | ITWV | W: [a] chartScrollableAxes / chartScrollPosition hosted on watchOS (the P17 check needs a UIKit window) |
 | ClockKit | IW | W: [a] CLKComplicationDataSource timeline (reloadTimeline/extendTimeline) - complication-server only reports a count |
 | CloudKit | ITWV | [c] server ops (fetch/query/subscription/share accept) need team signing + account: only save -> CKError 8 asserted; [c] assert accountStatus answer instead of SKIP in account-status |
 | CompositorServices | V | [a] LayerRenderer drawable depth/stereo views, foveation config (visionOS) |
@@ -315,13 +314,12 @@ Remaining gaps here are optional depth.
 | Photos | ITV | [c] asset delete (PHAssetChangeRequest.deleteAssets prompts: assert simulator answer) |
 | PhotosUI | ITWV | [a] iOS presents picker; tvOS/watchOS/visionOS only build views - assert selection via PhotosPickerItem loadTransferable; [a] PHPickerViewController delegate result handling |
 | RelevanceKit | ITWV | [a] WidgetRelevance answered by the widget extension (relevance(), WidgetCenter.invalidateRelevance) |
-| Security | ITWV | T: [a] SecAccessControl .biometryAny item read with enrolled biometry (needs run.sh input mode); W: [a] SecAccessControl .biometryAny item read with enrolled biometry (needs run.sh input mode); V: [c] needs enrolled biometry, which Apple's visionOS simulator never has (x86Sim: PASS) |
+| Security | ITWV | V: [c] needs enrolled biometry, which Apple's visionOS simulator never has (x86Sim: PASS) |
 | StoreKit | ITWV | [c] purchases need a .storekit configuration (SKTestSession is Xcode-only) |
 | SwiftUI | ITWV | W: [a] contextMenu, toolbar items; W: [a] List swipeActions; V: [a] contextMenu (needs a long-press input: SwiftUI's ContextMenuBridge answers no configuration outside the gesture, Apple's simulator too); V: [a] DocumentGroup / FileDocument; V: [a] drag & drop with Transferable (draggable/dropDestination); V: [a] List swipeActions (needs a swipe input) |
 | TabletopKit | V | [a] TabletopInteraction gesture / dice roll handling |
 | Translation | ITWV | I: [c] TranslationSession.translate with installed assets (Apple sim: not installed -> error, asserted) |
 | UIKit | ITWV | [a] scene lifecycle (background/foreground, state restoration via NSUserActivity) |
-| USDKit | ITV | [a] _USDKit_RealityKit: convert a USD stage to RealityKit entities |
 | UserNotifications | ITWV | T: [c] badge delivery needs authorization whose alert never dismisses unattended (add refusal asserted); W: [a] UNNotificationServiceExtension mutating a delivered push (simctl push equivalent); V: [a] UNNotificationServiceExtension mutating a delivered push (simctl push equivalent) |
 | VideoToolbox | ITV | [c] VTFrameProcessor (frame-rate conversion / super-resolution) isSupported answer |
 | Vision | ITWV | [c] faces/landmarks/body/hand/classify/saliency: Apple sim has no inference context - checks accept the error (done) |
