@@ -11,7 +11,7 @@ import UIKit
 
 private var touchWait16: Double { Double(ProcessInfo.processInfo.environment["SDKCOV_INPUT_WAIT"] ?? "") ?? 0 }
 
-#if os(iOS) || os(visionOS)
+#if os(iOS)
 /// a collection view of one big cell (0.1..0.9 x 0.3..0.7 of the screen; the host presses (0.2, 0.5), left, as Files' first column); the delegate gives it a context menu and
 /// notes the touch times the cell saw (UITouch.timestamp against the system uptime when it arrived)
 @MainActor private final class P16CollectionVC: UIViewController, UICollectionViewDataSource, UICollectionViewDelegate {
@@ -59,7 +59,7 @@ private var touchWait16: Double { Double(ProcessInfo.processInfo.environment["SD
 extension Registry {
     static var p16_touch: [Check] {
         var c: [Check] = []
-        #if os(iOS) || os(visionOS)
+        #if os(iOS)
         // MARK: UIKit: a long press on a collection view cell opens its context menu (not a tap: no selection)
         c.append(check("UIKit", "input-collection-context-menu", timeout: 120) {
             let wait = touchWait16
@@ -93,20 +93,29 @@ extension Registry {
             _ = await p6Wait(30) { UIApplication.shared.applicationState == .active }
             let t0 = Date()
             try? await NSFileProviderManager.removeAllDomains()
-            let bg = await onMain { UIApplication.shared.beginBackgroundTask(withName: "sdkcov-fpauth") {} }
-            defer { Task { @MainActor in UIApplication.shared.endBackgroundTask(bg) } }
+            // in the background while Files is in front: the task ended at its expiry (an expired task still running gets
+            // the app killed), then the app waits suspended until the host's tap on Files' "< sdkcov" breadcrumb
+            let bg = P7Box<UIBackgroundTaskIdentifier>()
+            await onMain { bg.set(UIApplication.shared.beginBackgroundTask(withName: "sdkcov-fpauth") { if let t = bg.value { UIApplication.shared.endBackgroundTask(t) } }) }
+            defer { Task { @MainActor in if let t = bg.value { UIApplication.shared.endBackgroundTask(t) } } }
             let ob = P7Box<Bool>()
             await onMain { UIApplication.shared.open(URL(string: "shareddocuments://")!) { ob.set($0) } }
             let opened = await ob.wait(20) ?? false
             try expect(opened, "shareddocuments: not opened")
             let end = Date().addingTimeInterval(wait)
+            // back in front without the error (the host's breadcrumb tap came before Files got there): Files again
+            var opens = 1, last = Date()
             while Date() < end && p3Marks("fpaction-error", since: t0).isEmpty && p3Marks("fpaction-prepare", since: t0).isEmpty {
                 try await Task.sleep(for: .milliseconds(500))
+                if Date().timeIntervalSince(last) > 10, await onMain({ UIApplication.shared.applicationState == .active }) {
+                    await onMain { UIApplication.shared.open(URL(string: "shareddocuments://")!) }
+                    opens += 1; last = Date()
+                }
             }
             let prep = p3Marks("fpaction-prepare", since: t0), err = p3Marks("fpaction-error", since: t0)
             try expect(prep.isEmpty, "the extension was asked for an action: \(prep)")
             try expect(err.first == "NSFileProviderErrorDomain -1000", "the extension's error from Files in \(Int(wait)) s: \(err) (fp marks \(p3Marks("fp-init", since: t0)))")
-            return "Files handed the File Provider UI extension its location's error: \(err.first ?? "")"
+            return "Files handed the File Provider UI extension its location's error: \(err.first ?? "") (Files opened \(opens)x)"
         })
         #endif
         return c

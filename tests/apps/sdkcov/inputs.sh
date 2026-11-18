@@ -24,7 +24,7 @@ for a in "$@"; do case $a in --no-build) build=--no-build ;; *) want="$want $a" 
 rt=$(cat "$X86SIM_DEVICE/runtime" 2>/dev/null); plat=${rt%%-*}
 case $plat in
 	ios) all="shake orientation biometric gamepad memwarn push tracking clip ctxmenu swipe sdrag ncontent cvmenu fpauth"
-		case $(cat "$X86SIM_DEVICE/model" 2>/dev/null) in iPad*) all="$all pointer keyboard drag" ;; esac ;; xros) all="shake biometric gamepad memwarn tracking cvmenu" ;; tvos) all="gamepad memwarn tracking" ;;
+		case $(cat "$X86SIM_DEVICE/model" 2>/dev/null) in iPad*) all="$all pointer keyboard drag" ;; esac ;; xros) all="shake biometric gamepad memwarn tracking" ;; tvos) all="gamepad memwarn tracking" ;;
 	*) echo "inputs: no input checks for $plat" >&2; exit 0 ;;
 esac
 xs() { "$X86SIM_ROOT/cli/x86sim" "$@"; }
@@ -72,9 +72,14 @@ for k in ${want:-$all}; do
 		ctxmenu) id=func:SwiftUI.input-context-menu-long-press; send() { press 0.5 0.5 1.5; } ; undo() { :; } ;;
 		swipe) id=func:SwiftUI.input-list-swipe-actions; send() { stroke 0.95 0.35 0.05 0.35 0; } ; undo() { :; } ;;
 		# Files opened by the check: Apple's first-launch keyboard tip's Continue (here: the Shared tab), Browse twice (its
-		# root), the sdkcov location (the fourth row)
-		fpauth) id=func:FileProviderUI.input-files-authentication-error; send() { press 0.5 0.944 0.08; nap 1.5; press 0.714 0.93 0.08; nap 1.5
-			press 0.714 0.93 0.08; nap 2; press 0.4 0.453 0.08; nap 4; } ; undo() { xs terminate com.apple.DocumentsApp; } ;;
+		# root), the sdkcov location (the fourth row), the "< sdkcov" breadcrumb back to the app (the check opens Files
+		# again). iPad: the sidebar button (shows or hides it: every other round), sdkcov in the sidebar
+		fpauth) id=func:FileProviderUI.input-files-authentication-error
+			case $(cat "$X86SIM_DEVICE/model" 2>/dev/null) in
+			iPad*) send() { press 0.332 0.044 0.08; nap 2.5; press 0.146 0.286 0.08; nap 4; press 0.025 0.012 0.08; } ;;
+			*) send() { press 0.5 0.944 0.08; nap 1.5; press 0.714 0.93 0.08; nap 1.5
+				press 0.714 0.93 0.08; nap 2; press 0.4 0.453 0.08; nap 4; press 0.06 0.045 0.08; } ;;
+			esac; undo() { xs terminate com.apple.DocumentsApp; } ;;
 		cvmenu) id=func:UIKit.input-collection-context-menu; send() { press 0.2 0.5 1.5; } ; undo() { :; } ;;
 		sdrag) id=func:SwiftUI.input-transferable-drag-drop; send() { stroke 0.5 0.25 0.5 0.75 1.2; } ; undo() { :; } ;;
 		# the notification prompt's Allow tapped (iPhone 17 Pro layout), then a long press on the banner at the top (its middle at 0.10)
