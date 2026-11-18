@@ -152,14 +152,9 @@ extension Registry {
             let granted = Mutex<Bool?>(nil)
             Task { let g = (try? await nc.requestAuthorization(options: [.alert, .sound, .badge])) ?? false; granted.withLock { $0 = g } }
             while granted.withLock({ $0 }) == nil && Date() < end { try await Task.sleep(for: .milliseconds(300)) }
-            if UIDevice.current.userInterfaceIdiom == .pad {
-                // Apple's iPad simulator (iPad Air 11-inch (M3), 27.2) never shows the prompt: the request stays unanswered
-                // (three runs, screenshots at 14-55 s; inputs.sh sends the iPad no Allow tap). x86Sim shows the prompt
-                // (open: reported in COVERAGE-GAPS.md)
-                let g = granted.withLock { $0 }
-                try expect(g == nil, "the authorization request answered \(String(describing: g)) on an iPad (Apple's iPad simulator: never)")
-                return "iPad: authorization request unanswered after \(Int(wait)) s (as Apple's iPad simulator: no prompt)"
-            }
+            // the prompt comes from SpringBoard's notification server, which Apple's simulator starts about 135 s after
+            // the device boots (iPhone and iPad alike): a request made sooner stays unanswered until then (r22: the
+            // iPad's "never" of r21 was this; ref-mac.sh runs right after a boot, so its run waits up to 150 s)
             try expect(granted.withLock { $0 } == true, "alert authorization \(String(describing: granted.withLock { $0 })) after \(Int(wait)) s (the host's Allow never came)")
             let cats = await nc.notificationCategories()
             nc.setNotificationCategories(cats.filter { $0.identifier != "sdkcov.content" }.union([UNNotificationCategory(identifier: "sdkcov.content", actions: [], intentIdentifiers: [])]))

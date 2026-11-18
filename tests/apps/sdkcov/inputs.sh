@@ -85,7 +85,8 @@ for k in ${want:-$all}; do
 		# the notification prompt's Allow tapped (iPhone 17 Pro layout), then a long press on the banner at the top (its middle at 0.10)
 		# iPad: nothing (Apple's iPad simulator never shows the prompt; the check asserts the request stays unanswered)
 		ncontent) id=func:UserNotificationsUI.input-expand-content-extension
-			case $(cat "$X86SIM_DEVICE/model" 2>/dev/null) in iPad*) send() { :; } ;; *) send() { press $ALLOW 0.1; press 0.5 0.10 1.5; } ;; esac
+			# the iPad's prompt is centred: Allow at (0.59, 0.546); its banners are higher up
+			case $(cat "$X86SIM_DEVICE/model" 2>/dev/null) in iPad*) send() { press 0.59 0.546 0.1; press 0.5 0.06 1.5; } ;; *) send() { press $ALLOW 0.1; press 0.5 0.10 1.5; } ;; esac
 			undo() { :; } ;;
 		*) echo "inputs: unknown check $k" >&2; exit 2 ;;
 	esac

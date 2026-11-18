@@ -10,6 +10,8 @@
 #   does on x86Sim, through mac/indigo.m (SimulatorKit's Indigo HID, built on the Mac): e.g. INPUT='drag 0.5 0.5 0.5 0.5
 #   1500 32' (a long press), with SDKCOV_INPUT_WAIT=$WAIT (default 40) in the app's launch environment
 # Env SHOTS='S1 S2 ...' (with --only): screenshots S seconds after the launch, OUT/shot-S.png
+# Env LOGPRED='PREDICATE' (with --only): the simulator's unified log of the run (log show --info --debug, that
+#   predicate, from the device's boot) comes back as OUT/log.txt
 # Env CLIP=1 (with --only func:AppClip.input-clip-launch): the App Clip launched 10 s in with _XCAppClipURL, as inputs.sh clip
 #   --only   one launch running just the checks whose id contains one of these (as run.sh --only); their results
 #            are printed (the app's stderr is OUT/sdkcov-1.err), no report
@@ -42,7 +44,7 @@ APP=${SDKCOV_APPS:-$X86SIM_SCRATCH/apps}/sdkcov-$plat.app
 # the whole run happens on the Mac in one ssh session: the app goes over as a tar on stdin, the results come back
 # (the remote script is an argument: stdin carries the app)
 read -r -d '' REMOTE <<'MAC'
-plat=$1 rtname=$2 dtype=$3 rt=$4 secs=$5 only=$6 name=$7 tracking=${8:-} clip=${9:-} input=${10:-} shots=${11:-} iwait=${12:-40}
+plat=$1 rtname=$2 dtype=$3 rt=$4 secs=$5 only=$6 name=$7 tracking=${8:-} clip=${9:-} input=${10:-} shots=${11:-} iwait=${12:-40} logpred=${13:-}
 set -u
 W=$(mktemp -d /tmp/sdkcov-ref.XXXXXX); cd "$W"; tar xf - -C "$W"
 exec 3>&1 1>&2
@@ -51,7 +53,7 @@ dev=$(xcrun simctl create "sdkcov-ref-$name" "$dtype" "$rt") || exit 1
 cleanup() { xcrun simctl shutdown "$dev" >/dev/null 2>&1; xcrun simctl delete "$dev" >/dev/null 2>&1; rm -rf "$W"; }
 trap cleanup EXIT
 echo "ref-mac: $rt on $dev"
-xcrun simctl boot "$dev" && xcrun simctl bootstatus "$dev" -b >/dev/null
+tb=$(date +%s); xcrun simctl boot "$dev" && xcrun simctl bootstatus "$dev" -b >/dev/null
 xcrun simctl install "$dev" "$W/sdkcov-$plat.app" || exit 1
 [ -d "$W/sdkcovDoc-$plat.app" ] && { xcrun simctl install "$dev" "$W/sdkcovDoc-$plat.app" || echo "ref-mac: sdkcovDoc not installed"; }
 # the App Clip after the app, as run.sh (installing the full app removes an installed clip of it)
@@ -114,7 +116,8 @@ if [ -n "$only" ]; then   # one launch; its stderr is the result
 		sleep 2
 	done
 	xcrun simctl terminate "$dev" com.x86sim.test.sdkcov >/dev/null 2>&1; sleep 1; kill %1 2>/dev/null
-	cd "$W" && tar cf - sdkcov-*.err shot-*.png 2>/dev/null >&3
+	[ -n "$logpred" ] && xcrun simctl spawn "$dev" log show --info --debug --start "$(date -r "$tb" '+%Y-%m-%d %H:%M:%S')" --predicate "$logpred" > "$W/log.txt" 2>&1
+	cd "$W" && tar cf - sdkcov-*.err shot-*.png log.txt 2>/dev/null >&3
 	exit 0
 fi
 while [ $(( $(date +%s) - t0 )) -lt "$secs" ]; do
@@ -131,7 +134,7 @@ cd "$W" && tar cf - results.txt coverage.json screen.png sdkcov-*.err 2>/dev/nul
 MAC
 DOC=sdkcovDoc-$plat.app; [ -d "$(dirname "$APP")/$DOC" ] || DOC=
 tar cf - -C "$(dirname "$APP")" "$(basename "$APP")" $DOC -C "$S/mac" indigo.m |
-	ssh -o BatchMode=yes "$MAC" "bash -c $(printf '%q' "$REMOTE") ref $plat $rtname $dtype '${RUNTIME:-}' ${SECS:-900} '$only' $name '${TRACKING:-}' '${CLIP:-}' '${INPUT:-}' '${SHOTS:-}' '${WAIT:-40}'" > "$OUT/ref.tar"
+	ssh -o BatchMode=yes "$MAC" "bash -c $(printf '%q' "$REMOTE") ref $plat $rtname $dtype '${RUNTIME:-}' ${SECS:-900} '$only' $name '${TRACKING:-}' '${CLIP:-}' '${INPUT:-}' '${SHOTS:-}' '${WAIT:-40}' $(printf '%q' "${LOGPRED:-}")" > "$OUT/ref.tar"
 (cd "$OUT" && tar xf ref.tar && rm ref.tar)
 if [ -n "$only" ]; then
 	tr -d '\r' < "$OUT/sdkcov-1.err" | grep "^X86TEST" | grep -v -e " only " -e " done " | cut -d' ' -f3-
