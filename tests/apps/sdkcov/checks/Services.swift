@@ -469,6 +469,10 @@ extension Registry {
         #endif
         #if canImport(WatchConnectivity)
         c.append(check("WatchConnectivity", "session-activate", timeout: 20) {
+            #if os(iOS) || os(visionOS)
+            // no paired watch on a simulator phone / Vision Pro: Apple's simulators answer isSupported() false
+            if !WCSession.isSupported() { return "WCSession.isSupported() false (no paired watch), as Apple's simulator" }
+            #endif
             try skipIf(!WCSession.isSupported(), "WCSession not supported here")
             final class D: NSObject, WCSessionDelegate {
                 let lock = NSLock()

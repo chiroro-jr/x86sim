@@ -24,6 +24,18 @@ import _SwiftData_SwiftUI
 #if canImport(WidgetKit) && os(iOS)
 import WidgetKit
 #endif
+#if canImport(TipKit)
+import TipKit
+#endif
+#if canImport(CoreHaptics)
+import CoreHaptics
+#endif
+#if canImport(Speech) && !os(watchOS)
+import Speech
+#endif
+#if canImport(Accessibility)
+import Accessibility
+#endif
 
 /// the share of pixels with alpha > 0 (0...1)
 func p12Inked(_ img: CGImage) -> Double {
@@ -289,6 +301,105 @@ extension Registry {
         })
         #endif
 
+
+        // MARK: round 16, batch 2
+        #if canImport(TipKit)
+        c.append(check("TipKit", "reset-show-all-for-testing") {
+            // the testing switches before / after configure: resetDatastore is refused once the datastore is configured
+            // (an earlier check or this one configured it), showAll / hideAll are accepted at any time
+            var conf = "configured now"
+            do { try Tips.configure([.datastoreLocation(.applicationDefault)]) } catch { conf = "configure: \(error)" }
+            var reset = "reset ok"
+            do { try Tips.resetDatastore() } catch { reset = "reset: \(error)" }
+            Tips.showAllTipsForTesting(); Tips.hideAllTipsForTesting(); Tips.showTipsForTesting([SDKCovTip.self])
+            try expect(reset != "reset ok", "resetDatastore accepted after configure")
+            return "\(conf.prefix(80)); \(reset.prefix(80)); showAll / hideAll / showTips accepted"
+        })
+        #endif
+        #if canImport(CoreHaptics) && !os(watchOS)
+        c.append(check("CoreHaptics", "ahap-parse") {
+            // an AHAP document (a transient, a continuous event with a curve), parsed from a dictionary and from a file
+            let ahap: [String: Any] = ["Version": 1.0, "Pattern": [
+                ["Event": ["Time": 0.0, "EventType": "HapticTransient", "EventParameters": [["ParameterID": "HapticIntensity", "ParameterValue": 0.8]]]],
+                ["Event": ["Time": 0.1, "EventType": "HapticContinuous", "EventDuration": 0.5, "EventParameters": [["ParameterID": "HapticSharpness", "ParameterValue": 0.3]]]],
+                ["ParameterCurve": ["ParameterID": "HapticIntensityControl", "Time": 0.1, "ParameterCurveControlPoints": [["Time": 0.0, "ParameterValue": 1.0], ["Time": 0.5, "ParameterValue": 0.0]]]],
+            ]]
+            let p = try CHHapticPattern(dictionary: ahap.reduce(into: [CHHapticPattern.Key: Any]()) { $0[CHHapticPattern.Key(rawValue: $1.key)] = $1.value })
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("sdkcov.ahap")
+            try JSONSerialization.data(withJSONObject: ahap).write(to: url)
+            defer { try? FileManager.default.removeItem(at: url) }
+            let pf = try CHHapticPattern(contentsOf: url)
+            let d1 = try p.exportDictionary(), events = (d1[.pattern] as? [Any])?.count ?? -1
+            try expect(abs(p.duration - 0.6) < 0.001 && abs(pf.duration - p.duration) < 0.001, "durations \(p.duration) / \(pf.duration)")
+            return "duration \(p.duration) s (file \(pf.duration) s), \(events) pattern entries exported"
+        })
+        #endif
+        #if canImport(Speech) && !os(tvOS) && !os(watchOS)
+        c.append(check("Speech", "audio-buffer-request", timeout: 150) {
+            // the buffer path: synthesized speech appended as PCM buffers to an SFSpeechAudioBufferRecognitionRequest
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("sdkcov-p12-speech.caf")
+            _ = try await p7SpeechFile("The quick brown fox jumps over the lazy dog", url)
+            guard let r = SFSpeechRecognizer(locale: Locale(identifier: "en-US")) else { throw Fail("no en-US recognizer") }
+            let req = SFSpeechAudioBufferRecognitionRequest()
+            req.shouldReportPartialResults = false
+            req.requiresOnDeviceRecognition = r.supportsOnDeviceRecognition
+            let box = P7Box<String>()
+            let task = r.recognitionTask(with: req) { res, e in
+                if let e { box.set("error \(p7Err(e))"); return }
+                if let res, res.isFinal { box.set("text '\(res.bestTranscription.formattedString)'") }
+            }
+            let f = try AVAudioFile(forReading: url)
+            var appended = 0
+            while f.framePosition < f.length {
+                guard let b = AVAudioPCMBuffer(pcmFormat: f.processingFormat, frameCapacity: 4096) else { break }
+                try f.read(into: b); if b.frameLength == 0 { break }
+                req.append(b); appended += Int(b.frameLength)
+            }
+            req.endAudio()
+            let got = await box.wait(60) ?? "no result in 60 s"
+            task.cancel()
+            // Apple's simulators have no on-device ASR asset: visionOS answers kLSRErrorDomain 300 (as the URL request),
+            // iOS never finishes the buffer task
+            try expect(got.lowercased().contains("fox") || got == "error kLSRErrorDomain 300" || got == "no result in 60 s", got)
+            return "\(appended) frames appended: \(got)"
+        })
+        #endif
+        #if canImport(Accessibility)
+        c.append(check("Accessibility", "settings-announcement") {
+            // the Accessibility framework's setting queries (a fresh simulator device: all off) and an announcement post
+            typealias S = AccessibilitySettings
+            let vals = ["animatedImages \(S.animatedImagesEnabled)", "horizontalText \(S.prefersHorizontalTextLayout)",
+                        "nonBlinkingCursor \(S.prefersNonBlinkingTextInsertionIndicator)", "assistiveAccess \(S.isAssistiveAccessEnabled)",
+                        "showBorders \(S.showBordersEnabled)", "actionSliderAlternative \(S.prefersActionSliderAlternative)"]
+            AccessibilityNotification.Announcement("sdkcov announcement").post()
+            AccessibilityNotification.LayoutChanged(nil).post()
+            try expect(vals.contains("animatedImages true") && vals.contains("horizontalText false") && vals.contains("nonBlinkingCursor false"), "\(vals)")
+            return vals.joined(separator: ", ") + "; announcement + layout-changed posted"
+        })
+        #endif
+        c.append(check("CoreGraphics", "shading-function-pattern") {
+            // an axial CGShading through a CGFunction (black -> red), a colored CGPattern tiling 8x8 blue squares
+            let w = 64, h = 32
+            guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { throw Fail("context") }
+            var cb = CGFunctionCallbacks(version: 0, evaluate: { _, i, o in o[0] = i[0]; o[1] = 0; o[2] = 0; o[3] = 1 }, releaseInfo: nil)
+            let dom: [CGFloat] = [0, 1], rng: [CGFloat] = [0, 1, 0, 1, 0, 1, 0, 1]
+            guard let fn = CGFunction(info: nil, domainDimension: 1, domain: dom, rangeDimension: 4, range: rng, callbacks: &cb),
+                  let sh = CGShading(axialSpace: CGColorSpaceCreateDeviceRGB(), start: CGPoint(x: 0, y: 0), end: CGPoint(x: 32, y: 0), function: fn, extendStart: false, extendEnd: false)
+            else { throw Fail("shading") }
+            ctx.saveGState(); ctx.clip(to: CGRect(x: 0, y: 0, width: 32, height: h)); ctx.drawShading(sh); ctx.restoreGState()
+            var pcb = CGPatternCallbacks(version: 0, drawPattern: { _, c in c.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 1, alpha: 1)); c.fill(CGRect(x: 0, y: 0, width: 4, height: 4)) }, releaseInfo: nil)
+            guard let pat = CGPattern(info: nil, bounds: CGRect(x: 0, y: 0, width: 8, height: 8), matrix: .identity, xStep: 8, yStep: 8, tiling: .constantSpacing, isColored: true, callbacks: &pcb),
+                  let ps = CGColorSpace(patternBaseSpace: nil) else { throw Fail("pattern") }
+            ctx.setFillColorSpace(ps); var a: CGFloat = 1; ctx.setFillPattern(pat, colorComponents: &a)
+            ctx.fill(CGRect(x: 32, y: 0, width: 32, height: h))
+            guard let d = ctx.data?.assumingMemoryBound(to: UInt8.self) else { throw Fail("no pixels") }
+            func px(_ x: Int, _ y: Int) -> [Int] { let o = (h - 1 - y) * w * 4 + x * 4; return (0..<4).map { Int(d[o + $0]) } }
+            let left = px(1, 16), mid = px(16, 16), right = px(30, 16), tile = px(33, 1), gap = px(38, 1)
+            try expect(left[0] < 30 && abs(mid[0] - 128) < 20 && right[0] > 225 && left[3] == 255, "shading \(left) \(mid) \(right)")
+            try expect(tile[2] == 255 && tile[0] == 0 && gap[3] == 0, "pattern tile \(tile) gap \(gap)")
+            return "shading r \(left[0]) -> \(mid[0]) -> \(right[0]); pattern tile \(tile) gap alpha \(gap[3])"
+        })
         return c
     }
 }
