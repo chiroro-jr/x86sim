@@ -1923,9 +1923,8 @@
    "existing_checks": [
     "func:MediaToolbox.audio-processing-tap"
    ],
-   "gaps": [
-    "[a] MTAudioProcessingTap is the main API - fine; MTRegisterProfessionalVideoWorkflowFormatReaders"
-   ],
+   "gaps": [],
+   "note": "r19: MTRegisterProfessionalVideoWorkflowFormatReaders is macOS-only (API_UNAVAILABLE on iOS/tvOS/visionOS): no gap.",
    "package": "P1 Media & AV",
    "rejudged": false,
    "status": "covered"
@@ -2051,14 +2050,14 @@
    "apple_sim_na_done": true,
    "existing_checks": [
     "func:MetricKit.log-handles-signposts-launch-task",
-    "func:MetricKit.manager"
+    "func:MetricKit.manager",
+    "func:MetricKit.signposts-in-log-store"
    ],
-   "gaps": [
-    "[a] assert signposts reach the log (mxSignpost / MetricManager.logHandle emitted, not checked)"
-   ],
-   "note": "manager asserts no payloads / diagnostics; log-handles asserts extend 2 / finish 4, iOS trackLaunchTask pastDeadline + 0 state domains (Apple).",
+   "gaps": [],
+   "note": "manager asserts no payloads / diagnostics; log-handles asserts extend 2 / finish 4, iOS trackLaunchTask pastDeadline + 0 state domains (Apple). r19: OSLogStore of the process holds the MetricKit handle's log message but none of its signposts (Apple's simulator too) (Apple and x86Sim PASS, 2026-11-18).",
    "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
+   "r19": true,
    "rejudged": true,
    "status": "apple-sim-na"
   },
@@ -2569,14 +2568,13 @@
   },
   "ScreenTime": {
    "existing_checks": [
-    "func:ScreenTime.web-history-webpage-controller"
+    "func:ScreenTime.web-history-webpage-controller",
+    "func:ScreenTime.configuration-observer-webpage-state"
    ],
-   "gaps": [
-    "[a] STWebpageController hosting a page: urlIsBlocked / suppressUsageRecording behaviour",
-    "[a] STScreenTimeConfigurationObserver"
-   ],
-   "note": "asserts STWebHistory fetchAllHistory 0 URLs; webpage controller built.",
+   "gaps": [],
+   "note": "asserts STWebHistory fetchAllHistory 0 URLs; webpage controller built. r19: STScreenTimeConfigurationObserver answers enforcesChildRestrictions false; STWebpageController blocked false with suppress / video / PiP state (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P3 App extensions, system services, communication & parental controls",
+   "r19": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -2787,13 +2785,13 @@
     "func:SwiftData.unique-attribute-upsert",
     "func:SwiftData.relationship-inverse-cascade",
     "func:SwiftData.versioned-schema-migration-plan",
-    "func:SwiftData.history-model-actor"
+    "func:SwiftData.history-model-actor",
+    "func:SwiftData.custom-data-store"
    ],
-   "gaps": [
-    "[a] custom DataStore"
-   ],
-   "note": "#Unique upsert, inverse/cascade relationships, VersionedSchema migration plan, history + ModelActor.",
+   "gaps": [],
+   "note": "#Unique upsert, inverse/cascade relationships, VersionedSchema migration plan, history + ModelActor. r19: a DataStore / DataStoreConfiguration keeping DefaultSnapshots: inserts remapped to permanent ids, predicate / sort in memory, update + delete saved (array attributes come back as Data and trap on Apple too) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P4 Data, cloud, contacts/calendars & commerce",
+   "r19": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -2814,16 +2812,16 @@
     "func:SwiftUI.toolbar-menu-picker-datepicker-popover",
     "func:SwiftUI.input-context-menu-long-press",
     "func:SwiftUI.input-list-swipe-actions",
-    "func:SwiftUI.input-transferable-drag-drop"
+    "func:SwiftUI.input-transferable-drag-drop",
+    "func:SwiftUI.document-group-open-edit-save"
    ],
-   "gaps": [
-    "[a] DocumentGroup / FileDocument"
-   ],
-   "note": "layout/Grid/custom Layout pixels, animation timing, Observation invalidation, lazy stacks/scroll position, NavigationStack path, sheet/cover/alert/dialog, controls+TextField focus, TimelineView, TabView now on all platforms that support them. r16: toolbar item as a trailing bar item, Menu and menu Picker as primary-action UIButtons (3 choices), compact UIDatePicker, a popover (visionOS: sheet) presented and dismissed from the model (Apple and x86Sim PASS, 2026-11-18). r17: a contextMenu becomes a UIContextMenuInteraction with SwiftUI's ContextMenuBridge delegate, which answers no configuration outside a long-press gesture (Apple too): left for input r18: a long press from the host (inputs.sh ctxmenu; Indigo touches on the Mac) opens a contextMenu: both items in the menu window (Apple and x86Sim PASS, 2026-11-18). r18: a full trailing swipe from the host runs the first swipeActions button (Apple and x86Sim PASS, 2026-11-18). r18: a host drag moves a draggable(String) onto a dropDestination (isTargeted first, the string dropped) (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "layout/Grid/custom Layout pixels, animation timing, Observation invalidation, lazy stacks/scroll position, NavigationStack path, sheet/cover/alert/dialog, controls+TextField focus, TimelineView, TabView now on all platforms that support them. r16: toolbar item as a trailing bar item, Menu and menu Picker as primary-action UIButtons (3 choices), compact UIDatePicker, a popover (visionOS: sheet) presented and dismissed from the model (Apple and x86Sim PASS, 2026-11-18). r17: a contextMenu becomes a UIContextMenuInteraction with SwiftUI's ContextMenuBridge delegate, which answers no configuration outside a long-press gesture (Apple too): left for input r18: a long press from the host (inputs.sh ctxmenu; Indigo touches on the Mac) opens a contextMenu: both items in the menu window (Apple and x86Sim PASS, 2026-11-18). r18: a full trailing swipe from the host runs the first swipeActions button (Apple and x86Sim PASS, 2026-11-18). r18: a host drag moves a draggable(String) onto a dropDestination (isTargeted first, the string dropped) (Apple and x86Sim PASS, 2026-11-18). r19: the companion app sdkcovDoc (DocumentGroup over a FileDocument) opened by URL: its document browser, a file opened through the browser delegate, an edit autosaved (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
    "r16": true,
    "r17": true,
    "r18": true,
+   "r19": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -4707,11 +4705,11 @@
     "func:Intents.preferences-interaction"
    ],
    "gaps": [
-    "[a] in-app intent handling (application(_:handlerFor:) / INExtension) for INSendMessageIntent",
-    "[a] assert INInteraction delete answers (tvOS: 1900 on both)"
+    "[a] in-app intent handling (application(_:handlerFor:) / INExtension) for INSendMessageIntent"
    ],
-   "note": "INInteraction secure-coding round trip + donate (ok or 1901 undeclared intents), INShortcut nil for undeclared intent, voice shortcuts + relevant shortcuts.",
+   "note": "INInteraction secure-coding round trip + donate (ok or 1901 undeclared intents), INShortcut nil for undeclared intent, voice shortcuts + relevant shortcuts. r19: tvOS delete(with:) / deleteAll asserted IntentsErrorDomain 1900 (Apple) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
+   "r19": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -4887,9 +4885,8 @@
    "existing_checks": [
     "func:MediaToolbox.audio-processing-tap"
    ],
-   "gaps": [
-    "[a] MTAudioProcessingTap is the main API - fine; MTRegisterProfessionalVideoWorkflowFormatReaders"
-   ],
+   "gaps": [],
+   "note": "r19: MTRegisterProfessionalVideoWorkflowFormatReaders is macOS-only (API_UNAVAILABLE on iOS/tvOS/visionOS): no gap.",
    "package": "P1 Media & AV",
    "rejudged": false,
    "status": "covered"
@@ -9263,9 +9260,8 @@
    "existing_checks": [
     "func:MediaToolbox.audio-processing-tap"
    ],
-   "gaps": [
-    "[a] MTAudioProcessingTap is the main API - fine; MTRegisterProfessionalVideoWorkflowFormatReaders"
-   ],
+   "gaps": [],
+   "note": "r19: MTRegisterProfessionalVideoWorkflowFormatReaders is macOS-only (API_UNAVAILABLE on iOS/tvOS/visionOS): no gap.",
    "package": "P1 Media & AV",
    "rejudged": false,
    "status": "covered"
