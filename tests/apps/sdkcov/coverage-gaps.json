@@ -195,13 +195,13 @@
    "existing_checks": [
     "func:ActivityKit.live-activity-lifecycle",
     "func:ActivityKit.live-activity-widget-views",
-    "func:ActivityKit.authorization"
+    "func:ActivityKit.authorization",
+    "func:ActivityKit.push-token-updates"
    ],
-   "gaps": [
-    "[a] pushType .token: pushTokenUpdates answer (token or none in the sim: assert)"
-   ],
-   "note": "request/update/end lifecycle plus the widget extension drawing lock-screen and Dynamic Island views; Apple sim supports it.",
+   "gaps": [],
+   "note": "request/update/end lifecycle plus the widget extension drawing lock-screen and Dynamic Island views; Apple sim supports it. r20: a Live Activity requested with pushType .token: no pushTokenUpdates value and pushToken nil in 15 s (no APNs in the simulator) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P3 App extensions, system services, communication & parental controls",
+   "r20": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -576,14 +576,16 @@
   "Charts": {
    "existing_checks": [
     "func:Charts.bar-scale-sector-pie-pixels",
-    "func:Charts.bar-line-render"
+    "func:Charts.bar-line-render",
+    "func:Charts.rule-mark-pixel-position-selection"
    ],
    "gaps": [
     "[a] chart selection/scroll APIs (chartXSelection, chartScrollableAxes, chartScrollPosition)",
-    "[a] LineMark/AreaMark/RuleMark positions by pixels, axis labels"
+    "[a] axis label positions by pixels"
    ],
-   "note": "BarMark scale and SectorMark pie sectors asserted by pixel colour on all four platforms.",
+   "note": "BarMark scale and SectorMark pie sectors asserted by pixel colour on all four platforms. r20: a RuleMark at x 7.5 of 0...10 drawn at 0.749 of the plot width (ImageRenderer, chartXSelection set); a scrollable chart is a ScrollView ImageRenderer leaves blank (Apple too) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
+   "r20": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -660,10 +662,11 @@
     "func:ComputeGraph.graph-build-serialize-assemble"
    ],
    "gaps": [
-    "[a] assert the ComputeNodeGraph.Assembly result (uniform buffer size / uniforms) and evaluate an assembled graph"
+    "[a] evaluate an assembled graph"
    ],
-   "note": "Builds a 3-node graph, json + propertyList round trips, edge/node removal, shared library definitions.",
+   "note": "Builds a 3-node graph, json + propertyList round trips, edge/node removal, shared library definitions. r20: Assembly of the input + add graph asserted: uniform buffer 0 B, 0 uniforms (the constant is inlined) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
+   "r20": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -1256,14 +1259,16 @@
   "FileProviderUI": {
    "existing_checks": [
     "func:FileProviderUI.action-extension-controller",
-    "func:FileProviderUI.action-extension-registered"
+    "func:FileProviderUI.action-extension-registered",
+    "func:FileProviderUI.input-files-authentication-error"
    ],
    "gaps": [
-    "[c] the action extension runs only from the Files app's action menu (system UI)"
+    "[c] the extension's custom action (NSExtensionFileProviderActions) is in no item's context menu in Apple's iOS 27.2 Files"
    ],
-   "note": "action-extension-registered: sdkcovFPAction.appex on com.apple.fileprovider-actionsui with action com.x86sim.test.sdkcov.action (Apple) (x86Sim PASS on each of its platforms, 2026-11-17)",
+   "note": "action-extension-registered: sdkcovFPAction.appex on com.apple.fileprovider-actionsui with action com.x86sim.test.sdkcov.action (Apple) (x86Sim PASS on each of its platforms, 2026-11-17) r20: Files (opened by shareddocuments:, the host taps Browse > sdkcov, iPhone and iPad) hands the extension prepare(forError:) NSFileProviderError -1000 for the domain-less location (Apple and x86Sim PASS, 2026-11-18).",
    "p10": true,
    "package": "P3 App extensions, system services, communication & parental controls",
+   "r20": true,
    "rejudged": true,
    "status": "thin"
   },
@@ -1648,12 +1653,12 @@
     "func:Intents.preferences-interaction"
    ],
    "gaps": [
-    "[a] in-app intent handling (application(_:handlerFor:) / INExtension) for INSendMessageIntent",
-    "[a] assert INInteraction delete answers (tvOS: 1900 on both)"
+    "[a] in-app intent handling (application(_:handlerFor:) / INExtension) for INSendMessageIntent"
    ],
-   "note": "INInteraction secure-coding round trip + donate (ok or 1901 undeclared intents), INShortcut nil for undeclared intent, voice shortcuts + relevant shortcuts. r17: focus-status-center asserts not determined / not focused (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "INInteraction secure-coding round trip + donate (ok or 1901 undeclared intents), INShortcut nil for undeclared intent, voice shortcuts + relevant shortcuts. r17: focus-status-center asserts not determined / not focused (Apple and x86Sim PASS, 2026-11-18). r20: delete(with:) / deleteAll asserted ok on iOS / watchOS / visionOS (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
    "r17": true,
+   "r20": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -1688,11 +1693,12 @@
     "func:LinkPresentation.metadata-fetch-cancel"
    ],
    "gaps": [
-    "[a] LPMetadataProvider remote video / iconProvider vs imageProvider split"
+    "[a] LPMetadataProvider remote video"
    ],
-   "note": "loopback fetch asserts og:title, og:image size, icon requests and LPLinkView; metadata archive round trip. r17: cancel() mid-request to a loopback server that never answers: metadataFetchCancelled (LPErrorDomain 3) or no answer (Apple's iOS simulator once LinkPresentation is warm), never metadata (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "loopback fetch asserts og:title, og:image size, icon requests and LPLinkView; metadata archive round trip. r17: cancel() mid-request to a loopback server that never answers: metadataFetchCancelled (LPErrorDomain 3) or no answer (Apple's iOS simulator once LinkPresentation is warm), never metadata (Apple and x86Sim PASS, 2026-11-18). r20: the loopback page's 16x16 <link rel=icon> comes through iconProvider apart from the 40x30 og:image (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
    "r17": true,
+   "r20": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -2265,14 +2271,14 @@
   "PHASE": {
    "existing_checks": [
     "func:PHASE.engine",
-    "func:PHASE.spatial-sound-event-playback"
+    "func:PHASE.spatial-sound-event-playback",
+    "func:PHASE.occluder-material-ambient-mixer"
    ],
-   "gaps": [
-    "[a] PHASEOccluder/material, ambient mixer"
-   ],
-   "note": "P11: spatial sound event plays to the end on iOS/tvOS too (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "P11: spatial sound event plays to the end on iOS/tvOS too (Apple and x86Sim PASS, 2026-11-18). r20: a cardboard PHASEMaterial on a PHASEOccluder in the scene; a mono one-shot through PHASEAmbientMixerDefinition plays to the end (a stereo ambient mixer refuses a mono generator, Apple too) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
    "r15": true,
+   "r20": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -2467,14 +2473,16 @@
     "func:RealityKit.lowlevel-mesh-texture-render",
     "func:RealityKit.reality-file-roundtrip-usdz-load",
     "func:RealityKit.particles-audio-resource",
-    "func:RealityKit.entities-meshes"
+    "func:RealityKit.entities-meshes",
+    "func:RealityKit.video-material-entity"
    ],
    "gaps": [
-    "[a] ShaderGraphMaterial, VideoMaterial",
-    "[a] ARView in nonAR camera mode render"
+    "[a] ARView in nonAR camera mode render",
+    "[a] ShaderGraphMaterial"
    ],
-   "note": "RealityRenderer offscreen pixels, ECS system/animation/raycast, physics collisions, LowLevelMesh/LowLevelTexture, .reality round trip + usdz load, particles, audio resource on iOS/tvOS/visionOS.",
+   "note": "RealityRenderer offscreen pixels, ECS system/animation/raycast, physics collisions, LowLevelMesh/LowLevelTexture, .reality round trip + usdz load, particles, audio resource on iOS/tvOS/visionOS. r20: VideoMaterial(avPlayer:) on a ModelEntity plane keeps its player (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
+   "r20": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -3018,14 +3026,16 @@
     "func:UIKit.window-scene-viewcontroller",
     "func:UIKit.pasteboard-text-input",
     "func:UIKit.textfield-secure-content-type",
-    "func:UIKit.context-menu-interaction-present"
+    "func:UIKit.context-menu-interaction-present",
+    "func:UIKit.input-collection-context-menu"
    ],
    "gaps": [
     "[a] scene lifecycle (background/foreground, state restoration via NSUserActivity)"
    ],
-   "note": "P6 adds compositional/diffable pixels, navigation callback order, UITab tab bar, page+search controllers, trait/dark-mode pixels, accessibility rotors, sheet detents, UIMenu/edit menu, UITextInput+find, date/color/font pickers, UIUpdateLink + printing; iPad checks SKIP on the iPhone device. r17: a secure field with the password content type keeps its text and refuses copy / cut (a plain field copies) (Apple and x86Sim PASS, 2026-11-18). r17: a UIContextMenuInteraction presented as a long press ends (UIKit's _presentMenuAtLocation:), delegate config / actions / willDisplay / willEnd, menu labels on screen (iOS; visionOS shows the menu outside the app scene, Apple too) (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "P6 adds compositional/diffable pixels, navigation callback order, UITab tab bar, page+search controllers, trait/dark-mode pixels, accessibility rotors, sheet detents, UIMenu/edit menu, UITextInput+find, date/color/font pickers, UIUpdateLink + printing; iPad checks SKIP on the iPhone device. r17: a secure field with the password content type keeps its text and refuses copy / cut (a plain field copies) (Apple and x86Sim PASS, 2026-11-18). r17: a UIContextMenuInteraction presented as a long press ends (UIKit's _presentMenuAtLocation:), delegate config / actions / willDisplay / willEnd, menu labels on screen (iOS; visionOS shows the menu outside the app scene, Apple too) (Apple and x86Sim PASS, 2026-11-18). r20: a long press on a UICollectionView cell pushed on a navigation stack opens its context menu (x86Sim took it as a tap: simhid SwipeLocked bit, fixed) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
    "r17": true,
+   "r20": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -4090,14 +4100,16 @@
   "Charts": {
    "existing_checks": [
     "func:Charts.bar-scale-sector-pie-pixels",
-    "func:Charts.bar-line-render"
+    "func:Charts.bar-line-render",
+    "func:Charts.rule-mark-pixel-position-selection"
    ],
    "gaps": [
     "[a] chart selection/scroll APIs (chartXSelection, chartScrollableAxes, chartScrollPosition)",
-    "[a] LineMark/AreaMark/RuleMark positions by pixels, axis labels"
+    "[a] axis label positions by pixels"
    ],
-   "note": "BarMark scale and SectorMark pie sectors asserted by pixel colour on all four platforms.",
+   "note": "BarMark scale and SectorMark pie sectors asserted by pixel colour on all four platforms. r20: a RuleMark at x 7.5 of 0...10 drawn at 0.749 of the plot width (ImageRenderer, chartXSelection set); a scrollable chart is a ScrollView ImageRenderer leaves blank (Apple too) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
+   "r20": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -4139,10 +4151,11 @@
     "func:ComputeGraph.graph-build-serialize-assemble"
    ],
    "gaps": [
-    "[a] assert the ComputeNodeGraph.Assembly result (uniform buffer size / uniforms) and evaluate an assembled graph"
+    "[a] evaluate an assembled graph"
    ],
-   "note": "Builds a 3-node graph, json + propertyList round trips, edge/node removal, shared library definitions.",
+   "note": "Builds a 3-node graph, json + propertyList round trips, edge/node removal, shared library definitions. r20: Assembly of the input + add graph asserted: uniform buffer 0 B, 0 uniforms (the constant is inlined) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
+   "r20": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -4742,11 +4755,12 @@
     "func:LinkPresentation.metadata-fetch-cancel"
    ],
    "gaps": [
-    "[a] LPMetadataProvider remote video / iconProvider vs imageProvider split"
+    "[a] LPMetadataProvider remote video"
    ],
-   "note": "loopback fetch asserts og:title, og:image size, icon requests and LPLinkView; metadata archive round trip. r17: cancel() mid-request to a loopback server that never answers: metadataFetchCancelled (LPErrorDomain 3) or no answer (Apple's iOS simulator once LinkPresentation is warm), never metadata (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "loopback fetch asserts og:title, og:image size, icon requests and LPLinkView; metadata archive round trip. r17: cancel() mid-request to a loopback server that never answers: metadataFetchCancelled (LPErrorDomain 3) or no answer (Apple's iOS simulator once LinkPresentation is warm), never metadata (Apple and x86Sim PASS, 2026-11-18). r20: the loopback page's 16x16 <link rel=icon> comes through iconProvider apart from the 40x30 og:image (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
    "r17": true,
+   "r20": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -5155,14 +5169,14 @@
   "PHASE": {
    "existing_checks": [
     "func:PHASE.engine",
-    "func:PHASE.spatial-sound-event-playback"
+    "func:PHASE.spatial-sound-event-playback",
+    "func:PHASE.occluder-material-ambient-mixer"
    ],
-   "gaps": [
-    "[a] PHASEOccluder/material, ambient mixer"
-   ],
-   "note": "P11: spatial sound event plays to the end on iOS/tvOS too (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "P11: spatial sound event plays to the end on iOS/tvOS too (Apple and x86Sim PASS, 2026-11-18). r20: a cardboard PHASEMaterial on a PHASEOccluder in the scene; a mono one-shot through PHASEAmbientMixerDefinition plays to the end (a stereo ambient mixer refuses a mono generator, Apple too) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
    "r15": true,
+   "r20": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -5238,13 +5252,15 @@
     "func:RealityKit.lowlevel-mesh-texture-render",
     "func:RealityKit.reality-file-roundtrip-usdz-load",
     "func:RealityKit.particles-audio-resource",
-    "func:RealityKit.entities-meshes"
+    "func:RealityKit.entities-meshes",
+    "func:RealityKit.video-material-entity"
    ],
    "gaps": [
-    "[a] ShaderGraphMaterial, VideoMaterial"
+    "[a] ShaderGraphMaterial"
    ],
-   "note": "RealityRenderer offscreen pixels, ECS system/animation/raycast, physics collisions, LowLevelMesh/LowLevelTexture, .reality round trip + usdz load, particles, audio resource on iOS/tvOS/visionOS.",
+   "note": "RealityRenderer offscreen pixels, ECS system/animation/raycast, physics collisions, LowLevelMesh/LowLevelTexture, .reality round trip + usdz load, particles, audio resource on iOS/tvOS/visionOS. r20: VideoMaterial(avPlayer:) on a ModelEntity plane keeps its player (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
+   "r20": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -5429,14 +5445,14 @@
     "func:SwiftData.unique-attribute-upsert",
     "func:SwiftData.relationship-inverse-cascade",
     "func:SwiftData.versioned-schema-migration-plan",
-    "func:SwiftData.history-model-actor"
+    "func:SwiftData.history-model-actor",
+    "func:SwiftData.custom-data-store"
    ],
-   "gaps": [
-    "[a] custom DataStore"
-   ],
-   "note": "#Unique upsert, inverse/cascade relationships, VersionedSchema migration plan, history + ModelActor. r17: the P4 SwiftData checks run on x86Sim tvOS too",
+   "gaps": [],
+   "note": "#Unique upsert, inverse/cascade relationships, VersionedSchema migration plan, history + ModelActor. r17: the P4 SwiftData checks run on x86Sim tvOS too r20: the P15 custom DataStore check run on tvOS / watchOS / visionOS (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P4 Data, cloud, contacts/calendars & commerce",
    "r17": true,
+   "r20": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -5546,14 +5562,14 @@
    "existing_checks": [
     "func:TipKit.rules-events-parameters",
     "func:TipKit.configure",
-    "func:TipKit.reset-show-all-for-testing"
+    "func:TipKit.reset-show-all-for-testing",
+    "func:TipKit.tip-view-swiftui-render"
    ],
-   "gaps": [
-    "[a] SwiftUI TipView render"
-   ],
-   "note": "#Rule with parameter + event donations, invalidate(reason:), TipUIView sizes and popover (iOS/visionOS). r16: resetDatastore refused after configure (tipsDatastoreAlreadyConfigured), showAll / hideAll / showTips accepted (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "#Rule with parameter + event donations, invalidate(reason:), TipUIView sizes and popover (iOS/visionOS). r16: resetDatastore refused after configure (tipsDatastoreAlreadyConfigured), showAll / hideAll / showTips accepted (Apple and x86Sim PASS, 2026-11-18). r20: SwiftUI TipView hosted and laid out (tvOS 150x152 after a first height-0 pass, watchOS 150x49); ImageRenderer gives no image of it (Apple too) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P3 App extensions, system services, communication & parental controls",
    "r16": true,
+   "r20": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -6267,14 +6283,16 @@
   "Charts": {
    "existing_checks": [
     "func:Charts.bar-scale-sector-pie-pixels",
-    "func:Charts.bar-line-render"
+    "func:Charts.bar-line-render",
+    "func:Charts.rule-mark-pixel-position-selection"
    ],
    "gaps": [
     "[a] chart selection/scroll APIs (chartXSelection, chartScrollableAxes, chartScrollPosition)",
-    "[a] LineMark/AreaMark/RuleMark positions by pixels, axis labels"
+    "[a] axis label positions by pixels"
    ],
-   "note": "BarMark scale and SectorMark pie sectors asserted by pixel colour on all four platforms.",
+   "note": "BarMark scale and SectorMark pie sectors asserted by pixel colour on all four platforms. r20: a RuleMark at x 7.5 of 0...10 drawn at 0.749 of the plot width (ImageRenderer, chartXSelection set); a scrollable chart is a ScrollView ImageRenderer leaves blank (Apple too) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
+   "r20": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -6819,12 +6837,12 @@
     "func:Intents.preferences-interaction"
    ],
    "gaps": [
-    "[a] in-app intent handling (application(_:handlerFor:) / INExtension) for INSendMessageIntent",
-    "[a] assert INInteraction delete answers (tvOS: 1900 on both)"
+    "[a] in-app intent handling (application(_:handlerFor:) / INExtension) for INSendMessageIntent"
    ],
-   "note": "INInteraction secure-coding round trip + donate (ok or 1901 undeclared intents), INShortcut nil for undeclared intent, voice shortcuts + relevant shortcuts. r17: focus-status-center asserts not determined / not focused (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "INInteraction secure-coding round trip + donate (ok or 1901 undeclared intents), INShortcut nil for undeclared intent, voice shortcuts + relevant shortcuts. r17: focus-status-center asserts not determined / not focused (Apple and x86Sim PASS, 2026-11-18). r20: delete(with:) / deleteAll asserted ok on iOS / watchOS / visionOS (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
    "r17": true,
+   "r20": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -6835,11 +6853,12 @@
     "func:LinkPresentation.metadata-fetch-cancel"
    ],
    "gaps": [
-    "[a] LPMetadataProvider remote video / iconProvider vs imageProvider split"
+    "[a] LPMetadataProvider remote video"
    ],
-   "note": "loopback fetch asserts og:title, og:image size, icon requests and LPLinkView; metadata archive round trip. r17: cancel() mid-request to a loopback server that never answers: metadataFetchCancelled (LPErrorDomain 3) or no answer (Apple's iOS simulator once LinkPresentation is warm), never metadata (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "loopback fetch asserts og:title, og:image size, icon requests and LPLinkView; metadata archive round trip. r17: cancel() mid-request to a loopback server that never answers: metadataFetchCancelled (LPErrorDomain 3) or no answer (Apple's iOS simulator once LinkPresentation is warm), never metadata (Apple and x86Sim PASS, 2026-11-18). r20: the loopback page's 16x16 <link rel=icon> comes through iconProvider apart from the 40x30 og:image (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
    "r17": true,
+   "r20": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -7263,13 +7282,13 @@
     "func:SwiftData.unique-attribute-upsert",
     "func:SwiftData.relationship-inverse-cascade",
     "func:SwiftData.versioned-schema-migration-plan",
-    "func:SwiftData.history-model-actor"
+    "func:SwiftData.history-model-actor",
+    "func:SwiftData.custom-data-store"
    ],
-   "gaps": [
-    "[a] custom DataStore"
-   ],
-   "note": "#Unique upsert, inverse/cascade relationships, VersionedSchema migration plan, history + ModelActor.",
+   "gaps": [],
+   "note": "#Unique upsert, inverse/cascade relationships, VersionedSchema migration plan, history + ModelActor. r20: the P15 custom DataStore check run on tvOS / watchOS / visionOS (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P4 Data, cloud, contacts/calendars & commerce",
+   "r20": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -7332,14 +7351,14 @@
    "existing_checks": [
     "func:TipKit.rules-events-parameters",
     "func:TipKit.configure",
-    "func:TipKit.reset-show-all-for-testing"
+    "func:TipKit.reset-show-all-for-testing",
+    "func:TipKit.tip-view-swiftui-render"
    ],
-   "gaps": [
-    "[a] SwiftUI TipView render"
-   ],
-   "note": "#Rule with parameter + event donations, invalidate(reason:), TipUIView sizes and popover (iOS/visionOS). r16: resetDatastore refused after configure (tipsDatastoreAlreadyConfigured), showAll / hideAll / showTips accepted (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "#Rule with parameter + event donations, invalidate(reason:), TipUIView sizes and popover (iOS/visionOS). r16: resetDatastore refused after configure (tipsDatastoreAlreadyConfigured), showAll / hideAll / showTips accepted (Apple and x86Sim PASS, 2026-11-18). r20: SwiftUI TipView hosted and laid out (tvOS 150x152 after a first height-0 pass, watchOS 150x49); ImageRenderer gives no image of it (Apple too) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P3 App extensions, system services, communication & parental controls",
    "r16": true,
+   "r20": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -8157,15 +8176,17 @@
   "Charts": {
    "existing_checks": [
     "func:Charts.bar-scale-sector-pie-pixels",
-    "func:Charts.bar-line-render"
+    "func:Charts.bar-line-render",
+    "func:Charts.rule-mark-pixel-position-selection"
    ],
    "gaps": [
     "[a] chart selection/scroll APIs (chartXSelection, chartScrollableAxes, chartScrollPosition)",
-    "[a] LineMark/AreaMark/RuleMark positions by pixels, axis labels",
-    "[a] Chart3D"
+    "[a] Chart3D",
+    "[a] axis label positions by pixels"
    ],
-   "note": "BarMark scale and SectorMark pie sectors asserted by pixel colour on all four platforms.",
+   "note": "BarMark scale and SectorMark pie sectors asserted by pixel colour on all four platforms. r20: a RuleMark at x 7.5 of 0...10 drawn at 0.749 of the plot width (ImageRenderer, chartXSelection set); a scrollable chart is a ScrollView ImageRenderer leaves blank (Apple too) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
+   "r20": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -8243,10 +8264,11 @@
     "func:ComputeGraph.graph-build-serialize-assemble"
    ],
    "gaps": [
-    "[a] assert the ComputeNodeGraph.Assembly result (uniform buffer size / uniforms) and evaluate an assembled graph"
+    "[a] evaluate an assembled graph"
    ],
-   "note": "Builds a 3-node graph, json + propertyList round trips, edge/node removal, shared library definitions.",
+   "note": "Builds a 3-node graph, json + propertyList round trips, edge/node removal, shared library definitions. r20: Assembly of the input + add graph asserted: uniform buffer 0 B, 0 uniforms (the constant is inlined) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
+   "r20": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -9029,12 +9051,12 @@
     "func:Intents.preferences-interaction"
    ],
    "gaps": [
-    "[a] in-app intent handling (application(_:handlerFor:) / INExtension) for INSendMessageIntent",
-    "[a] assert INInteraction delete answers (tvOS: 1900 on both)"
+    "[a] in-app intent handling (application(_:handlerFor:) / INExtension) for INSendMessageIntent"
    ],
-   "note": "INInteraction secure-coding round trip + donate (ok or 1901 undeclared intents), INShortcut nil for undeclared intent, voice shortcuts + relevant shortcuts. r17: focus-status-center asserts not determined / not focused (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "INInteraction secure-coding round trip + donate (ok or 1901 undeclared intents), INShortcut nil for undeclared intent, voice shortcuts + relevant shortcuts. r17: focus-status-center asserts not determined / not focused (Apple and x86Sim PASS, 2026-11-18). r20: delete(with:) / deleteAll asserted ok on iOS / watchOS / visionOS (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
    "r17": true,
+   "r20": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -9067,11 +9089,12 @@
     "func:LinkPresentation.metadata-fetch-cancel"
    ],
    "gaps": [
-    "[a] LPMetadataProvider remote video / iconProvider vs imageProvider split"
+    "[a] LPMetadataProvider remote video"
    ],
-   "note": "loopback fetch asserts og:title, og:image size, icon requests and LPLinkView; metadata archive round trip. r17: cancel() mid-request to a loopback server that never answers: metadataFetchCancelled (LPErrorDomain 3) or no answer (Apple's iOS simulator once LinkPresentation is warm), never metadata (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "loopback fetch asserts og:title, og:image size, icon requests and LPLinkView; metadata archive round trip. r17: cancel() mid-request to a loopback server that never answers: metadataFetchCancelled (LPErrorDomain 3) or no answer (Apple's iOS simulator once LinkPresentation is warm), never metadata (Apple and x86Sim PASS, 2026-11-18). r20: the loopback page's 16x16 <link rel=icon> comes through iconProvider apart from the 40x30 og:image (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
    "r17": true,
+   "r20": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -9376,14 +9399,14 @@
    "apple_sim_na_done": true,
    "existing_checks": [
     "func:MetricKit.log-handles-signposts-launch-task",
-    "func:MetricKit.manager"
+    "func:MetricKit.manager",
+    "func:MetricKit.signposts-in-log-store"
    ],
-   "gaps": [
-    "[a] assert signposts reach the log (mxSignpost / MetricManager.logHandle emitted, not checked)"
-   ],
-   "note": "manager asserts no payloads / diagnostics; log-handles asserts extend 2 / finish 4, iOS trackLaunchTask pastDeadline + 0 state domains (Apple).",
+   "gaps": [],
+   "note": "manager asserts no payloads / diagnostics; log-handles asserts extend 2 / finish 4, iOS trackLaunchTask pastDeadline + 0 state domains (Apple). r20: the P15 log-store check run on visionOS (message in the store, signposts not, as Apple) (Apple and x86Sim PASS, 2026-11-18).",
    "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
+   "r20": true,
    "rejudged": true,
    "status": "apple-sim-na"
   },
@@ -9559,13 +9582,14 @@
   "PHASE": {
    "existing_checks": [
     "func:PHASE.engine",
-    "func:PHASE.spatial-sound-event-playback"
+    "func:PHASE.spatial-sound-event-playback",
+    "func:PHASE.occluder-material-ambient-mixer"
    ],
-   "gaps": [
-    "[a] PHASEOccluder/material, ambient mixer"
-   ],
+   "gaps": [],
+   "note": "r20: a cardboard PHASEMaterial on a PHASEOccluder in the scene; a mono one-shot through PHASEAmbientMixerDefinition plays to the end (a stereo ambient mixer refuses a mono generator, Apple too) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
-   "rejudged": false,
+   "r20": true,
+   "rejudged": true,
    "status": "covered"
   },
   "PaperKit": {
@@ -9708,13 +9732,14 @@
   },
   "RealityFoundation": {
    "existing_checks": [
-    "func:RealityFoundation.mesh-descriptor-transforms"
+    "func:RealityFoundation.mesh-descriptor-transforms",
+    "func:RealityFoundation.entity-hierarchy-bounds"
    ],
-   "gaps": [
-    "[a] no RealityFoundation check id (re-exported by RealityKit; exercised in RealityKit checks)"
-   ],
+   "gaps": [],
+   "note": "r20: the P15 RealityFoundation entity check run on visionOS (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
-   "rejudged": false,
+   "r20": true,
+   "rejudged": true,
    "status": "covered",
    "used_inside": [
     "func:RealityKit.ecs-system-animation-raycast",
@@ -9736,13 +9761,15 @@
     "func:RealityKit.lowlevel-mesh-texture-render",
     "func:RealityKit.reality-file-roundtrip-usdz-load",
     "func:RealityKit.particles-audio-resource",
-    "func:RealityKit.entities-meshes"
+    "func:RealityKit.entities-meshes",
+    "func:RealityKit.video-material-entity"
    ],
    "gaps": [
-    "[a] ShaderGraphMaterial, VideoMaterial"
+    "[a] ShaderGraphMaterial"
    ],
-   "note": "RealityRenderer offscreen pixels, ECS system/animation/raycast, physics collisions, LowLevelMesh/LowLevelTexture, .reality round trip + usdz load, particles, audio resource on iOS/tvOS/visionOS.",
+   "note": "RealityRenderer offscreen pixels, ECS system/animation/raycast, physics collisions, LowLevelMesh/LowLevelTexture, .reality round trip + usdz load, particles, audio resource on iOS/tvOS/visionOS. r20: VideoMaterial(avPlayer:) on a ModelEntity plane keeps its player (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
+   "r20": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -9968,13 +9995,13 @@
     "func:SwiftData.unique-attribute-upsert",
     "func:SwiftData.relationship-inverse-cascade",
     "func:SwiftData.versioned-schema-migration-plan",
-    "func:SwiftData.history-model-actor"
+    "func:SwiftData.history-model-actor",
+    "func:SwiftData.custom-data-store"
    ],
-   "gaps": [
-    "[a] custom DataStore"
-   ],
-   "note": "#Unique upsert, inverse/cascade relationships, VersionedSchema migration plan, history + ModelActor.",
+   "gaps": [],
+   "note": "#Unique upsert, inverse/cascade relationships, VersionedSchema migration plan, history + ModelActor. r20: the P15 custom DataStore check run on tvOS / watchOS / visionOS (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P4 Data, cloud, contacts/calendars & commerce",
+   "r20": true,
    "rejudged": true,
    "status": "covered"
   },
