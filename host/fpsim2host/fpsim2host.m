@@ -32,6 +32,8 @@
 #include <sys/xattr.h>
 #include <sys/mount.h>
 #include <sys/attr.h>
+#include <sys/ioccom.h>
+int ffsctl(int, unsigned long, void*, unsigned int);   // sys/fsctl.h (not in the simulator SDKs)
 #include <stdbool.h>
 #include <ftw.h>
 #include <stdio.h>
@@ -40,6 +42,28 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <signal.h>
+// one file flag set / cleared as APFS does it (in the kernel, atomically): through FSIOC_CAS_BSDFLAGS, retried while
+// another process changes the flags (fileproviderd sets UF_TRACKED with it on the same files). A plain fstat + fchflags
+// could write back flags another process had just changed.
+#ifndef FSIOC_CAS_BSDFLAGS
+struct fsioc_cas_bsdflags { uint32_t expected_flags, new_flags, actual_flags; };
+#define FSIOC_CAS_BSDFLAGS _IOWR('A', 20, struct fsioc_cas_bsdflags)
+#endif
+static int flagsUpdate(int fd, uint32_t set, uint32_t clear)
+{
+	for (int i = 0; i < 100; i++) {
+		struct stat st;
+		if (fstat(fd, &st) < 0) return -1;
+		uint32_t want = (st.st_flags | set) & ~clear;
+		if (want == st.st_flags) return 0;
+		struct fsioc_cas_bsdflags cas = { st.st_flags, want, 0 };
+		if (ffsctl(fd, FSIOC_CAS_BSDFLAGS, &cas, 0) < 0) return fchflags(fd, want);
+		if (cas.actual_flags == st.st_flags) return 0;
+	}
+	errno = EAGAIN;
+	return -1;
+}
+
 static NSXPCInterface* (*FPSimulatorSupportInterface)(void);   // FileProvider.framework, not in the SDK stubs
 extern ssize_t fsgetpath(char* buf, size_t bufsize, fsid_t* fsid, uint64_t objid);
 extern int renameatx_np(int fromfd, const char* from, int tofd, const char* to, unsigned int flags);
@@ -334,7 +358,7 @@ static void replyv(NSInvocation* inv, NSArray* objs, const long long* nums, int 
 		struct stat st;
 		int r = fstat(fh.fileDescriptor, &st);
 		if (r == 0 && S_ISREG(st.st_mode) && size >= 0) r = ftruncate(fh.fileDescriptor, size);
-		if (r == 0) r = fchflags(fh.fileDescriptor, st.st_flags | SF_DATALESS);
+		if (r == 0) r = flagsUpdate(fh.fileDescriptor, SF_DATALESS, 0);
 		replyStatus(inv, r);
 		return;
 	}
@@ -342,17 +366,21 @@ static void replyv(NSInvocation* inv, NSArray* objs, const long long* nums, int 
 		NSFileHandle* fh = objArg(inv, 2);
 		struct stat st;
 		int r = fstat(fh.fileDescriptor, &st);
-		if (r == 0 && (st.st_flags & SF_DATALESS)) r = fchflags(fh.fileDescriptor, st.st_flags & ~SF_DATALESS);
+		if (r == 0 && (st.st_flags & SF_DATALESS)) r = flagsUpdate(fh.fileDescriptor, 0, SF_DATALESS);
 		replyStatus(inv, r);
 		return;
 	}
 	if (!strcmp(name, "sim_materializeFile:from:size:completionHandler:")) {
 		// the provider's downloaded content (from) becomes the dataless file's data (APFS swaps the extents in);
-		// here it is copied and the dataless flag cleared
+		// here it is copied and the dataless flag cleared. An extent swap leaves the file's times alone (and its
+		// modification date is what Files shows): they are put back after the copy, to the nanosecond (Darling's
+		// write generation count, ATTR_CMN_GEN_COUNT, is made from the modification time).
 		NSFileHandle* dst = objArg(inv, 2);
 		NSFileHandle* src = objArg(inv, 3);
 		long long size = intArg(inv, 4);
 		int r = 0, e = 0;
+		struct stat st0;
+		bool have0 = fstat(dst.fileDescriptor, &st0) == 0;
 		char buf[65536];
 		off_t off = 0;
 		while (r == 0 && (size < 0 || off < size)) {
@@ -367,7 +395,11 @@ static void replyv(NSInvocation* inv, NSArray* objs, const long long* nums, int 
 		if (r == 0) r = ftruncate(dst.fileDescriptor, off);
 		struct stat st;
 		if (r == 0 && fstat(dst.fileDescriptor, &st) == 0 && (st.st_flags & SF_DATALESS))
-			r = fchflags(dst.fileDescriptor, st.st_flags & ~SF_DATALESS);
+			r = flagsUpdate(dst.fileDescriptor, 0, SF_DATALESS);
+		if (r == 0 && have0) {
+			struct timespec ts[2] = { st0.st_atimespec, st0.st_mtimespec };
+			futimens(dst.fileDescriptor, ts);
+		}
 		e = errno;
 		LOG("  -> %lld bytes, %d errno %d", (long long) off, r, r < 0 ? e : 0);
 		reply(inv, @[], 0, r < 0 ? posixError(e) : nil);
