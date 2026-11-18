@@ -61,8 +61,16 @@ extension Registry {
             // the labels "0" and "50" only: "100" at the plot's trailing edge is dropped (both simulators: runs 5-9 and
             // 205-216 of 400, in the bottom strip)
             try expect(runs.count == 2, "\(runs.count) label runs (\(desc)) in \(img.width)x\(img.height) (Apple's simulator: 2, \"100\" dropped)")
-            try expect(abs(runs[0].0 - 5) <= 1 && abs(runs[0].1 - 9) <= 1 && abs(runs[1].0 - 205) <= 1 && abs(runs[1].1 - 216) <= 1,
-                "label runs \(desc) (Apple's simulator: 5-9,205-216)")
+            // tvOS draws the labels larger (5-16,206-230), watchOS smaller (3-6,203-211)
+            #if os(tvOS)
+            let want = [(5, 16), (206, 230)]
+            #elseif os(watchOS)
+            let want = [(3, 6), (203, 211)]
+            #else
+            let want = [(5, 9), (205, 216)]
+            #endif
+            try expect(zip(runs, want).allSatisfy { abs($0.0.0 - $0.1.0) <= 1 && abs($0.0.1 - $0.1.1) <= 1 },
+                "label runs \(desc) (Apple's simulator: \(want.map { "\($0.0)-\($0.1)" }.joined(separator: ",")))")
             try expect(rows.0 >= img.height / 2, "labels at rows \(rows.0)-\(rows.1) of \(img.height): not below the plot")
             return "\(img.width)x\(img.height): label runs \(desc), rows \(rows.0)-\(rows.1)"
         })
