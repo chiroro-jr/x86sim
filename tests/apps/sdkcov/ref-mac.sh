@@ -53,6 +53,7 @@ trap cleanup EXIT
 echo "ref-mac: $rt on $dev"
 xcrun simctl boot "$dev" && xcrun simctl bootstatus "$dev" -b >/dev/null
 xcrun simctl install "$dev" "$W/sdkcov-$plat.app" || exit 1
+[ -d "$W/sdkcovDoc-$plat.app" ] && { xcrun simctl install "$dev" "$W/sdkcovDoc-$plat.app" || echo "ref-mac: sdkcovDoc not installed"; }
 # the App Clip after the app, as run.sh (installing the full app removes an installed clip of it)
 for c in "$W/sdkcov-$plat.app"/AppClips/*.app; do [ -d "$c" ] && { xcrun simctl install "$dev" "$c" || echo "ref-mac: App Clip $c not installed"; }; done
 # tvOS / watchOS / visionOS: func:HomeKit.manager's HMHomeManager asks for Home access; the prompt would take focus from the app
@@ -128,7 +129,8 @@ cp "$res" "$W/results.txt" 2>/dev/null; cp "$data/Documents/sdkcov-coverage.json
 xcrun simctl io "$dev" screenshot "$W/screen.png" >/dev/null 2>&1
 cd "$W" && tar cf - results.txt coverage.json screen.png sdkcov-*.err 2>/dev/null >&3
 MAC
-tar cf - -C "$(dirname "$APP")" "$(basename "$APP")" -C "$S/mac" indigo.m |
+DOC=sdkcovDoc-$plat.app; [ -d "$(dirname "$APP")/$DOC" ] || DOC=
+tar cf - -C "$(dirname "$APP")" "$(basename "$APP")" $DOC -C "$S/mac" indigo.m |
 	ssh -o BatchMode=yes "$MAC" "bash -c $(printf '%q' "$REMOTE") ref $plat $rtname $dtype '${RUNTIME:-}' ${SECS:-900} '$only' $name '${TRACKING:-}' '${CLIP:-}' '${INPUT:-}' '${SHOTS:-}' '${WAIT:-40}'" > "$OUT/ref.tar"
 (cd "$OUT" && tar xf ref.tar && rm ref.tar)
 if [ -n "$only" ]; then

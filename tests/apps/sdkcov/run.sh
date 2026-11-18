@@ -33,6 +33,9 @@ xs() { "$X/cli/x86sim" "$@"; }
 xs install "$X86SIM_DEVICE" "$APP" >"$OUT/install.log" 2>&1 || { echo "install FAILED: $(tail -1 "$OUT/install.log")"; exit 1; }
 # the App Clip (iOS: AppClips/sdkcovClip.app) goes in after the app, as Xcode installs one (installing the full app
 # removes an installed clip of it): func:AppClip.clip-installed-with-parent
+# the DocumentGroup companion app (build.sh docapp, iOS: sdkcovDoc-ios.app beside the app): func:SwiftUI.document-group-*
+D=$(dirname "$APP")/sdkcovDoc-$plat.app
+[ -d "$D" ] && { xs install "$X86SIM_DEVICE" "$D" >>"$OUT/install.log" 2>&1 || echo "  note: sdkcovDoc not installed: $(tail -1 "$OUT/install.log")"; }
 for c in "$APP"/AppClips/*.app; do [ -d "$c" ] && { xs install "$X86SIM_DEVICE" "$c" >>"$OUT/install.log" 2>&1 || echo "  note: App Clip $(basename "$c") not installed: $(tail -1 "$OUT/install.log")"; }; done
 # the app's FileProvider extension enabled as on a device whose fileproviderd first starts with the app installed
 # (a fresh device; ref-mac.sh does the same): fileproviderd's one-time LegacyEnabledStateHasBeenMigrated migration

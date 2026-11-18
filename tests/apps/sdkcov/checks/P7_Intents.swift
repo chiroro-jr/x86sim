@@ -477,6 +477,10 @@ extension Registry {
             let dela = P7Box<String>()
             INInteraction.deleteAll { e in dela.set(e.map { p7Err($0) } ?? "ok") }
             let da = await dela.wait(15) ?? "no answer"
+            #if os(tvOS)
+            // Apple's tvOS 27.2 simulator refuses both deletes (IntentsErrorDomain 1900)
+            try expect(dl == "IntentsErrorDomain 1900" && da == "IntentsErrorDomain 1900", "delete group \(dl), delete all \(da) (Apple's tvOS simulator: 1900 both)")
+            #endif
             return "donate \(dr), delete group \(dl), delete all \(da), \(d.count) B archive"
         })
         #if !os(tvOS)

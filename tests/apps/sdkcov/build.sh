@@ -84,14 +84,15 @@ for p in ${*:-ios tvos watchos xros}; do
 	# activates an ASAccessorySession (no activated event; deviceaccessd "GetDevices failed ... ENOENT") and the app dies
 	# (SIGSEGV in AccessorySetupKit) when it invalidates the session, so func:AccessorySetupKit.session-activate keeps it
 	ios) sdk=iphonesimulator; tgt=arm64-apple-ios27.0-simulator; plat=iPhoneSimulator; fam='<integer>1</integer><integer>2</integer>'; multi='<true/>'
-		exts='widget fileprovider extkit downloader ncontent nservice fpaction msgfilter classify translator migration home transport dataprovider discovery clip'
+		exts='widget fileprovider extkit downloader ncontent nservice fpaction msgfilter classify translator migration home transport dataprovider discovery clip docapp'
 		extra='<key>UISupportedInterfaceOrientations~ipad</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationPortraitUpsideDown</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
 <key>NSSupportsLiveActivities</key><true/>
 <key>NSHealthUpdateUsageDescription</key><string>sdkcov checks HealthKit writes</string>
 <key>NSAlarmKitUsageDescription</key><string>sdkcov checks AlarmKit</string>
 <key>UIBackgroundModes</key><array><string>voip</string></array>
 <key>NSAccessorySetupKitSupports</key><array><string>Bluetooth</string></array>
-<key>BAAppGroupID</key><string>group.com.x86sim.test.sdkcov</string>'"$ba$appsvc" ;;
+<key>BAAppGroupID</key><string>group.com.x86sim.test.sdkcov</string>
+<key>CFBundleURLTypes</key><array><dict><key>CFBundleURLName</key><string>com.x86sim.test.sdkcov</string><key>CFBundleURLSchemes</key><array><string>sdkcov</string></array></dict></array>'"$ba$appsvc" ;;
 	tvos) sdk=appletvsimulator; tgt=arm64-apple-tvos27.0-simulator; plat=AppleTVSimulator; fam='<integer>3</integer>'; exts=downloader  # no extkit: as watchOS below
 		extra='<key>BAAppGroupID</key><string>group.com.x86sim.test.sdkcov</string>'"$ba$appsvc" ;;
 	# a standalone (watch-only) app: watchOS installs and runs it without an iPhone companion
@@ -186,6 +187,14 @@ PY
 		# the App Clip: an app (AppClips/) whose parent is the sdkcov app
 		clip) plist_bundle "$G/gen/clip.plist" $BID.Clip sdkcovClip APPL '<key>UILaunchScreen</key><dict/><key>NSAppClip</key><dict><key>NSAppClipRequestEphemeralUserNotification</key><false/><key>NSAppClipRequestLocationConfirmation</key><false/></dict>'
 			ents_ext "$G/gen/clip.entitlements" $BID.Clip "<key>com.apple.developer.parent-application-identifiers</key><array><string>$BID</string></array><key>com.apple.developer.on-demand-install-capable</key><true/>" ;;
+		# the DocumentGroup companion app (ext/DocApp.swift), installed next to the app (run.sh, ref-mac.sh): a plain-text
+		# document type it edits in place, opened by sdkcov through its URL scheme sdkcovdoc:
+		docapp) plist_bundle "$G/gen/docapp.plist" $BID.doc sdkcovDoc APPL '<key>UILaunchScreen</key><dict/>
+<key>UISupportsDocumentBrowser</key><true/><key>LSSupportsOpeningDocumentsInPlace</key><true/>
+<key>UIApplicationSceneManifest</key><dict><key>UIApplicationSupportsMultipleScenes</key><true/></dict>
+<key>CFBundleDocumentTypes</key><array><dict><key>CFBundleTypeName</key><string>Text</string><key>CFBundleTypeRole</key><string>Editor</string><key>LSHandlerRank</key><string>Alternate</string><key>LSItemContentTypes</key><array><string>public.plain-text</string></array></dict></array>
+<key>CFBundleURLTypes</key><array><dict><key>CFBundleURLName</key><string>com.x86sim.test.sdkcov.doc</string><key>CFBundleURLSchemes</key><array><string>sdkcovdoc</string></array></dict></array>'
+			ents_ext "$G/gen/docapp.entitlements" $BID.doc ;;
 		downloader) plist_bundle "$G/gen/downloader.plist" $BID.downloader sdkcovDownloader 'XPC!' '<key>EXAppExtensionAttributes</key><dict><key>EXExtensionPointIdentifier</key><string>com.apple.background-asset-downloader-extension</string></dict>'
 			ents_ext "$G/gen/downloader.entitlements" $BID.downloader ;;
 		extkit) plist_bundle "$G/gen/extkit.plist" $BID.ext sdkcovExt 'XPC!' '<key>EXAppExtensionAttributes</key><dict><key>EXExtensionPointIdentifier</key><string>com.x86sim.test.sdkcov.sdkcov-ext</string></dict>'
@@ -251,9 +260,16 @@ PL
 				test -x \$X/sdkcovClip
 				cp gen/clip.plist \$X/Info.plist
 				codesign -f -s - --entitlements sdkcov/sign.entitlements \$X >&2 ;;
+			docapp) X=sdkcovDoc-$p.app; mkdir -p \$X
+				nice xcrun -sdk $sdk swiftc -target $tgt -Onone -parse-as-library -module-name sdkcov \
+					-Xlinker -sectcreate -Xlinker __TEXT -Xlinker __entitlements -Xlinker gen/docapp.entitlements \
+					-o \$X/sdkcovDoc sdkcov/ext/Marks.swift sdkcov/ext/DocApp.swift 2>&1 >&2 | grep -v 'directory not found for option -L' >&2 || true
+				test -x \$X/sdkcovDoc
+				cp gen/docapp.plist \$X/Info.plist
+				codesign -f -s - --entitlements sdkcov/sign.entitlements \$X >&2 ;;
 		esac; done
 		codesign -f -s - --entitlements sdkcov/sign.entitlements \$APP >&2
-		tar cf - \$APP; cd /; rm -rf \$W" | (cd "$OUT" && rm -rf "sdkcov-$p.app" && tar xf -)
+		tar cf - \$APP \$(ls -d sdkcovDoc-$p.app 2>/dev/null); cd /; rm -rf \$W" | (cd "$OUT" && rm -rf "sdkcov-$p.app" "sdkcovDoc-$p.app" && tar xf -)
 	rm -rf "$G"
 	ls -d "$OUT/sdkcov-$p.app"
 done
