@@ -99,7 +99,11 @@ extern IOHIDEventRef IOHIDEventCreateGameControllerEvent(CFAllocatorRef, uint64_
 // {0, 0x02000000, 0x08000000, 0x01000000, 0x04000000} (the swipe direction away from that edge: top = swipe down,
 // bottom = swipe up ...), and SimulatorHID passes that mask to IOHIDEventCreateDigitizerFingerEvent on every phase.
 // SpringBoard's system gestures (home indicator, Control/Notification Center) only claim touches carrying these bits.
-static const uint32_t edge_mask[5] = { 0x40000, 0x02040000, 0x08040000, 0x01040000, 0x04040000 };
+// A touch from no edge carries none of them: Apple's iOS 27.2 simulator delivers a mid-screen press with event mask
+// Range|Touch only (the app's UIEvent _hidEvent, checks/P16_Touch.swift). SwipeLocked (0x40000) on it made UIKit's
+// UITouch _edgeType 4, so a navigation controller's edge-swipe pan never failed on a still finger and blocked the
+// long press behind it: a long press in the Files browser (or any pushed collection view) ended as a tap.
+static const uint32_t edge_mask[5] = { 0, 0x02040000, 0x08040000, 0x01040000, 0x04040000 };
 static int touch_edge;
 
 // x86Sim arm64: also mirror to a host-visible log file. stderr under the JIT can be late or
