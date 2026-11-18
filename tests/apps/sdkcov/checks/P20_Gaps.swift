@@ -43,6 +43,7 @@ import WebKit
 import UIKit
 #endif
 #if os(iOS)
+import FamilyControls
 import PencilKit
 import CoreLocationUI
 import _CoreLocationUI_SwiftUI
@@ -553,6 +554,56 @@ extension Registry {
             let ok = await p6Wait(wait) { !log.all.isEmpty }
             try expect(ok, "the button's action never ran in \(Int(wait)) s")
             return "tap ran the action \(log.all.count)x, authorization \(CLLocationManager().authorizationStatus.rawValue)"
+        })
+        #endif
+
+        // MARK: WebKit: a WKWebExtension (manifest v3, background service worker) loaded into a controller
+        #if canImport(WebKit) && (os(iOS) || os(visionOS))
+        c.append(check("WebKit", "web-extension-load", timeout: 60) {
+            let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sdkcov-webext-\(UUID().uuidString.prefix(6))")
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: dir) }
+            try Data(#"{"manifest_version": 3, "name": "sdkcov extension", "version": "1.2", "description": "x86Sim sdkcov", "permissions": ["storage", "tabs"], "host_permissions": ["*://*.example.com/*"], "background": {"service_worker": "bg.js"}}"#.utf8).write(to: dir.appendingPathComponent("manifest.json"))
+            try Data("chrome.runtime.onInstalled.addListener(() => {});".utf8).write(to: dir.appendingPathComponent("bg.js"))
+            return try await p6A {
+                let ext = try await WKWebExtension(resourceBaseURL: dir)
+                let perms = ext.requestedPermissions.map(\.rawValue).sorted()
+                let ctx = WKWebExtensionContext(for: ext)
+                let ctl = WKWebExtensionController()
+                var load = "loaded"
+                do { try ctl.load(ctx) } catch { load = "load \(p8Err(error))" }
+                let r = "\(ext.displayName ?? "-") \(ext.version ?? "-"), permissions \(perms), patterns \(ext.allRequestedMatchPatterns.count), background \(ext.hasBackgroundContent), errors \(ext.errors.count); \(load), context loaded \(ctx.isLoaded), contexts \(ctl.extensionContexts.count)"
+                try? ctl.unload(ctx)
+                try expect(ext.displayName == "sdkcov extension" && ext.version == "1.2" && perms == ["storage", "tabs"], r)
+                return r
+            }
+        })
+        #endif
+
+        // MARK: FamilyControls: FamilyActivityPicker hosted in a window, what it draws
+        #if os(iOS)
+        c.append(check("FamilyControls", "activity-picker-render", timeout: 60) {
+            struct V: View {
+                @State var sel = FamilyActivitySelection()
+                var body: some View { FamilyActivityPicker(selection: $sel) }
+            }
+            let done = try await onMain { try p6HostSwiftUI(V()) }
+            defer { Task { @MainActor in done() } }
+            try await Task.sleep(for: .seconds(8))
+            let (w, h, ink, views) = try await onMain { () -> (Int, Int, Int, String) in
+                guard let win = UIApplication.shared.connectedScenes.compactMap({ ($0 as? UIWindowScene)?.keyWindow }).first else { throw Fail("no key window") }
+                let f = UIGraphicsImageRendererFormat(); f.scale = 1
+                let img = UIGraphicsImageRenderer(bounds: win.bounds, format: f).image { _ in _ = win.drawHierarchy(in: win.bounds, afterScreenUpdates: true) }.cgImage!
+                let ctx = bitmap(img.width, img.height); ctx.draw(img, in: CGRect(x: 0, y: 0, width: img.width, height: img.height))
+                var ink = 0
+                for y in stride(from: 0, to: img.height, by: 4) { for x in stride(from: 0, to: img.width, by: 4) { let px = pixel(ctx, x, y); if Int(px[0]) + Int(px[1]) + Int(px[2]) < 600 { ink += 1 } } }
+                func names(_ v: UIView, _ d: Int) -> [String] { d > 12 ? [] : [String(describing: type(of: v))] + v.subviews.flatMap { names($0, d + 1) } }
+                let remote = names(win, 0).filter { $0.contains("Remote") || $0.contains("Host") }
+                return (img.width, img.height, ink * 100 / max(1, (img.width / 4) * (img.height / 4)), Array(Set(remote)).sorted().joined(separator: ","))
+            }
+            // Apple's iOS 27.2 simulator: the picker is a remote scene (_UISceneHostingView) drawing nearly nothing (2% ink)
+            try expect(ink <= 5 && views.contains("_UISceneHostingView"), "\(w)x\(h), ink \(ink)%, [\(views)] (Apple's simulator: 2%, a _UISceneHostingView)")
+            return "\(w)x\(h), ink \(ink)%, remote/host views [\(views)]"
         })
         #endif
 
