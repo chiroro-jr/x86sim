@@ -9,8 +9,30 @@ import UIKit
 #if canImport(CallKit) && os(iOS)
 import CallKit
 #endif
+#if canImport(Messages) && os(iOS)
+import Messages
+#endif
 #if canImport(Charts)
 import Charts
+#endif
+#if canImport(WebKit) && (os(iOS) || os(visionOS))
+import WebKit
+#endif
+
+#if canImport(WebKit) && (os(iOS) || os(visionOS))
+/// WebPage's navigation decider: records each action's URL and response's MIME type, cancels sdkcov-blocked: URLs
+@MainActor private final class P17Decider: WebPage.NavigationDeciding {
+    var log: [String] = []
+    func decidePolicy(for action: WebPage.NavigationAction, preferences: inout WebPage.NavigationPreferences) async -> WKNavigationActionPolicy {
+        let u = action.request.url?.absoluteString ?? "nil"
+        log.append("action \(u.hasPrefix("about:") ? "about" : u)")
+        return u.hasPrefix("sdkcov-blocked:") ? .cancel : .allow
+    }
+    func decidePolicy(for response: WebPage.NavigationResponse) async -> WKNavigationResponsePolicy {
+        log.append("response \(response.response.mimeType ?? "nil")")
+        return .allow
+    }
+}
 #endif
 
 #if canImport(Charts) && canImport(UIKit) && !os(watchOS)
@@ -106,6 +128,46 @@ extension Registry {
             try expect(rr.0 + rr.1 < 0.01, "ImageRenderer drew the scrollable chart: red \(rr.0) blue \(rr.1) (Apple's simulator: empty)")
             try expect(abs(pp.0 - 0.1) < 0.02 && abs(pp.1 - 0.9) < 0.02, "plain chart red \(pp.0) blue \(pp.1)")
             return "window: red \(Int(red * 1000))‰ blue \(Int(blue * 1000))‰ of \(snap.width)x\(snap.height); ImageRenderer: red \(Int(rr.0 * 1000))‰ blue \(Int(rr.1 * 1000))‰; not scrollable: red \(Int(pp.0 * 1000))‰ blue \(Int(pp.1 * 1000))‰ \(plain.map { "\($0.width)x\($0.height)" } ?? "-") center \(px)"
+        })
+        #endif
+
+        // MARK: _WebKit_SwiftUI: WebPage's navigation decider sees the page's navigations and cancels one
+        #if canImport(WebKit) && (os(iOS) || os(visionOS))
+        c.append(check("_WebKit_SwiftUI", "webpage-navigation-decider", timeout: 90) {
+            let (page, d) = await onMain { () -> (WebPage, P17Decider) in
+                let d = P17Decider(); return (WebPage(configuration: WebPage.Configuration(), navigationDecider: d), d)
+            }
+            var events: [String] = []
+            let seq = await MainActor.run { page.load(html: "<html><body><a id=a href='sdkcov-blocked://x'>go</a></body></html>", baseURL: URL(string: "about:blank")!) }
+            for try await e in seq { events.append("\(e)") }
+            // a navigation the page starts itself: offered to the decider, cancelled (the page stays where it was)
+            _ = try await Task { @MainActor in try await page.callJavaScript("document.getElementById('a').click()") }.value
+            try await Task.sleep(for: .seconds(2))
+            let (log, url) = await onMain { (d.log, page.url?.absoluteString ?? "nil") }
+            // Apple's simulator: the load's action and the click's, no response decision for loaded HTML
+            try expect(log == ["action about", "action sdkcov-blocked://x"], "decisions \(log) (events \(events))")
+            try expect(!url.hasPrefix("sdkcov-blocked"), "page went to \(url)")
+            return "decisions \(log), events \(events), url \(url)"
+        })
+        #endif
+
+        // MARK: Messages: the app's iMessage extension (ext/Messages.swift) registered, an MSMessagesAppViewController
+        // hosted in the app (no conversation outside Messages)
+        #if canImport(Messages) && os(iOS)
+        c.append(check("Messages", "messages-app-extension", timeout: 30) {
+            let r = try p10Record("com.x86sim.test.sdkcov.imessage")
+            try expect(r.point == "com.apple.message-payload-provider", "extension point \(r.point)")
+            let cls = r.nsExtension["NSExtensionPrincipalClass"] as? String ?? "nil"
+            let (style, conv, sub) = try await onMain { () throws -> (UInt, Bool, Int) in
+                let vc = MSMessagesAppViewController()
+                let (_, close) = try p6Show(vc)
+                defer { close() }
+                vc.requestPresentationStyle(.expanded)
+                return (vc.presentationStyle.rawValue, vc.activeConversation != nil, vc.view.subviews.count)
+            }
+            // Apple's simulator: compact (0), no conversation, an empty view; the expanded request is ignored there
+            try expect(!conv && style == 0 && sub == 0, "style \(style), conversation \(conv), subviews \(sub)")
+            return "registered (principal \(cls)); hosted view controller: style \(style), conversation \(conv), subviews \(sub)"
         })
         #endif
 

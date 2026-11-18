@@ -10,7 +10,7 @@
 # definition), sdkcovDownloader.appex (Extensions/, Background Assets: iOS, tvOS, visionOS; AssetPackManager traps in an
 # app with BAAppGroupID and no downloader extension). checks/P3_Extensions.swift drives them.
 # P10 (checks/P10_Extensions.swift), iOS: notification content + service extensions, a File Provider UI action, an SMS
-# message filter, a call / message reporting (classification) UI and (P17) a Call Directory extension in PlugIns/; a translation provider, an app
+# message filter, a call / message reporting (classification) UI and (P17) a Call Directory and an iMessage app extension in PlugIns/; a translation provider, an app
 # migration, a Home, an accessory transport, an accessory data provider (AccessoryNotifications' notification
 # forwarding) and a device discovery extension in Extensions/ (Apple's ExtensionKit points).
 # visionOS: the notification content, File Provider UI action and reporting UI extensions (installd takes them there).
@@ -84,7 +84,7 @@ for p in ${*:-ios tvos watchos xros}; do
 	# activates an ASAccessorySession (no activated event; deviceaccessd "GetDevices failed ... ENOENT") and the app dies
 	# (SIGSEGV in AccessorySetupKit) when it invalidates the session, so func:AccessorySetupKit.session-activate keeps it
 	ios) sdk=iphonesimulator; tgt=arm64-apple-ios27.0-simulator; plat=iPhoneSimulator; fam='<integer>1</integer><integer>2</integer>'; multi='<true/>'
-		exts='widget fileprovider extkit downloader ncontent nservice fpaction msgfilter classify translator migration home transport dataprovider discovery clip docapp calldir'
+		exts='widget fileprovider extkit downloader ncontent nservice fpaction msgfilter classify translator migration home transport dataprovider discovery clip docapp calldir imessage'
 		extra='<key>UISupportedInterfaceOrientations~ipad</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationPortraitUpsideDown</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
 <key>NSSupportsLiveActivities</key><true/>
 <key>NSHealthUpdateUsageDescription</key><string>sdkcov checks HealthKit writes</string>
@@ -167,6 +167,8 @@ PY
 			ents_ext "$G/gen/fpaction.entitlements" $BID.fpaction ;;
 		msgfilter) plist_bundle "$G/gen/msgfilter.plist" $BID.msgfilter sdkcovMessageFilter 'XPC!' "$(nsext com.apple.identitylookup.message-filter SDKCovMessageFilter)"
 			ents_ext "$G/gen/msgfilter.entitlements" $BID.msgfilter ;;
+		imessage) plist_bundle "$G/gen/imessage.plist" $BID.imessage sdkcovMessages 'XPC!' "$(nsext com.apple.message-payload-provider SDKCovMessagesVC)"
+			ents_ext "$G/gen/imessage.entitlements" $BID.imessage ;;
 		calldir) plist_bundle "$G/gen/calldir.plist" $BID.calldir sdkcovCallDirectory 'XPC!' "$(nsext com.apple.callkit.call-directory SDKCovCallDirectory)"
 			ents_ext "$G/gen/calldir.entitlements" $BID.calldir ;;
 		classify) plist_bundle "$G/gen/classify.plist" $BID.classify sdkcovClassification 'XPC!' "$(nsext com.apple.identitylookup.classification-ui SDKCovClassification '<key>ILClassificationExtensionSMSReportDestination</key><string>12345</string>')"
@@ -250,6 +252,7 @@ PL
 			msgfilter) ext MessageFilter PlugIns MessageFilter.swift msgfilter ;;
 			classify) ext Classification PlugIns Classification.swift classify ;;
 			calldir) ext CallDirectory PlugIns CallDirectory.swift calldir ;;
+			imessage) ext Messages PlugIns Messages.swift imessage ;;
 			translator) ext Translator Extensions Translator.swift translator ;;
 			migration) ext Migration Extensions Migration.swift migration ;;
 			home) ext Home Extensions HomeExt.swift home ;;
