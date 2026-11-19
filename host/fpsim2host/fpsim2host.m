@@ -240,8 +240,12 @@ static void replyv(NSInvocation* inv, NSArray* objs, const long long* nums, int 
 	LOG("%s%s", name, args.UTF8String);
 
 	if (!strcmp(name, "sim_requestProtocolVersion:completionHandler:")) {
-		// the host's protocol version: answer the one the client speaks
+		// the host's protocol version: Apple's Mac answers 1 (r29: fileproviderd then opens the items it tracks itself
+		// by /.vol/<fsid>/<object id>, which Darling resolves like fsgetpath, instead of sim_openByID here); a client
+		// speaking an older one gets its own
 		long long v = intArg(inv, 2);
+		if (getenv("X86SIM_FP_HOSTVERSION")) v = atoll(getenv("X86SIM_FP_HOSTVERSION"));
+		else if (v > 1) v = 1;
 		reply(inv, @[], v, nil);
 		LOG("  -> version %lld", v);
 		return;
