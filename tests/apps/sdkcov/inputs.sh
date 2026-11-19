@@ -23,7 +23,7 @@ build=; want=
 for a in "$@"; do case $a in --no-build) build=--no-build ;; *) want="$want $a" ;; esac; done
 rt=$(cat "$X86SIM_DEVICE/runtime" 2>/dev/null); plat=${rt%%-*}
 case $plat in
-	ios) all="shake orientation biometric bioitem gamepad memwarn push tracking clip ctxmenu swipe sdrag ncontent cvmenu pencil locbutton fpauth widget gckey"
+	ios) all="shake orientation biometric bioitem gamepad memwarn push tracking clip ctxmenu swipe sdrag ncontent cvmenu pencil locbutton fpauth widget gckey health photopick"
 		case $(cat "$X86SIM_DEVICE/model" 2>/dev/null) in iPad*) all="$all pointer keyboard drag gcmouse" ;; esac ;; xros) all="shake biometric bioitem gamepad memwarn tracking push gckey" ;; tvos) all="gamepad memwarn tracking gckey" ;;
 	watchos) all="lifecycle locbutton swipe push" ;;
 	*) echo "inputs: no input checks for $plat" >&2; exit 0 ;;
@@ -113,6 +113,17 @@ for k in ${want:-$all}; do
 		gckey) id=func:GameController.input-keyboard-key; send() { xs raw "key down 14" "key up 14"; } ; undo() { :; } ;;
 		# (P24) the iPad's pointer-capture mouse moved: GCMouse (Apple: ref-mac.sh ipad INPUT='pointer 30 20 5')
 		gcmouse) id=func:GameController.input-mouse-move; send() { xs pointer at 0.5 0.5; xs pointer move 30 20; xs pointer move -30 -20; } ; undo() { xs pointer remove; } ;;
+		# (P25) the Health sheet once the check has started: Select All, scrolled to Continue, "Past 30 Days and Future
+		# Data", Allow (iPhone 17 Pro layout; Apple's fresh simulator shows the sheet ~80 s in, so once: ref-mac.sh WAIT=150 INPUT='sleep 85000;tap 0.28 0.491;sleep 1500;drag 0.5 0.85 0.5 0.35 0 400;
+		# sleep 1500;tap 0.5 0.778;sleep 2500;tap 0.5 0.56;sleep 1000;tap 0.5 0.856;sleep 200000'). Answered once per device: later
+		# runs find the access granted
+		health) id=func:HealthKit.input-authorization-round-trip; send() { [ -e "$OUT/health-sent" ] && return
+			f=$(find "$X86SIM_DEVICE"/data/tmp -name 'sdkcov-*.err' -newer "$OUT/run.log" 2>/dev/null | head -1)
+			grep -qs "X86TEST sdkcov only " "$f" || return; nap 8; touch "$OUT/health-sent"
+			press 0.28 0.491 0.08; nap 1.5; stroke 0.5 0.85 0.5 0.35 0; nap 1.5; press 0.5 0.778 0.08; nap 2.5
+			press 0.5 0.56 0.08; nap 1; press 0.5 0.856 0.08; } ; undo() { :; } ;;
+		# (P25) the photo picker's first grid cell (selection limit 1: picked at once; Apple: ref-mac.sh INPUT='tap 0.17 0.22')
+		photopick) id=func:PhotosUI.input-picker-selection; send() { press 0.17 0.22 0.08; } ; undo() { :; } ;;
 		*) echo "inputs: unknown check $k" >&2; exit 2 ;;
 	esac
 	# per device: two devices of one platform don't share (and delete) each other's OUT

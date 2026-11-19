@@ -824,7 +824,13 @@ extension Registry {
                         n += 1; let p = pixel(ctx, x, y); if (0..<3).contains(where: { p[$0] < 215 }) { k += 1; for i in 0..<3 { sum[i] += Int(p[i]) } } } }
                     return "\(Int(Double(k) * 100 / Double(max(n, 1))))% ink rgb \(k == 0 ? "-" : sum.map { String($0 / k) }.joined(separator: ","))"
                 }
-                return "ink \(String(format: "%.3f", ink)); pay \(box(-60)); wallet \(box(10)); can make payments \(PKPaymentAuthorizationController.canMakePayments())"
+                let pay = box(-60), wallet = box(10)
+                let d = "ink \(String(format: "%.3f", ink)); pay \(pay); wallet \(wallet); can make payments \(PKPaymentAuthorizationController.canMakePayments())"
+                // Apple's iOS 27.2 simulator (r29): the pay button's box stays blank (0% ink: drawn out of process), the
+                // wallet button about two thirds dark
+                let wpct = Int(wallet.prefix(while: { $0.isNumber })) ?? 0
+                try expect(pay.hasPrefix("0% ink") && wpct >= 50 && wpct <= 80, d)
+                return d
             }
         })
 

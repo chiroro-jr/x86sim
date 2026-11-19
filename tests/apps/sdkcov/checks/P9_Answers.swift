@@ -19,7 +19,7 @@ import AVFoundation
 #if canImport(BrowserKit) && os(iOS)
 import BrowserKit
 #endif
-#if canImport(BrowserEngineKit) && (os(tvOS) || os(visionOS))
+#if canImport(BrowserEngineKit) && (os(iOS) || os(tvOS) || os(visionOS))
 import BrowserEngineKit
 #endif
 #if canImport(ExtensionFoundation) && !os(iOS)
@@ -135,8 +135,8 @@ extension Registry {
         })
         #endif
 
-        // MARK: BrowserEngineKit on tvOS / visionOS: only the view / text-input objects (processes are iOS-only API)
-        #if canImport(BrowserEngineKit) && (os(tvOS) || os(visionOS))
+        // MARK: BrowserEngineKit: the view / text-input objects (tvOS / visionOS: all there is; processes are iOS-only API; iOS since P25)
+        #if canImport(BrowserEngineKit) && (os(iOS) || os(tvOS) || os(visionOS))
         c.append(check("BrowserEngineKit", "scroll-view-text-objects", timeout: 20) {
             try await onMain { () throws -> String in
                 let sv = BEScrollView(frame: CGRect(x: 0, y: 0, width: 100, height: 100))

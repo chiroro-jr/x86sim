@@ -5,6 +5,7 @@
 import WidgetKit
 import SwiftUI
 import AppIntents
+import RelevanceKit
 #if os(iOS)
 import ActivityKit
 #endif
@@ -21,6 +22,12 @@ struct SDKCovProvider: TimelineProvider {
         sdkcovMark("widget-timeline", "\(context.family)")
         let now = Date()
         completion(Timeline(entries: (0..<3).map { SDKCovEntry(date: now.addingTimeInterval(Double($0) * 60), n: $0) }, policy: .atEnd))
+    }
+    /// (P25) the widget's relevance (Smart Stack): the next hour; checks/P25_Gaps.swift invalidates it
+    func relevance() async -> WidgetRelevance<Void> {
+        sdkcovMark("widget-relevance", "static")
+        let now = Date()
+        return WidgetRelevance([WidgetRelevanceAttribute(context: .date(from: now, to: now.addingTimeInterval(3600)))])
     }
 }
 

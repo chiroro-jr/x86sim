@@ -17,7 +17,7 @@ final class SDKCovFPItem: NSObject, NSFileProviderItem {
         itemIdentifier = NSFileProviderItemIdentifier(id); parentItemIdentifier = parent; filename = name
         contentType = folder ? .folder : .plainText; self.size = size
     }
-    var capabilities: NSFileProviderItemCapabilities { [.allowsReading, .allowsContentEnumerating, .allowsAddingSubItems] }
+    var capabilities: NSFileProviderItemCapabilities { [.allowsReading, .allowsContentEnumerating, .allowsAddingSubItems, .allowsEvicting] }
     var itemVersion: NSFileProviderItemVersion { NSFileProviderItemVersion(contentVersion: Data("1".utf8), metadataVersion: Data("1".utf8)) }
     var documentSize: NSNumber? { contentType == .folder ? nil : NSNumber(value: size) }
 }
