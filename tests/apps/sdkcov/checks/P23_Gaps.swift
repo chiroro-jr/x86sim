@@ -4,7 +4,7 @@ import Foundation
 #if canImport(WidgetKit) && os(iOS)
 import WidgetKit
 #endif
-#if canImport(GameController) && os(iOS)
+#if canImport(GameController) && (os(iOS) || os(tvOS) || os(visionOS))
 import GameController
 import Synchronization
 #endif
@@ -77,7 +77,7 @@ extension Registry {
         // MARK: GameController: a hardware keyboard key through GCKeyboard (inputs.sh gckey / ref-mac.sh INPUT='key 14':
         // the host's K key, HID usage 14, as Simulator sends it): the coalesced keyboard appears and its key handler sees
         // K pressed and released
-        #if canImport(GameController) && os(iOS)
+        #if canImport(GameController) && (os(iOS) || os(tvOS) || os(visionOS))
         c.append(check("GameController", "input-keyboard-key", timeout: 120) {
             let wait = p23InputWait
             guard wait > 0 else { return "keyboard \(GCKeyboard.coalesced != nil) (SDKCOV_INPUT_WAIT unset: no key awaited)" }

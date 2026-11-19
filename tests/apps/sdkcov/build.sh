@@ -103,7 +103,7 @@ for p in ${*:-ios tvos watchos xros}; do
 	watchos) sdk=watchsimulator; tgt=arm64-apple-watchos27.0-simulator; plat=WatchSimulator; fam='<integer>4</integer>'
 		# no ExtensionKit extension (tvOS, visionOS neither): their installd refuses an appex whose EXExtensionPointIdentifier is not one of
 		# Apple's ("does not specify an Apple extension point"), so the app defines no extension point there either
-		exts='widget token'
+		exts='widget token nservice'
 		# WKBackgroundModes self-care: WKExtendedRuntimeSession runs (refused with error 7 without it); the Health usage
 		# strings: the workout check may ask for Health access (an app without them is killed when it asks)
 		extra='<key>WKApplication</key><true/><key>WKWatchOnly</key><true/><key>WKBackgroundModes</key><array><string>self-care</string></array><key>NSHealthShareUsageDescription</key><string>sdkcov reads workouts it saved</string><key>NSHealthUpdateUsageDescription</key><string>sdkcov saves a test workout</string>'
@@ -114,7 +114,7 @@ for p in ${*:-ios tvos watchos xros}; do
 	# authorization (an app asking without them is killed)
 	xros) sdk=xrsimulator; tgt=arm64-apple-xros27.0-simulator; plat=XRSimulator; fam='<integer>7</integer>'; multi='<true/>'  # volume + immersive spaces
 		# docapp: the DocumentGroup companion app (P15) and the scene lifecycle round trip (P22), which come back by sdkcov:
-		exts='widget fileprovider downloader ncontent fpaction classify qlpreview docapp token'  # no extkit: as watchOS below
+		exts='widget fileprovider downloader ncontent nservice fpaction classify qlpreview docapp token'  # no extkit: as watchOS below
 		extra='<key>CFBundleURLTypes</key><array><dict><key>CFBundleURLName</key><string>com.x86sim.test.sdkcov</string><key>CFBundleURLSchemes</key><array><string>sdkcov</string></array></dict></array>
 <key>NSWorldSensingUsageDescription</key><string>sdkcov checks ARKit plane detection</string>
 <key>NSHandsTrackingUsageDescription</key><string>sdkcov checks ARKit hand tracking</string>

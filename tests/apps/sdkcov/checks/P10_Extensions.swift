@@ -74,7 +74,7 @@ func p10AppleExtensionPoint(_ id: String, _ point: StaticString) async throws ->
     return "registered on \(r.point); monitor refused (\(mon))"
 }
 #endif
-#if canImport(UserNotifications) && os(iOS)
+#if canImport(UserNotifications) && (os(iOS) || os(watchOS) || os(visionOS))
 private final class P10NotifDelegate: NSObject, UNUserNotificationCenterDelegate {
     let presented = Mutex<[UNNotification]>([])
     func userNotificationCenter(_ c: UNUserNotificationCenter, willPresent n: UNNotification) async -> UNNotificationPresentationOptions {
@@ -102,7 +102,7 @@ extension Registry {
             return "registered on \(r.point), category sdkcov.content, size ratio 0.5"
         })
         #endif
-        #if os(iOS)
+        #if os(iOS) || os(watchOS) || os(visionOS)
         c.append(check("UserNotifications", "service-extension-push", timeout: 150) {
             let r = try p10Record("com.x86sim.test.sdkcov.nservice")
             try expect(r.point == "com.apple.usernotifications.service" && r.nsExtension["NSExtensionPrincipalClass"] as? String == "SDKCovNotificationService", "point \(r.point), \(r.nsExtension)")

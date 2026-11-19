@@ -3,7 +3,7 @@
 # --only) with SDKCOV_INPUT_WAIT set, while this script sends its input every few seconds through the x86sim CLI
 # (host/simhid), as Apple's simulator would (DeviceHub's Shake / Rotate / Face ID menus, a game controller).
 # Usage: tests/apps/sdkcov/inputs.sh <device> [--no-build] [shake|orientation|biometric|bioitem|gamepad|memwarn|push|pointer|keyboard|
-# drag tracking clip ctxmenu swipe sdrag ncontent ...]   (default: all the device's platform has; pointer / keyboard / drag: iPad, checks/More_iPadOS.swift)
+# drag tracking clip ctxmenu swipe sdrag ncontent widget gckey gcmouse lifecycle ...]   (default: all the device's platform has; pointer / keyboard / drag: iPad, checks/More_iPadOS.swift)
 # On Apple's simulator the same inputs are: notifyutil -p com.apple.UIKit.SimulatorShake (simctl spawn), devicectl
 # device orientation set, notifyutil -s com.apple.BiometricKit.enrollmentChanged 1 + notifyutil -p
 # com.apple.BiometricKit_Sim.pearl.match (ref-mac.sh BIOMETRIC=1), an Indigo game controller message (SimulatorKit IndigoHIDMessageForGameControllerEvent) and
@@ -24,8 +24,8 @@ for a in "$@"; do case $a in --no-build) build=--no-build ;; *) want="$want $a" 
 rt=$(cat "$X86SIM_DEVICE/runtime" 2>/dev/null); plat=${rt%%-*}
 case $plat in
 	ios) all="shake orientation biometric bioitem gamepad memwarn push tracking clip ctxmenu swipe sdrag ncontent cvmenu pencil locbutton fpauth widget gckey"
-		case $(cat "$X86SIM_DEVICE/model" 2>/dev/null) in iPad*) all="$all pointer keyboard drag" ;; esac ;; xros) all="shake biometric bioitem gamepad memwarn tracking" ;; tvos) all="gamepad memwarn tracking" ;;
-	watchos) all="lifecycle" ;;
+		case $(cat "$X86SIM_DEVICE/model" 2>/dev/null) in iPad*) all="$all pointer keyboard drag gcmouse" ;; esac ;; xros) all="shake biometric bioitem gamepad memwarn tracking push gckey" ;; tvos) all="gamepad memwarn tracking gckey" ;;
+	watchos) all="lifecycle locbutton swipe push" ;;
 	*) echo "inputs: no input checks for $plat" >&2; exit 0 ;;
 esac
 xs() { "$X86SIM_ROOT/cli/x86sim" "$@"; }
@@ -72,7 +72,11 @@ for k in ${want:-$all}; do
 		# through Indigo): a long press on the SwiftUI context menu view, a full right-to-left swipe on the list row, a
 		# long press on the draggable text moved onto the drop destination
 		ctxmenu) id=func:SwiftUI.input-context-menu-long-press; send() { press 0.5 0.5 1.5; } ; undo() { :; } ;;
-		swipe) id=func:SwiftUI.input-list-swipe-actions; send() { stroke 0.95 0.35 0.05 0.35 0; } ; undo() { :; } ;;
+		# (watchOS, P24: a swipe reveals the actions as buttons, a full swipe runs none: the swipe, then a tap on the
+		# outer (first) action, as on Apple's simulator: ref-mac.sh watchos INPUT='drag 0.85 0.35 0.1 0.35 0 600;tap 0.81 0.375')
+		swipe) id=func:SwiftUI.input-list-swipe-actions; case $plat in
+			watchos) send() { stroke 0.85 0.35 0.1 0.35 0; nap 1; press 0.81 0.375 0.08; } ;;
+			*) send() { stroke 0.95 0.35 0.05 0.35 0; } ;; esac; undo() { :; } ;;
 		# Files opened by the check: Apple's first-launch keyboard tip's Continue (here: the Shared tab), Browse twice (its
 		# root), the sdkcov location (the fourth row), the "< sdkcov" breadcrumb back to the app (the check opens Files
 		# again). iPad: the sidebar button (shows or hides it: every other round), sdkcov in the sidebar
@@ -107,6 +111,8 @@ for k in ${want:-$all}; do
 			xs home; nap 4; xs app com.x86sim.test.sdkcov; } ; undo() { :; } ;;
 		# (P23) the K key (HID usage 14) on the hardware keyboard: GCKeyboard (Apple: ref-mac.sh INPUT='key 14')
 		gckey) id=func:GameController.input-keyboard-key; send() { xs raw "key down 14" "key up 14"; } ; undo() { :; } ;;
+		# (P24) the iPad's pointer-capture mouse moved: GCMouse (Apple: ref-mac.sh ipad INPUT='pointer 30 20 5')
+		gcmouse) id=func:GameController.input-mouse-move; send() { xs pointer at 0.5 0.5; xs pointer move 30 20; xs pointer move -30 -20; } ; undo() { xs pointer remove; } ;;
 		*) echo "inputs: unknown check $k" >&2; exit 2 ;;
 	esac
 	# per device: two devices of one platform don't share (and delete) each other's OUT
