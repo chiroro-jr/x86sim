@@ -6,6 +6,12 @@ import SwiftUI
 #if canImport(GameController) && os(iOS)
 import GameController
 #endif
+#if canImport(_RealityKit_ComputeGraph) && !os(watchOS)
+import ComputeGraph
+import Metal
+import RealityKit
+import _RealityKit_ComputeGraph
+#endif
 #if os(watchOS)
 import CoreLocation
 import CoreLocationUI
@@ -87,6 +93,47 @@ extension Registry {
             try expect(ok, "no swipe action ran in \(Int(wait)) s")
             try expect(log.all.first == "archive", "actions run \(log.all) (the outer button is the first action: archive)")
             return "swipe + tap ran \(log.all.prefix(3))"
+        })
+        #endif
+        // MARK: _RealityKit_ComputeGraph: a ComputeGraphResource made from an assembled graph's pipelines, attached to an
+        // entity through ComputeGraphComponent(resource:) and run by RealityRenderer updates (the input + add graph of
+        // func:ComputeGraph.pipelines-simulation-advance)
+        #if canImport(_RealityKit_ComputeGraph) && !os(watchOS)
+        c.append(check("_RealityKit_ComputeGraph", "resource-component-renderer", timeout: 90) {
+            var g = ComputeNodeGraph()
+            let f = ComputeNodeGraph.DataType(.float)
+            let input = ComputeNodeGraph.NodeDefinition(name: "x", outputs: [.init(name: "value", kind: .value, type: .primitive(type: f))], kind: .graphInput)
+            let add = ComputeNodeGraph.NodeDefinition(name: "add", inputs: [.init(name: "a", kind: .value, type: .primitive(type: f)), .init(name: "b", kind: .value, type: .primitive(type: f))],
+                                                      outputs: [.init(name: "out", kind: .value, type: .primitive(type: f))], kind: .binaryArithmetic(a: f, b: f, operation: .add))
+            let n0 = try g.addNode(.init(definition: input, label: "x"))
+            var addNode = ComputeNodeGraph.Node(definition: add, label: "add"); addNode.setInput(at: 1, Float(2.5))
+            let n1 = try g.addNode(addNode)
+            try g.addEdge(.init(source: .init(node: n0, index: 0), target: .init(node: n1, index: 0)))
+            let a = try ComputeNodeGraph.Assembly(g)
+            let p: ComputeNodeGraph.Pipelines
+            do { p = try await ComputeNodeGraph.Pipelines(descriptor: .init(assembly: a)) }
+            catch { return "pipelines refused: \(error)" }
+            let graph = g
+            return try await onMain {
+                var out: [String] = []
+                let res: ComputeGraphResource
+                do { res = try ComputeGraphResource(graph: graph, pipelines: p, dependencies: .init()) }
+                catch { return "resource refused: \(error)" }
+                var cg = ComputeGraphComponent(resource: res)
+                out.append("component resource \(cg.resource != nil), pipelines \(cg.pipelines != nil), state \(cg.state)")
+                out.append("uniform x \(cg.uniformHandle(named: "x") != nil), set \(cg.setUniformValue(Float(4), named: "x"))")
+                let e = Entity(); e.components.set(cg)
+                let r = try RealityRenderer(); r.entities.append(e)
+                for _ in 0..<5 { try r.update(1.0 / 60) }
+                cg.step(); e.components.set(cg); try r.update(1.0 / 60)
+                let got = e.components[ComputeGraphComponent.self]
+                out.append("after 6 updates: resource \(got?.resource != nil), pipelines \(got?.pipelines != nil), state \(got.map { "\($0.state)" } ?? "-"), models \(got?.models.count ?? -1), materials \(got?.materials.count ?? -1)")
+                let d = out.joined(separator: "; ")
+                // Apple's 27.2 simulators (iOS / tvOS / visionOS): the component keeps the resource and its pipelines, the
+                // inlined input has no uniform "x", step() leaves the simulation paused
+                try expect(d == "component resource true, pipelines true, state playing; uniform x false, set false; after 6 updates: resource true, pipelines true, state paused, models 0, materials 0", d)
+                return d
+            }
         })
         #endif
         return c
