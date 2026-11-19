@@ -34,7 +34,7 @@ apt-get update -q
 apt-get install -y -q --no-install-recommends \
 	ca-certificates curl wget gnupg lsb-release software-properties-common git cmake ninja-build bison flex pkg-config python3 \
 	libfuse-dev libudev-dev libcairo2-dev libgl1-mesa-dev libglu1-mesa-dev libtiff5-dev libfreetype-dev libelf-dev \
-	libxml2-dev libegl1-mesa-dev libfontconfig1-dev libbsd-dev libxrandr-dev libxcursor-dev libgif-dev libavutil-dev \
+	libxml2-dev libegl1-mesa-dev libfontconfig1-dev libbsd-dev libxrandr-dev libxcursor-dev libxi-dev libgif-dev libavutil-dev \
 	libpulse-dev libavformat-dev libavcodec-dev libswresample-dev libdbus-1-dev libxkbfile-dev libssl-dev libcap-dev \
 	libcap2-bin libvulkan-dev libboost-dev xz-utils file desktop-file-utils squashfs-tools zsync patchelf build-essential ccache
 if ! command -v clang-$LLVM_VERSION >/dev/null; then
