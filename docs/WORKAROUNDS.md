@@ -87,8 +87,8 @@ required parts.
 - Scroll wheel in simview: wheel and touchpad scroll events should scroll the content (as on a Mac simulator:
   scroll events or a synthesized two-finger pan), not be ignored.
 
-- Audio: host/simaudio (in-process HAL stand-in) + cli/libexec/simaudio.py (PipeWire), opt-in with
-  `X86SIM_AUDIO=1`; AVAudioEngine fails at the output unit's initialize. A faithful version would
+- Audio: host/simaudio (in-process HAL stand-in, in every process: silent devices by default) +
+  cli/libexec/simaudio.py (PipeWire), heard on the host with `X86SIM_AUDIO=1`. A faithful version would
   answer coreaudiod's MIG protocol on `com.apple.audio.audiohald`.
 - Clipboard sync (`x86sim pbcopy/pbpaste`, Linux clipboard <-> pasted), rotation (`x86sim rotate`), software
   keyboard toggle: not started.

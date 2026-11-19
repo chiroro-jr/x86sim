@@ -43,7 +43,11 @@ PREFIX = x86config.get("X86SIM_PREFIX")
 MTLVK_SOCKET = os.environ.get("X86SIM_MTLVK_SOCKET") or os.path.join(x86config.get("X86SIM_STATE"), "mtlvk.sock")
 # x86Sim: the host side of the simulator's audio (cli/libexec/simaudio.py, started by cli/libexec/arm64/boot-a64.sh)
 AUDIO_SOCKET = os.environ.get("X86SIM_AUDIO_SOCKET") or os.path.join(x86config.get("X86SIM_STATE"), "simaudio.sock")
-AUDIO = os.environ.get("X86SIM_AUDIO", "0") != "0"  # opt-in until playback works
+# X86SIM_AUDIO=1: the devices' PCM goes to the host (PipeWire) through simaudio.py. Without it the devices are still there,
+# silent (no socket: the output's IO thread runs on its clock and drops the PCM, the input reads silence), as a Mac's
+# simulator always has an output device: with none, AVPlayer refused every item with an audio track (HLS from Apple's
+# samples or YouTube: CoreMediaErrorDomain -12746 at once; video-only playlists played)
+AUDIO = os.environ.get("X86SIM_AUDIO", "0") != "0"
 DARLING_VIEW = "/Volumes/SystemRoot"  # Linux / as seen inside Darling
 # x86Sim: a device for the arm64 runtime (iOS 27, run under libarm64jit): arm64 device types, arm64 builds of our
 # in-simulator binaries (host/<name>/arm64/...; jobs and shims without one are left out), no libkqueue_sim (the arm64
@@ -514,10 +518,10 @@ def main():
     child_defaults = {
         # X86SIM_INSERT: extra ':'-separated dylibs (host paths) for diagnostics
         # simshim: stand-ins for host services (host/simshim/compat/simshim.c)
-        # simaudio: the audio devices (host/simaudio, opt-in: X86SIM_AUDIO=1)
+        # simaudio: the audio devices (host/simaudio; heard on the host with X86SIM_AUDIO=1, silent otherwise)
         "DYLD_INSERT_LIBRARIES": ":".join(
                                           [darling(p) for p in [host_path("host/simshim/compat/libsimshim.dylib")] if p] +
-                                          [darling(p) for p in [host_path("host/simaudio/libsimaudio.dylib")] if p and AUDIO] + [darling(os.path.abspath(p))
+                                          [darling(p) for p in [host_path("host/simaudio/libsimaudio.dylib")] if p] + [darling(os.path.abspath(p))
                                           for p in os.environ.get("X86SIM_INSERT", "").split(":") if p]),
         "CFFIXED_USER_HOME": home,
         "HOME": home,

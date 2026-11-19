@@ -217,7 +217,9 @@ id, openat/mkdirat/... on behalf of extensions, package lookup, directory entrie
 
 `host/simaudio/arm64/libsimaudio.dylib`, injected into each process, provides the audio devices a Mac's CoreSimulator
 and coreaudiod would, and streams PCM over `simaudio.sock` to `cli/libexec/simaudio.py` (PipeWire), started by
-boot-a64.sh. Opt-in with `X86SIM_AUDIO=1` (see [WORKAROUNDS.md](WORKAROUNDS.md)).
+boot-a64.sh, with `X86SIM_AUDIO=1`. Without it the devices are there but silent (no socket: the output drops the PCM on
+its clock, the input reads silence), as the simulator always has an output device: AVPlayer refuses items with audio
+(CoreMediaErrorDomain -12746) when there is none (see [WORKAROUNDS.md](WORKAROUNDS.md)).
 
 ## Test helpers inside the device
 
