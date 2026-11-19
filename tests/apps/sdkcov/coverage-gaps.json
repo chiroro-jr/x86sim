@@ -90,13 +90,13 @@
   },
   "AVRouting": {
    "existing_checks": [
-    "func:AVRouting.custom-routing-controller-arbiter"
+    "func:AVRouting.custom-routing-controller-arbiter",
+    "func:AVRouting.input-route-picker-discovery"
    ],
-   "gaps": [
-    "[a] DeviceDiscoveryExtension appex to drive AVCustomRoutingController route events (today asserts empty routes + no delegate events)"
-   ],
-   "note": "custom routing controller with no extension: 0 routes/events, known IPs stick, customActionItems kept none on Apple too; playback arbiter participants set/cleared on iOS/tvOS.",
+   "gaps": [],
+   "note": "custom routing controller with no extension: 0 routes/events, known IPs stick, customActionItems kept none on Apple too; playback arbiter participants set/cleared on iOS/tvOS. r29: the discovery extension now reports a loopback TV; a host tap on an AVRoutePickerView with the custom routing controller (inputs.sh routepick / ref-mac.sh INPUT='tap 0.5 0.5') presents nothing, the extension never starts, no route events on either simulator (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
+   "r29": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -310,11 +310,12 @@
     "func:AppIntents.app-shortcut-phrases-titles"
    ],
    "gaps": [
-    "[a] ControlWidget toggles / SetValueIntent (with WidgetKit)"
+    "[c] ControlWidget intents: a placed control tapped in Control Center never runs its intent on Apple's simulator (func:WidgetKit.input-placed-control-perform), so toggles / SetValueIntent cannot be driven"
    ],
    "note": "EntityQuery by id/string/all/suggested, AppEnum, display reps, OpenIntent parameters + perform, AppDependencyManager, donations donate/delete by identifier. r25: the provider's phrases (with the ${applicationName} placeholder), short titles and images read back by reflection (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
    "r25": true,
+   "r29": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -490,13 +491,13 @@
    "apple_sim_na": "browser process launches need the web-browser-engine entitlement + extensions",
    "apple_sim_na_done": true,
    "existing_checks": [
-    "func:BrowserEngineKit.processes-without-entitlement"
+    "func:BrowserEngineKit.processes-without-entitlement",
+    "func:BrowserEngineKit.scroll-view-text-objects"
    ],
-   "gaps": [
-    "[a] BETextInput / BEScrollView behaviour (only a BEScrollView built)"
-   ],
-   "note": "done: asserts WebContent/Networking/Rendering process launches fail without the entitlement (same error on Apple).",
+   "gaps": [],
+   "note": "done: asserts WebContent/Networking/Rendering process launches fail without the entitlement (same error on Apple). r29: the tvOS / visionOS objects check runs on iOS too (BEScrollView offset + delegate parent, suggestion, web app manifest, browser accessibility attributes, text interaction) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P3 App extensions, system services, communication & parental controls",
+   "r29": true,
    "rejudged": true,
    "status": "apple-sim-na"
   },
@@ -1264,17 +1265,19 @@
   "FileProvider": {
    "existing_checks": [
     "func:FileProvider.replicated-extension-domain",
-    "func:FileProvider.domains-identifiers"
+    "func:FileProvider.domains-identifiers",
+    "func:FileProvider.evict-reimport-pending"
    ],
    "fin": true,
    "gaps": [
-    "[a] NSFileProviderManager evictItem / import / pending items",
-    "[b: File Provider download fetched twice: after sim_materializeFile fileproviderd's post-operation lookup of the item reads it once (attributes fine: tracked, not dataless, document id kept) and then retries 6.2 s with no file system access at all (an in-memory wait, not mtime / gen count / flags / own-event marks), fetches the file again and takes the extension's unset date (Files: 12/31/69); Apple fetches once]"
+    "[b: File Provider download fetched twice: after sim_materializeFile fileproviderd's post-operation lookup of the item reads it once (attributes fine: tracked, not dataless, document id kept) and then retries 6.2 s with no file system access at all (an in-memory wait, not mtime / gen count / flags / own-event marks), fetches the file again and takes the extension's unset date (Files: 12/31/69); Apple fetches once]",
+    "[b: File Provider eviction refused: fileproviderd's post-materialization docID lookup times out (item stale, the same cause as the double fetch), then evictItem answers nonEvictable -2008 (\"content policy prevention\") for 30 s; Apple evicts at once and the next read fetches again (func:FileProvider.evict-reimport-pending, r29)]"
    ],
-   "note": "replicated appex: add domain, enumerate, materialize hello.txt (fetchContents), createItem; Apple and x86Sim PASS (cov-iphone, cov-share). run.sh / ref-mac.sh reset the extension's enable state as a fresh device has it (fileproviderd's one-time LegacyEnabledStateHasBeenMigrated migration enables only the extensions present then; Apple fails the same on a reused device). r21: replicated-extension-domain asserts docs/note.txt keeps its date after its download and is fetched once (Apple PASS, x86Sim FAIL). Fixed on the way: Darling document ids follow renames / RENAME_SWAP as on APFS (ESTALE: opened wrong doc_id), FSIOC_CAS_BSDFLAGS atomic, APFS mark-purgeable fsctl (0xC0084A44), fpsim2host dataless flags via CAS and materialized files keep their times r22: double fetch narrowed (Darling syscall traces of fileproviderd, fpsim2host call timing)",
+   "note": "replicated appex: add domain, enumerate, materialize hello.txt (fetchContents), createItem; Apple and x86Sim PASS (cov-iphone, cov-share). run.sh / ref-mac.sh reset the extension's enable state as a fresh device has it (fileproviderd's one-time LegacyEnabledStateHasBeenMigrated migration enables only the extensions present then; Apple fails the same on a reused device). r21: replicated-extension-domain asserts docs/note.txt keeps its date after its download and is fetched once (Apple PASS, x86Sim FAIL). Fixed on the way: Darling document ids follow renames / RENAME_SWAP as on APFS (ESTALE: opened wrong doc_id), FSIOC_CAS_BSDFLAGS atomic, APFS mark-purgeable fsctl (0xC0084A44), fpsim2host dataless flags via CAS and materialized files keep their times r22: double fetch narrowed (Darling syscall traces of fileproviderd, fpsim2host call timing) r29: evictItem / reimportItems(below:) / the pending set; Apple (iOS and visionOS, whose domain enumerates in this run): evicted dataless, fetched again, reimport ok, nothing pending; x86Sim refuses the eviction (gap).",
    "package": "P3 App extensions, system services, communication & parental controls",
    "r21": true,
    "r22": true,
+   "r29": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -1490,14 +1493,15 @@
     "func:HealthKit.anchored-observer-background-delivery",
     "func:HealthKit.characteristics-requests-model",
     "func:HealthKit.workout-session-iphone",
-    "func:HealthKit.store-units-samples"
+    "func:HealthKit.store-units-samples",
+    "func:HealthKit.input-authorization-round-trip"
    ],
    "gaps": [
-    "[a] authorized round trip: grant Health access (run.sh / ref-mac.sh) so save/query/statistics/delete run authorized (only the refusal path HK 4/5 is asserted today)",
     "[c] clinical records / HKMedication: assert supportsHealthRecords() == false (reported today)"
    ],
-   "note": "Unauthorized answers of save/sample/statistics/collection/delete/anchored/observer/characteristics asserted, units model, iOS 26 HKWorkoutSession on iPhone; watch live builder. Apple's iPhone sim hung/timed out on two checks (ref FAIL).",
+   "note": "Unauthorized answers of save/sample/statistics/collection/delete/anchored/observer/characteristics asserted, units model, iOS 26 HKWorkoutSession on iPhone; watch live builder. Apple's iPhone sim hung/timed out on two checks (ref FAIL). r29: Health's sheet answered by touches (inputs.sh health; Apple's fresh simulator shows it ~80 s in: ref-mac.sh WAIT=150 INPUT='sleep 85000;...'): requestAuthorization ok, save / query / sum / delete authorized (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P5 Health, home, location, sensors & accessories",
+   "r29": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -2379,14 +2383,14 @@
   "PhotosUI": {
    "existing_checks": [
     "func:PhotosUI.picker-present",
-    "func:PhotosUI.picker"
+    "func:PhotosUI.picker",
+    "func:PhotosUI.input-picker-selection"
    ],
-   "gaps": [
-    "[a] iOS presents picker; tvOS/watchOS/visionOS only build views - assert selection via PhotosPickerItem loadTransferable",
-    "[a] PHPickerViewController delegate result handling"
-   ],
+   "gaps": [],
+   "note": "r29: a photo tapped in PHPickerViewController (inputs.sh photopick / ref-mac.sh INPUT='tap 0.17 0.22'): one result, UIImage loaded (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P1 Media & AV",
-   "rejudged": false,
+   "r29": true,
+   "rejudged": true,
    "status": "covered"
   },
   "ProximityReader": {
@@ -2519,14 +2523,14 @@
   "RelevanceKit": {
    "existing_checks": [
     "func:RelevanceKit.contexts-port",
-    "func:RelevanceKit.context-descriptions"
+    "func:RelevanceKit.context-descriptions",
+    "func:RelevanceKit.widget-relevance-invalidate"
    ],
-   "gaps": [
-    "[a] WidgetRelevance answered by the widget extension (relevance(), WidgetCenter.invalidateRelevance)"
-   ],
-   "note": "context-descriptions asserts each RelevantContext's description (date, range, interval, inferred location, headphones, watch sleep/fitness) as Apple prints it (not Equatable / Codable); watchOS asserts 0 configured widgets.",
+   "gaps": [],
+   "note": "context-descriptions asserts each RelevantContext's description (date, range, interval, inferred location, headphones, watch sleep/fitness) as Apple prints it (not Equatable / Codable); watchOS asserts 0 configured widgets. r29: the widget extension's relevance() asked at once after invalidateRelevance(ofKind:) with the widget on the home screen (iPhone, iPad), never without one (Apple and x86Sim PASS, 2026-11-18).",
    "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
+   "r29": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -3184,13 +3188,13 @@
    "apple_sim_na": "Apple's visionOS simulator analyzes but reads no text; no camera scanners",
    "existing_checks": [
     "func:VisionKit.image-analyzer-live-text",
-    "func:VisionKit.analyzer-scanner-support"
+    "func:VisionKit.analyzer-scanner-support",
+    "func:VisionKit.interaction-text-selection-subjects"
    ],
-   "gaps": [
-    "[a] ImageAnalysisInteraction text selection / subject lifting asserted (hasActiveTextSelection only reported)"
-   ],
-   "note": "iOS Live Text transcript asserted; DataScanner/document camera isSupported false asserted (Apple sim answer).",
+   "gaps": [],
+   "note": "iOS Live Text transcript asserted; DataScanner/document camera isSupported false asserted (Apple sim answer). r29: an analyzed image in a window: selectedRanges selects the Live Text, resetTextSelection clears it, items highlighted, 0 subjects (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
+   "r29": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -3260,15 +3264,15 @@
     "func:WidgetKit.control-center-controls",
     "func:WidgetKit.center",
     "func:WidgetKit.accessory-background-render",
-    "func:WidgetKit.input-placed-widget-timeline"
+    "func:WidgetKit.input-placed-widget-timeline",
+    "func:WidgetKit.input-placed-control-perform"
    ],
-   "gaps": [
-    "[a] ControlCenter with a placed control"
-   ],
-   "note": "widget extension registered and run by chronod (launch/placeholder/recommendations) on iOS/watchOS; x86sim needs feature \"widgets\" (chronod). r16: on iOS outside a widget the background draws nothing (only the text inks, ~3%) on Apple's simulator; watchOS draws it (Apple and x86Sim PASS, 2026-11-18). r27: the sdkcov widget placed on the home screen by touches (inputs.sh widget / ref-mac.sh PRE=): currentConfigurations lists sdkcov.static / systemSmall and reloadTimelines(ofKind:) asks the extension for a new timeline; Apple's gallery lists no widget whose extension never ran (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "widget extension registered and run by chronod (launch/placeholder/recommendations) on iOS/watchOS; x86sim needs feature \"widgets\" (chronod). r16: on iOS outside a widget the background draws nothing (only the text inks, ~3%) on Apple's simulator; watchOS draws it (Apple and x86Sim PASS, 2026-11-18). r27: the sdkcov widget placed on the home screen by touches (inputs.sh widget / ref-mac.sh PRE=): currentConfigurations lists sdkcov.static / systemSmall and reloadTimelines(ofKind:) asks the extension for a new timeline; Apple's gallery lists no widget whose extension never ran (Apple and x86Sim PASS, 2026-11-18). r29: the control placed in Control Center by touches (inputs.sh control, ref-mac.sh PRE=) is in currentControls; a tap on it closes Control Center, its intent never runs (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P3 App extensions, system services, communication & parental controls",
    "r16": true,
    "r27": true,
+   "r29": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -3600,11 +3604,10 @@
    "existing_checks": [
     "func:_PassKit_SwiftUI.wallet-pay-buttons"
    ],
-   "gaps": [
-    "[a] assert per-button ink (x86: pay box 0% ink, wallet 65%; Apple ref hung 70 s so unconfirmed)"
-   ],
-   "note": "Pay + AddPassToWallet buttons on screen (iOS pixel check, watchOS/visionOS appear).",
+   "gaps": [],
+   "note": "Pay + AddPassToWallet buttons on screen (iOS pixel check, watchOS/visionOS appear). r29: per-button ink pinned: the pay button's box blank (0%), the wallet button ~65% dark, on both (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P4 Data, cloud, contacts/calendars & commerce",
+   "r29": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -3633,10 +3636,11 @@
     "func:_PhotosUI_SwiftUI.photos-picker-binding-transferable"
    ],
    "gaps": [
-    "[a] loadTransferable of a picker-handed item (needs a selection in the out-of-process picker)"
+    "[a] loadTransferable of a SwiftUI PhotosPicker-handed item (PHPicker's delegate path is covered: func:PhotosUI.input-picker-selection)"
    ],
    "note": "PhotosPicker shown with a selection binding; identifier-made item loads nil as on Apple.",
    "package": "P1 Media & AV",
+   "r29": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -6826,11 +6830,10 @@
     "func:HealthKit.characteristics-requests-model",
     "func:HealthKit.store-units-samples"
    ],
-   "gaps": [
-    "[a] authorized round trip: grant Health access (run.sh / ref-mac.sh) so save/query/statistics/delete run authorized (only the refusal path HK 4/5 is asserted today)"
-   ],
-   "note": "Unauthorized answers of save/sample/statistics/collection/delete/anchored/observer/characteristics asserted, units model, iOS 26 HKWorkoutSession on iPhone; watch live builder. Apple's iPhone sim hung/timed out on two checks (ref FAIL).",
+   "gaps": [],
+   "note": "Unauthorized answers of save/sample/statistics/collection/delete/anchored/observer/characteristics asserted, units model, iOS 26 HKWorkoutSession on iPhone; watch live builder. Apple's iPhone sim hung/timed out on two checks (ref FAIL). r29: authorized on the watch through func:HealthKitUI.input-access-request-trigger's round trip.",
    "package": "P5 Health, home, location, sensors & accessories",
+   "r29": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -6839,13 +6842,13 @@
   },
   "HealthKitUI": {
    "existing_checks": [
-    "func:HealthKitUI.access-request-modifier"
+    "func:HealthKitUI.access-request-modifier",
+    "func:HealthKitUI.input-access-request-trigger"
    ],
-   "gaps": [
-    "[a] trigger change -> healthDataAccessRequest result (needs the Health sheet answered unattended)"
-   ],
-   "note": "iOS/visionOS HKActivityRingView inks pixels; watchOS access-request modifier hosted, no request while the trigger is unchanged.",
+   "gaps": [],
+   "note": "iOS/visionOS HKActivityRingView inks pixels; watchOS access-request modifier hosted, no request while the trigger is unchanged. r29: a trigger change runs the request, Health's sheet answered by touches (inputs.sh whealth): success true, then save / query / delete authorized (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P5 Health, home, location, sensors & accessories",
+   "r29": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -7160,11 +7163,12 @@
     "func:PhotosUI.photos-picker-view"
    ],
    "gaps": [
-    "[a] iOS presents picker; tvOS/watchOS/visionOS only build views - assert selection via PhotosPickerItem loadTransferable"
+    "[c] a selection in the watch photos picker: Apple's watch simulator shows \"Unable to Load Photos in Simulator\" (func:_PhotosUI_SwiftUI.input-watch-picker-transferable)"
    ],
    "note": "r28: PHPickerViewController is unavailable on tvOS / watchOS.",
    "package": "P1 Media & AV",
    "r28": true,
+   "r29": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -7199,14 +7203,16 @@
    "existing_checks": [
     "func:RelevanceKit.contexts-widget-relevance",
     "func:RelevanceKit.contexts-port",
-    "func:RelevanceKit.context-descriptions"
+    "func:RelevanceKit.context-descriptions",
+    "func:RelevanceKit.widget-relevance-invalidate"
    ],
    "gaps": [
-    "[a] WidgetRelevance answered by the widget extension (relevance(), WidgetCenter.invalidateRelevance)"
+    "[b: watch widget configurations: Apple's fresh watch lists the sdkcov widget as configured (currentConfigurations 1), x86Sim's none; relevance() asked on both (func:RelevanceKit.widget-relevance-invalidate, r29)]"
    ],
    "note": "context-descriptions asserts each RelevantContext's description (date, range, interval, inferred location, headphones, watch sleep/fitness) as Apple prints it (not Equatable / Codable); watchOS asserts 0 configured widgets.",
    "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
+   "r29": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -7360,17 +7366,17 @@
     "func:SwiftUI.image-renderer-layout",
     "func:SwiftUI.watch-date-picker-render",
     "func:SwiftUI.watch-controls-render",
-    "func:SwiftUI.input-list-swipe-actions"
+    "func:SwiftUI.input-list-swipe-actions",
+    "func:SwiftUI.input-watch-toolbar-item"
    ],
-   "gaps": [
-    "[a] toolbar items (contextMenu is deprecated on watchOS since 7.0, no gesture opens it)"
-   ],
-   "note": "layout/Grid/custom Layout pixels, animation timing, Observation invalidation, lazy stacks/scroll position, NavigationStack path, sheet/cover/alert/dialog, controls+TextField focus, TimelineView, TabView now on all platforms that support them. r21: Menu, Picker .menu style, popover, DocumentGroup / FileDocument and draggable / dropDestination are unavailable on watchOS (unavailable in the 27.2 SDK: swiftc -typecheck, 2026-11-18). r23: a watchOS DatePicker drawn by ImageRenderer (180x60, ~640 non-white pixels) (Apple and x86Sim PASS, 2026-11-18). r24: watchOS Toggle / Slider / Stepper / Picker drawn by ImageRenderer (by pixels) (Apple and x86Sim PASS, 2026-11-18). r28: a swipe reveals the trailing actions as round buttons (a full swipe runs none on either simulator); a tap on the outer one runs the first (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "layout/Grid/custom Layout pixels, animation timing, Observation invalidation, lazy stacks/scroll position, NavigationStack path, sheet/cover/alert/dialog, controls+TextField focus, TimelineView, TabView now on all platforms that support them. r21: Menu, Picker .menu style, popover, DocumentGroup / FileDocument and draggable / dropDestination are unavailable on watchOS (unavailable in the 27.2 SDK: swiftc -typecheck, 2026-11-18). r23: a watchOS DatePicker drawn by ImageRenderer (180x60, ~640 non-white pixels) (Apple and x86Sim PASS, 2026-11-18). r24: watchOS Toggle / Slider / Stepper / Picker drawn by ImageRenderer (by pixels) (Apple and x86Sim PASS, 2026-11-18). r28: a swipe reveals the trailing actions as round buttons (a full swipe runs none on either simulator); a tap on the outer one runs the first (Apple and x86Sim PASS, 2026-11-18). r29: a topBarTrailing toolbar button tapped by the host (inputs.sh wtoolbar) runs its action (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
    "r21": true,
    "r23": true,
    "r24": true,
    "r28": true,
+   "r29": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -7783,13 +7789,15 @@
   },
   "_PhotosUI_SwiftUI": {
    "existing_checks": [
-    "func:_PhotosUI_SwiftUI.photos-picker-binding-transferable"
+    "func:_PhotosUI_SwiftUI.photos-picker-binding-transferable",
+    "func:_PhotosUI_SwiftUI.input-watch-picker-transferable"
    ],
    "gaps": [
-    "[a] loadTransferable of a picker-handed item (needs a selection in the out-of-process picker)"
+    "[c] the watch simulator's photos picker has nothing to pick (\"Unable to Load Photos in Simulator\" on both)"
    ],
-   "note": "PhotosPicker shown with a selection binding; identifier-made item loads nil as on Apple.",
+   "note": "PhotosPicker shown with a selection binding; identifier-made item loads nil as on Apple. r29: presented with a binding, host taps: nothing pickable on either simulator.",
    "package": "P1 Media & AV",
+   "r29": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -8797,14 +8805,16 @@
   "FileProvider": {
    "existing_checks": [
     "func:FileProvider.replicated-extension-domain",
-    "func:FileProvider.domains-identifiers"
+    "func:FileProvider.domains-identifiers",
+    "func:FileProvider.evict-reimport-pending"
    ],
    "fin": true,
    "gaps": [
-    "[a] NSFileProviderManager evictItem / import / pending items"
+    "[b: File Provider eviction refused: fileproviderd's post-materialization docID lookup times out (item stale, the same cause as the double fetch), then evictItem answers nonEvictable -2008 (\"content policy prevention\") for 30 s; Apple evicts at once and the next read fetches again (func:FileProvider.evict-reimport-pending, r29)]"
    ],
-   "note": "replicated appex: domain added; Apple's visionOS simulator never enumerates it (SKIP on Apple and x86Sim, 2026-11-16).",
+   "note": "replicated appex: domain added; Apple's visionOS simulator never enumerates it (SKIP on Apple and x86Sim, 2026-11-16). r29: evictItem / reimportItems(below:) / the pending set; Apple (iOS and visionOS, whose domain enumerates in this run): evicted dataless, fetched again, reimport ok, nothing pending; x86Sim refuses the eviction (gap).",
    "package": "P3 App extensions, system services, communication & parental controls",
+   "r29": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -9858,14 +9868,16 @@
    "existing_checks": [
     "func:RelevanceKit.contexts",
     "func:RelevanceKit.contexts-port",
-    "func:RelevanceKit.context-descriptions"
+    "func:RelevanceKit.context-descriptions",
+    "func:RelevanceKit.widget-relevance-invalidate"
    ],
    "gaps": [
-    "[a] WidgetRelevance answered by the widget extension (relevance(), WidgetCenter.invalidateRelevance)"
+    "[b: visionOS widget relevance: x86Sim's chronod asks relevance() after invalidateRelevance with no widget placed, Apple's never (func:RelevanceKit.widget-relevance-invalidate, r29)]"
    ],
    "note": "context-descriptions asserts each RelevantContext's description (date, range, interval, inferred location, headphones, watch sleep/fitness) as Apple prints it (not Equatable / Codable); watchOS asserts 0 configured widgets.",
    "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
+   "r29": true,
    "rejudged": true,
    "status": "covered"
   },
