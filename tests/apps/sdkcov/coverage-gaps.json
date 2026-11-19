@@ -409,10 +409,11 @@
    ],
    "gaps": [
     "[c] ASAuthorizationController.performRequests with a passkey request: Apple's iPad sim shows its passkey sheet and the app hangs (assert the sheet without blocking)",
-    "[a] ASAuthorizationProviderExtension / ASCredentialProviderViewController objects (AutoFill/SSO extension side)"
+    "[c] ASAuthorizationProviderExtension / ASCredentialProviderViewController objects: Apple's iOS simulator never answers the identity store's state (hung 90 s; func:AuthenticationServices.credential-provider-objects runs on visionOS)"
    ],
    "note": "Passkey/security-key request objects, loopback web-auth callback (iOS), SSO canPerform false and credential identity store disabled; Apple tvOS/watchOS controller never answers in 25 s, visionOS answers 1004 after cancel.",
    "package": "P8 Foundation, networking, security, identity & device management",
+   "r28": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -520,11 +521,12 @@
     "func:BusinessChat.chat-button"
    ],
    "gaps": [
-    "[a] BCChatAction.openTranscript URL (deprecated)"
+    "[c] BCChatAction.openTranscript (deprecated) hands off to Messages for Business: no Messages app on Apple's simulator"
    ],
    "note": "chat-button asserts the 163.24 x 52 intrinsic size (light and dark, Apple) and the intent parameters.",
    "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
+   "r28": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -578,10 +580,11 @@
     "func:CarPlay.templates"
    ],
    "gaps": [
-    "[a] CPTemplateApplicationScene in CarPlay simulator window (Apple sim has I/O > External Displays > CarPlay)"
+    "[d] CPTemplateApplicationScene needs a CarPlay display: Simulator.app's I/O > External Displays > CarPlay (absent on the reference Mac; x86Sim has none)"
    ],
    "package": "P5 Health, home, location, sensors & accessories",
-   "rejudged": false,
+   "r28": true,
+   "rejudged": true,
    "status": "covered"
   },
   "Charts": {
@@ -729,10 +732,11 @@
     "func:CoreAudio.hal-system-object"
    ],
    "gaps": [
-    "[a] property listener actually firing on a default-device / sample-rate change"
+    "[d] a default-device / sample-rate change: on Apple's simulator the HAL devices are the Mac's own, a change would reconfigure the host's audio hardware (r28: not driven)"
    ],
    "note": "HAL via dlsym: system-object devices, default output, nominal rate, name, output streams, listener add/remove.",
    "package": "P1 Media & AV",
+   "r28": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -1376,10 +1380,11 @@
     "func:GSS.names-oids"
    ],
    "gaps": [
-    "[a] Kerberos auth needs a KDC (not available)"
+    "[d] Kerberos authentication needs a KDC (none on either side)"
    ],
    "package": "P8 Foundation, networking, security, identity & device management",
-   "rejudged": false,
+   "r28": true,
+   "rejudged": true,
    "status": "covered"
   },
   "GameController": {
@@ -1389,15 +1394,16 @@
     "func:GameController.virtual-controller-connect",
     "func:GameController.event-interaction",
     "func:GameController.controllers-keyboard-mouse",
-    "func:GameController.input-keyboard-key"
+    "func:GameController.input-keyboard-key",
+    "func:GameController.input-mouse-move"
    ],
    "gaps": [
-    "[a] input-gamepad: await a real button press (SDKCOV_INPUT_WAIT, run.sh input mode)",
-    "[a] GCMouse input handlers (needs pointer capture)"
+    "[d] GCMouse input handlers: Apple's simulator moves a mouse only through Simulator.app's pointer capture (absent on the reference Mac); Indigo relative pointer messages are dropped as leaf events, or break the HID port with child events (r28)"
    ],
-   "note": "Extended/micro snapshots, physical input profile, GCVirtualController connect (iOS), GCEventInteraction, tvOS micro gamepad. r27: a host K key through GCKeyboard.coalesced's key handler (Generic Keyboard) (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "Extended/micro snapshots, physical input profile, GCVirtualController connect (iOS), GCEventInteraction, tvOS micro gamepad. r27: a host K key through GCKeyboard.coalesced's key handler (Generic Keyboard) (Apple and x86Sim PASS, 2026-11-18). r28: x86Sim only (inputs.sh gcmouse on the iPad: 6 moves); Apple unreachable, see the gap. r28: input-gamepad already awaits a host button press (inputs.sh gamepad): gap stale.",
    "package": "P2 Graphics, 3D, AR & games",
    "r27": true,
+   "r28": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -1673,12 +1679,13 @@
     "func:Intents.preferences-interaction"
    ],
    "gaps": [
-    "[a] in-app intent handling (application(_:handlerFor:) / INExtension) for INSendMessageIntent"
+    "[c] in-app intent handling (application(_:handlerFor:) / INExtension): an intent reaches the app only from Siri, which Apple's simulator does not run"
    ],
    "note": "INInteraction secure-coding round trip + donate (ok or 1901 undeclared intents), INShortcut nil for undeclared intent, voice shortcuts + relevant shortcuts. r17: focus-status-center asserts not determined / not focused (Apple and x86Sim PASS, 2026-11-18). r20: delete(with:) / deleteAll asserted ok on iOS / watchOS / visionOS (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
    "r17": true,
    "r20": true,
+   "r28": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -2171,11 +2178,12 @@
     "func:NearbyInteraction.capabilities"
    ],
    "gaps": [
-    "[a] two-peer run between two devices (Apple: two simulator windows; x86: nisimhost)"
+    "[a] two-peer run: needs two devices booted at once on each side (Apple: two simulators; x86Sim: nisimhost)"
    ],
    "note": "capabilities pinned; a session run with its own token: no invalidation and nearby-object updates from the simulator NI service (Apple 2, x86Sim nisimhost 2) (Apple and x86Sim PASS, 2026-11-17)",
    "package": "P5 Health, home, location, sensors & accessories",
    "r11": true,
+   "r28": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -2317,10 +2325,11 @@
    ],
    "gaps": [
     "[c] PKIdentityAuthorizationController needs the in-app identity entitlement (Apple ends the app)",
-    "[a] PKAddPassesViewController with a signed test .pkpass fixture"
+    "[d] PKAddPassesViewController with a signed .pkpass: signing needs an Apple-issued Pass Type ID certificate"
    ],
    "note": "Payment request + Apple Pay sandbox sheet (iOS presented; visionOS Apple answers not presented), junk pass PKPassKitErrorDomain 1, pass library.",
    "package": "P4 Data, cloud, contacts/calendars & commerce",
+   "r28": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -3662,13 +3671,13 @@
   },
   "_RealityKit_ComputeGraph": {
    "existing_checks": [
-    "func:_RealityKit_ComputeGraph.component-state-simulation-rate"
+    "func:_RealityKit_ComputeGraph.component-state-simulation-rate",
+    "func:_RealityKit_ComputeGraph.resource-component-renderer"
    ],
-   "gaps": [
-    "[a] attach a ComputeGraph resource/pipeline and assert simulated output"
-   ],
-   "note": "ComputeGraphComponent play/pause, fixed rate, seed, shared uniforms, viewpoint through RealityRenderer updates.",
+   "gaps": [],
+   "note": "ComputeGraphComponent play/pause, fixed rate, seed, shared uniforms, viewpoint through RealityRenderer updates. r28: ComputeGraphResource(graph:pipelines:dependencies:) on an entity through ComputeGraphComponent(resource:), 6 RealityRenderer updates: resource + pipelines kept, no uniform 'x' (inlined), step() leaves it paused (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
+   "r28": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -3980,13 +3989,12 @@
     "func:AppIntents.perform",
     "func:AppIntents.app-shortcut-phrases-titles"
    ],
-   "gaps": [
-    "[a] ControlWidget toggles / SetValueIntent (with WidgetKit)"
-   ],
-   "note": "EntityQuery by id/string/all/suggested, AppEnum, display reps, OpenIntent parameters + perform, AppDependencyManager, donations donate/delete by identifier. r25: the provider's phrases (with the ${applicationName} placeholder), short titles and images read back by reflection (Apple and x86Sim PASS, 2026-11-18). r26: donations rerun on tvOS: = Apple (donated, deleted 1).",
+   "gaps": [],
+   "note": "EntityQuery by id/string/all/suggested, AppEnum, display reps, OpenIntent parameters + perform, AppDependencyManager, donations donate/delete by identifier. r25: the provider's phrases (with the ${applicationName} placeholder), short titles and images read back by reflection (Apple and x86Sim PASS, 2026-11-18). r26: donations rerun on tvOS: = Apple (donated, deleted 1). r28: ControlWidget is unavailable on tvOS (no WidgetKit) and visionOS.",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
    "r25": true,
    "r26": true,
+   "r28": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -4194,10 +4202,11 @@
     "func:CoreAudio.hal-system-object"
    ],
    "gaps": [
-    "[a] property listener actually firing on a default-device / sample-rate change"
+    "[d] a default-device / sample-rate change: on Apple's simulator the HAL devices are the Mac's own, a change would reconfigure the host's audio hardware (r28: not driven)"
    ],
    "note": "HAL via dlsym: system-object devices, default output, nominal rate, name, output streams, listener add/remove.",
    "package": "P1 Media & AV",
+   "r28": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -4612,14 +4621,15 @@
     "func:GameController.input-gamepad",
     "func:GameController.tv-micro-gamepad-event-vc",
     "func:GameController.snapshot-controller-profile-input",
-    "func:GameController.controllers-keyboard-mouse"
+    "func:GameController.controllers-keyboard-mouse",
+    "func:GameController.input-keyboard-key"
    ],
    "gaps": [
-    "[a] input-gamepad: await a real button press (SDKCOV_INPUT_WAIT, run.sh input mode)",
-    "[a] GCKeyboard / GCMouse input handlers (controllers-keyboard-mouse only reports counts)"
+    "[d] GCMouse input handlers: Apple's simulator moves a mouse only through Simulator.app's pointer capture (absent on the reference Mac); Indigo relative pointer messages are dropped as leaf events, or break the HID port with child events (r28)"
    ],
-   "note": "Extended/micro snapshots, physical input profile, GCVirtualController connect (iOS), GCEventInteraction, tvOS micro gamepad.",
+   "note": "Extended/micro snapshots, physical input profile, GCVirtualController connect (iOS), GCEventInteraction, tvOS micro gamepad. r28: a host K key through GCKeyboard.coalesced (inputs.sh gckey / ref-mac.sh INPUT='key 14') (Apple and x86Sim PASS, 2026-11-18). r28: input-gamepad already awaits a host button press (inputs.sh gamepad): gap stale.",
    "package": "P2 Graphics, 3D, AR & games",
+   "r28": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -4750,11 +4760,12 @@
     "func:Intents.preferences-interaction"
    ],
    "gaps": [
-    "[a] in-app intent handling (application(_:handlerFor:) / INExtension) for INSendMessageIntent"
+    "[c] in-app intent handling (application(_:handlerFor:) / INExtension): an intent reaches the app only from Siri, which Apple's simulator does not run"
    ],
    "note": "INInteraction secure-coding round trip + donate (ok or 1901 undeclared intents), INShortcut nil for undeclared intent, voice shortcuts + relevant shortcuts. r19: tvOS delete(with:) / deleteAll asserted IntentsErrorDomain 1900 (Apple) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
    "r19": true,
+   "r28": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -5231,12 +5242,11 @@
    "existing_checks": [
     "func:PhotosUI.live-photo-view"
    ],
-   "gaps": [
-    "[a] iOS presents picker; tvOS/watchOS/visionOS only build views - assert selection via PhotosPickerItem loadTransferable",
-    "[a] PHPickerViewController delegate result handling"
-   ],
+   "gaps": [],
+   "note": "r28: PhotosPicker / PHPickerViewController are unavailable on tvOS. r28: PHPickerViewController is unavailable on tvOS / watchOS.",
    "package": "P1 Media & AV",
-   "rejudged": false,
+   "r28": true,
+   "rejudged": true,
    "status": "covered"
   },
   "QuartzCore": {
@@ -5300,12 +5310,11 @@
     "func:RelevanceKit.contexts",
     "func:RelevanceKit.context-descriptions"
    ],
-   "gaps": [
-    "[a] WidgetRelevance answered by the widget extension (relevance(), WidgetCenter.invalidateRelevance)"
-   ],
-   "note": "context-descriptions asserts each RelevantContext's description (date, range, interval, inferred location, headphones, watch sleep/fitness) as Apple prints it (not Equatable / Codable); watchOS asserts 0 configured widgets.",
+   "gaps": [],
+   "note": "context-descriptions asserts each RelevantContext's description (date, range, interval, inferred location, headphones, watch sleep/fitness) as Apple prints it (not Equatable / Codable); watchOS asserts 0 configured widgets. r28: no WidgetKit on tvOS.",
    "p9": true,
    "package": "P3 App extensions, system services, communication & parental controls",
+   "r28": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -5976,13 +5985,13 @@
   },
   "_RealityKit_ComputeGraph": {
    "existing_checks": [
-    "func:_RealityKit_ComputeGraph.component-state-simulation-rate"
+    "func:_RealityKit_ComputeGraph.component-state-simulation-rate",
+    "func:_RealityKit_ComputeGraph.resource-component-renderer"
    ],
-   "gaps": [
-    "[a] attach a ComputeGraph resource/pipeline and assert simulated output"
-   ],
-   "note": "ComputeGraphComponent play/pause, fixed rate, seed, shared uniforms, viewpoint through RealityRenderer updates.",
+   "gaps": [],
+   "note": "ComputeGraphComponent play/pause, fixed rate, seed, shared uniforms, viewpoint through RealityRenderer updates. r28: ComputeGraphResource(graph:pipelines:dependencies:) on an entity through ComputeGraphComponent(resource:), 6 RealityRenderer updates: resource + pipelines kept, no uniform 'x' (inlined), step() leaves it paused (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
+   "r28": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -6210,12 +6219,11 @@
     "func:AuthenticationServices.apple-id-request",
     "func:AuthenticationServices.web-auth-loopback-port"
    ],
-   "gaps": [
-    "[a] ASAuthorizationProviderExtension / ASCredentialProviderViewController objects (AutoFill/SSO extension side)"
-   ],
-   "note": "web-auth-loopback-port asserts the loopback redirect reaches the callback (Apple watchOS / visionOS); passkey controller pending / apple-id request; ASAuthorizationController never answers on Apple's watch (asserted not authorized / not 4099).",
+   "gaps": [],
+   "note": "web-auth-loopback-port asserts the loopback redirect reaches the callback (Apple watchOS / visionOS); passkey controller pending / apple-id request; ASAuthorizationController never answers on Apple's watch (asserted not authorized / not 4099). r28: no ASCredentialProviderViewController / ASAuthorizationProviderExtension in the watchOS SDK.",
    "p9": true,
    "package": "P8 Foundation, networking, security, identity & device management",
+   "r28": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -6294,11 +6302,11 @@
     "func:CallKit.provider-observer"
    ],
    "gaps": [
-    "[a] CXCallDirectoryManager status (needs a call directory extension)",
     "[run] rerun incoming-outgoing-calls on ref (FAIL predates the error assertion; detail matches the asserted errors)"
    ],
-   "note": "iOS: incoming reported, observed, ended; outgoing start/mute/end through the provider delegate; watch/vision assert the refusals.",
+   "note": "iOS: incoming reported, observed, ended; outgoing start/mute/end through the provider delegate; watch/vision assert the refusals. r28: CXCallDirectoryManager is API_UNAVAILABLE(watchos) / unavailable on visionOS.",
    "package": "P3 App extensions, system services, communication & parental controls",
+   "r28": true,
    "rejudged": true,
    "status": "apple-sim-na"
   },
@@ -6338,10 +6346,11 @@
     "func:ClockKit.complication-server"
    ],
    "gaps": [
-    "[a] CLKComplicationDataSource timeline (reloadTimeline/extendTimeline) - complication-server only reports a count"
+    "[c] CLKComplicationDataSource timeline: watch faces run WidgetKit complications since watchOS 10; Apple's simulator reports 0 active ClockKit complications (func:ClockKit.complication-server), so reloadTimeline / extendTimeline reach no data source"
    ],
    "note": "watchOS templates/providers/descriptors archive; iOS CLKWatchFaceLibrary asserts error domain codes 1 (remote URL) and 2 (bad file).",
    "package": "P6 UI frameworks depth & platform UI",
+   "r28": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -6395,10 +6404,11 @@
     "func:CoreAudio.hal-system-object"
    ],
    "gaps": [
-    "[a] property listener actually firing on a default-device / sample-rate change"
+    "[d] a default-device / sample-rate change: on Apple's simulator the HAL devices are the Mac's own, a change would reconfigure the host's audio hardware (r28: not driven)"
    ],
    "note": "HAL via dlsym: system-object devices, default output, nominal rate, name, output streams, listener add/remove.",
    "package": "P1 Media & AV",
+   "r28": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -6478,13 +6488,14 @@
   },
   "CoreLocationUI": {
    "existing_checks": [
-    "func:CoreLocationUI.location-button-render"
+    "func:CoreLocationUI.location-button-render",
+    "func:CoreLocationUI.input-location-button-tap"
    ],
-   "gaps": [
-    "[a] LocationButton tap -> one-time authorization (input)"
-   ],
+   "gaps": [],
+   "note": "r28: a host tap on the watch LocationButton runs its action (authorization 4) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P5 Health, home, location, sensors & accessories",
-   "rejudged": false,
+   "r28": true,
+   "rejudged": true,
    "status": "covered"
   },
   "CoreMIDI": {
@@ -6875,12 +6886,13 @@
     "func:Intents.preferences-interaction"
    ],
    "gaps": [
-    "[a] in-app intent handling (application(_:handlerFor:) / INExtension) for INSendMessageIntent"
+    "[c] in-app intent handling (application(_:handlerFor:) / INExtension): an intent reaches the app only from Siri, which Apple's simulator does not run"
    ],
    "note": "INInteraction secure-coding round trip + donate (ok or 1901 undeclared intents), INShortcut nil for undeclared intent, voice shortcuts + relevant shortcuts. r17: focus-status-center asserts not determined / not focused (Apple and x86Sim PASS, 2026-11-18). r20: delete(with:) / deleteAll asserted ok on iOS / watchOS / visionOS (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
    "r17": true,
    "r20": true,
+   "r28": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -7061,11 +7073,12 @@
     "func:NearbyInteraction.capabilities"
    ],
    "gaps": [
-    "[a] two-peer run between two devices (Apple: two simulator windows; x86: nisimhost)"
+    "[a] two-peer run: needs two devices booted at once on each side (Apple: two simulators; x86Sim: nisimhost)"
    ],
    "note": "own-token run: no invalidation, nearby-object updates (Apple 2, x86Sim 1) (Apple and x86Sim PASS, 2026-11-17)",
    "package": "P5 Health, home, location, sensors & accessories",
    "r11": true,
+   "r28": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -7134,10 +7147,11 @@
     "func:PassKit.library-payments"
    ],
    "gaps": [
-    "[a] PKAddPassesViewController with a signed test .pkpass fixture"
+    "[d] PKAddPassesViewController with a signed .pkpass: signing needs an Apple-issued Pass Type ID certificate"
    ],
    "note": "Payment request + Apple Pay sandbox sheet (iOS presented; visionOS Apple answers not presented), junk pass PKPassKitErrorDomain 1, pass library.",
    "package": "P4 Data, cloud, contacts/calendars & commerce",
+   "r28": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -7146,11 +7160,12 @@
     "func:PhotosUI.photos-picker-view"
    ],
    "gaps": [
-    "[a] iOS presents picker; tvOS/watchOS/visionOS only build views - assert selection via PhotosPickerItem loadTransferable",
-    "[a] PHPickerViewController delegate result handling"
+    "[a] iOS presents picker; tvOS/watchOS/visionOS only build views - assert selection via PhotosPickerItem loadTransferable"
    ],
+   "note": "r28: PHPickerViewController is unavailable on tvOS / watchOS.",
    "package": "P1 Media & AV",
-   "rejudged": false,
+   "r28": true,
+   "rejudged": true,
    "status": "covered"
   },
   "PushKit": {
@@ -7344,17 +7359,18 @@
     "func:SwiftUI.tabview-page-selection",
     "func:SwiftUI.image-renderer-layout",
     "func:SwiftUI.watch-date-picker-render",
-    "func:SwiftUI.watch-controls-render"
+    "func:SwiftUI.watch-controls-render",
+    "func:SwiftUI.input-list-swipe-actions"
    ],
    "gaps": [
-    "[a] contextMenu, toolbar items",
-    "[a] List swipeActions"
+    "[a] toolbar items (contextMenu is deprecated on watchOS since 7.0, no gesture opens it)"
    ],
-   "note": "layout/Grid/custom Layout pixels, animation timing, Observation invalidation, lazy stacks/scroll position, NavigationStack path, sheet/cover/alert/dialog, controls+TextField focus, TimelineView, TabView now on all platforms that support them. r21: Menu, Picker .menu style, popover, DocumentGroup / FileDocument and draggable / dropDestination are unavailable on watchOS (unavailable in the 27.2 SDK: swiftc -typecheck, 2026-11-18). r23: a watchOS DatePicker drawn by ImageRenderer (180x60, ~640 non-white pixels) (Apple and x86Sim PASS, 2026-11-18). r24: watchOS Toggle / Slider / Stepper / Picker drawn by ImageRenderer (by pixels) (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "layout/Grid/custom Layout pixels, animation timing, Observation invalidation, lazy stacks/scroll position, NavigationStack path, sheet/cover/alert/dialog, controls+TextField focus, TimelineView, TabView now on all platforms that support them. r21: Menu, Picker .menu style, popover, DocumentGroup / FileDocument and draggable / dropDestination are unavailable on watchOS (unavailable in the 27.2 SDK: swiftc -typecheck, 2026-11-18). r23: a watchOS DatePicker drawn by ImageRenderer (180x60, ~640 non-white pixels) (Apple and x86Sim PASS, 2026-11-18). r24: watchOS Toggle / Slider / Stepper / Picker drawn by ImageRenderer (by pixels) (Apple and x86Sim PASS, 2026-11-18). r28: a swipe reveals the trailing actions as round buttons (a full swipe runs none on either simulator); a tap on the outer one runs the first (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
    "r21": true,
    "r23": true,
    "r24": true,
+   "r28": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -7440,14 +7456,14 @@
     "func:UserNotifications.settings-schedule-pending",
     "func:UserNotifications.categories-actions-attachment-delivered",
     "func:UserNotifications.provisional-deliver-local",
-    "func:UserNotifications.communication-content-from-intent"
+    "func:UserNotifications.communication-content-from-intent",
+    "func:UserNotifications.service-extension-push"
    ],
-   "gaps": [
-    "[a] UNNotificationServiceExtension mutating a delivered push (simctl push equivalent)"
-   ],
-   "note": "x86 PASSes where ref SKIPs (categories/attachment delivery iOS/visionOS, provisional iOS) and visionOS settings ref FAIL. r23: UNNotificationContent.updating(from: INSendMessageIntent) hands the content back unchanged (no communication notifications capability) (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "x86 PASSes where ref SKIPs (categories/attachment delivery iOS/visionOS, provisional iOS) and visionOS settings ref FAIL. r23: UNNotificationContent.updating(from: INSendMessageIntent) hands the content back unchanged (no communication notifications capability) (Apple and x86Sim PASS, 2026-11-18). r28: nservice built for watchOS / visionOS too; pushes (inputs.sh push / ref-mac.sh INPUT=push: simctl push) delivered as sent, the service extension never runs, as on iOS (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P3 App extensions, system services, communication & parental controls",
    "r23": true,
+   "r28": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -7487,10 +7503,11 @@
     "func:WatchConnectivity.session-activate"
    ],
    "gaps": [
-    "[a] watch-only app gets no session state; a companion-app setup would be needed for transfer APIs"
+    "[a] transfers need a paired iPhone + watch (two devices booted at once on each side); the watch-only app gets no session state"
    ],
    "package": "P3 App extensions, system services, communication & parental controls",
-   "rejudged": false,
+   "r28": true,
+   "rejudged": true,
    "status": "apple-sim-na"
   },
   "WatchKit": {
@@ -7970,10 +7987,11 @@
     "func:AVRouting.custom-routing-controller-arbiter"
    ],
    "gaps": [
-    "[a] DeviceDiscoveryExtension appex to drive AVCustomRoutingController route events (today asserts empty routes + no delegate events)"
+    "[d] needs visionOS gaze / pinch input: the reference Mac's Xcode has no Simulator.app, SimulatorKit's Indigo builders reach no visionOS pointer (r26) (choosing the discovered route in the picker)"
    ],
    "note": "custom routing controller with no extension: 0 routes/events, known IPs stick, customActionItems kept none on Apple too; playback arbiter participants set/cleared on iOS/tvOS.",
    "package": "P1 Media & AV",
+   "r28": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -8027,12 +8045,11 @@
     "func:AppIntents.perform",
     "func:AppIntents.app-shortcut-phrases-titles"
    ],
-   "gaps": [
-    "[a] ControlWidget toggles / SetValueIntent (with WidgetKit)"
-   ],
-   "note": "EntityQuery by id/string/all/suggested, AppEnum, display reps, OpenIntent parameters + perform, AppDependencyManager, donations donate/delete by identifier. r25: the provider's phrases (with the ${applicationName} placeholder), short titles and images read back by reflection (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "EntityQuery by id/string/all/suggested, AppEnum, display reps, OpenIntent parameters + perform, AppDependencyManager, donations donate/delete by identifier. r25: the provider's phrases (with the ${applicationName} placeholder), short titles and images read back by reflection (Apple and x86Sim PASS, 2026-11-18). r28: ControlWidget is unavailable on tvOS (no WidgetKit) and visionOS.",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
    "r25": true,
+   "r28": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -8214,12 +8231,12 @@
     "func:CallKit.provider-observer"
    ],
    "gaps": [
-    "[a] CXCallDirectoryManager status (needs a call directory extension)",
     "[run] rerun incoming-outgoing-calls on ref (FAIL predates the error assertion; detail matches the asserted errors)"
    ],
-   "note": "iOS: incoming reported, observed, ended; outgoing start/mute/end through the provider delegate; watch/vision assert the refusals. r24: x86Sim visionOS run: incoming error 0, requesttransaction 1 (as asserted) (Apple and x86Sim PASS, 2026-11-18).",
+   "note": "iOS: incoming reported, observed, ended; outgoing start/mute/end through the provider delegate; watch/vision assert the refusals. r24: x86Sim visionOS run: incoming error 0, requesttransaction 1 (as asserted) (Apple and x86Sim PASS, 2026-11-18). r28: CXCallDirectoryManager is API_UNAVAILABLE(watchos) / unavailable on visionOS.",
    "package": "P3 App extensions, system services, communication & parental controls",
    "r24": true,
+   "r28": true,
    "rejudged": true,
    "status": "apple-sim-na"
   },
@@ -8331,10 +8348,11 @@
     "func:Contacts.save-fetch-update-delete-groups-history"
    ],
    "gaps": [
-    "[a] limited-access (iOS 18) authorization behaviour"
+    "[d] needs visionOS gaze / pinch input: the reference Mac's Xcode has no Simulator.app, SimulatorKit's Indigo builders reach no visionOS pointer (r26) (the contact access picker)"
    ],
    "note": "CNSaveRequest add/update/delete, fetch by name/email/phone, groups, enumerate, change history, CNContactStoreDidChange (pre-granted access).",
    "package": "P4 Data, cloud, contacts/calendars & commerce",
+   "r28": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -8359,10 +8377,11 @@
     "func:CoreAudio.hal-system-object"
    ],
    "gaps": [
-    "[a] property listener actually firing on a default-device / sample-rate change"
+    "[d] a default-device / sample-rate change: on Apple's simulator the HAL devices are the Mac's own, a change would reconfigure the host's audio hardware (r28: not driven)"
    ],
    "note": "HAL via dlsym: system-object devices, default output, nominal rate, name, output streams, listener add/remove.",
    "package": "P1 Media & AV",
+   "r28": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -8856,10 +8875,11 @@
     "func:GSS.names-oids"
    ],
    "gaps": [
-    "[a] Kerberos auth needs a KDC (not available)"
+    "[d] Kerberos authentication needs a KDC (none on either side)"
    ],
    "package": "P8 Foundation, networking, security, identity & device management",
-   "rejudged": false,
+   "r28": true,
+   "rejudged": true,
    "status": "covered"
   },
   "GameController": {
@@ -8867,14 +8887,15 @@
     "func:GameController.input-gamepad",
     "func:GameController.snapshot-controller-profile-input",
     "func:GameController.event-interaction",
-    "func:GameController.controllers-keyboard-mouse"
+    "func:GameController.controllers-keyboard-mouse",
+    "func:GameController.input-keyboard-key"
    ],
    "gaps": [
-    "[a] input-gamepad: await a real button press (SDKCOV_INPUT_WAIT, run.sh input mode)",
-    "[a] GCKeyboard / GCMouse input handlers (controllers-keyboard-mouse only reports counts)"
+    "[d] GCMouse input handlers: Apple's simulator moves a mouse only through Simulator.app's pointer capture (absent on the reference Mac); Indigo relative pointer messages are dropped as leaf events, or break the HID port with child events (r28)"
    ],
-   "note": "Extended/micro snapshots, physical input profile, GCVirtualController connect (iOS), GCEventInteraction, tvOS micro gamepad.",
+   "note": "Extended/micro snapshots, physical input profile, GCVirtualController connect (iOS), GCEventInteraction, tvOS micro gamepad. r28: a host K key through GCKeyboard.coalesced (inputs.sh gckey / ref-mac.sh INPUT='key 14') (Apple and x86Sim PASS, 2026-11-18). r28: input-gamepad already awaits a host button press (inputs.sh gamepad): gap stale.",
    "package": "P2 Graphics, 3D, AR & games",
+   "r28": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -8963,10 +8984,11 @@
     "func:HealthKit.store-units-samples"
    ],
    "gaps": [
-    "[a] authorized round trip: grant Health access (run.sh / ref-mac.sh) so save/query/statistics/delete run authorized (only the refusal path HK 4/5 is asserted today)"
+    "[d] needs visionOS gaze / pinch input: the reference Mac's Xcode has no Simulator.app, SimulatorKit's Indigo builders reach no visionOS pointer (r26) (the Health authorization sheet)"
    ],
    "note": "Unauthorized answers of save/sample/statistics/collection/delete/anchored/observer/characteristics asserted, units model, iOS 26 HKWorkoutSession on iPhone; watch live builder. Apple's iPhone sim hung/timed out on two checks (ref FAIL).",
    "package": "P5 Health, home, location, sensors & accessories",
+   "r28": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -9107,12 +9129,13 @@
     "func:Intents.preferences-interaction"
    ],
    "gaps": [
-    "[a] in-app intent handling (application(_:handlerFor:) / INExtension) for INSendMessageIntent"
+    "[c] in-app intent handling (application(_:handlerFor:) / INExtension): an intent reaches the app only from Siri, which Apple's simulator does not run"
    ],
    "note": "INInteraction secure-coding round trip + donate (ok or 1901 undeclared intents), INShortcut nil for undeclared intent, voice shortcuts + relevant shortcuts. r17: focus-status-center asserts not determined / not focused (Apple and x86Sim PASS, 2026-11-18). r20: delete(with:) / deleteAll asserted ok on iOS / watchOS / visionOS (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P7 ML, Apple Intelligence, App Intents/Siri, vision, speech & language",
    "r17": true,
    "r20": true,
+   "r28": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -9663,10 +9686,11 @@
     "func:PassKit.library-payments"
    ],
    "gaps": [
-    "[a] PKAddPassesViewController with a signed test .pkpass fixture"
+    "[d] PKAddPassesViewController with a signed .pkpass: signing needs an Apple-issued Pass Type ID certificate"
    ],
    "note": "Payment request + Apple Pay sandbox sheet (iOS presented; visionOS Apple answers not presented), junk pass PKPassKitErrorDomain 1, pass library.",
    "package": "P4 Data, cloud, contacts/calendars & commerce",
+   "r28": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -9675,10 +9699,11 @@
     "func:PencilKit.drawing-roundtrip-image"
    ],
    "gaps": [
-    "[a] PKCanvasView drawing via touch input"
+    "[d] needs visionOS gaze / pinch input: the reference Mac's Xcode has no Simulator.app, SimulatorKit's Indigo builders reach no visionOS pointer (r26)"
    ],
    "package": "P6 UI frameworks depth & platform UI",
-   "rejudged": false,
+   "r28": true,
+   "rejudged": true,
    "status": "covered"
   },
   "PermissionKit": {
@@ -9718,11 +9743,11 @@
     "func:PhotosUI.picker"
    ],
    "gaps": [
-    "[a] iOS presents picker; tvOS/watchOS/visionOS only build views - assert selection via PhotosPickerItem loadTransferable",
-    "[a] PHPickerViewController delegate result handling"
+    "[d] needs visionOS gaze / pinch input: the reference Mac's Xcode has no Simulator.app, SimulatorKit's Indigo builders reach no visionOS pointer (r26) (a selection in the picker)"
    ],
    "package": "P1 Media & AV",
-   "rejudged": false,
+   "r28": true,
+   "rejudged": true,
    "status": "covered"
   },
   "PushKit": {
@@ -10084,15 +10109,15 @@
     "func:SwiftUI.document-group-open-edit-save"
    ],
    "gaps": [
-    "[a] contextMenu (needs a long-press input: SwiftUI's ContextMenuBridge answers no configuration outside the gesture, Apple's simulator too)",
-    "[a] drag & drop with Transferable (draggable/dropDestination)",
-    "[a] List swipeActions (needs a swipe input)"
+    "[d] needs visionOS gaze / pinch input: the reference Mac's Xcode has no Simulator.app, SimulatorKit's Indigo builders reach no visionOS pointer (r26) (long press: contextMenu)",
+    "[d] needs visionOS gaze / pinch input: the reference Mac's Xcode has no Simulator.app, SimulatorKit's Indigo builders reach no visionOS pointer (r26) (drag & drop with Transferable)"
    ],
    "note": "layout/Grid/custom Layout pixels, animation timing, Observation invalidation, lazy stacks/scroll position, NavigationStack path, sheet/cover/alert/dialog, controls+TextField focus, TimelineView, TabView now on all platforms that support them. r16: toolbar item as a trailing bar item, Menu and menu Picker as primary-action UIButtons (3 choices), compact UIDatePicker, a popover (visionOS: sheet) presented and dismissed from the model (Apple and x86Sim PASS, 2026-11-18). r17: a contextMenu becomes a UIContextMenuInteraction with SwiftUI's ContextMenuBridge delegate, which answers no configuration outside a long-press gesture (Apple too): left for input r26: DocumentGroup through the companion app sdkcovDoc on visionOS too (browser, open, edit, autosave) (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P6 UI frameworks depth & platform UI",
    "r16": true,
    "r17": true,
    "r26": true,
+   "r28": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -10130,10 +10155,11 @@
     "func:TabletopKit.table-setup-actions-snapshot"
    ],
    "gaps": [
-    "[a] TabletopInteraction gesture / dice roll handling"
+    "[d] needs visionOS gaze / pinch input: the reference Mac's Xcode has no Simulator.app, SimulatorKit's Indigo builders reach no visionOS pointer (r26) (TabletopInteraction gestures / a dice roll)"
    ],
    "note": "visionOS only: table setup with equipment + seats, update/move actions confirmed by an observer, snapshot state.",
    "package": "P2 Graphics, 3D, AR & games",
+   "r28": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -10261,14 +10287,14 @@
    "existing_checks": [
     "func:UserNotifications.settings-schedule-pending",
     "func:UserNotifications.categories-actions-attachment-delivered",
-    "func:UserNotifications.communication-content-from-intent"
+    "func:UserNotifications.communication-content-from-intent",
+    "func:UserNotifications.service-extension-push"
    ],
-   "gaps": [
-    "[a] UNNotificationServiceExtension mutating a delivered push (simctl push equivalent)"
-   ],
-   "note": "x86 PASSes where ref SKIPs (categories/attachment delivery iOS/visionOS, provisional iOS) and visionOS settings ref FAIL. r23: UNNotificationContent.updating(from: INSendMessageIntent) hands the content back unchanged (no communication notifications capability) (Apple and x86Sim PASS, 2026-11-18).",
+   "gaps": [],
+   "note": "x86 PASSes where ref SKIPs (categories/attachment delivery iOS/visionOS, provisional iOS) and visionOS settings ref FAIL. r23: UNNotificationContent.updating(from: INSendMessageIntent) hands the content back unchanged (no communication notifications capability) (Apple and x86Sim PASS, 2026-11-18). r28: nservice built for watchOS / visionOS too; pushes (inputs.sh push / ref-mac.sh INPUT=push: simctl push) delivered as sent, the service extension never runs, as on iOS (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P3 App extensions, system services, communication & parental controls",
    "r23": true,
+   "r28": true,
    "rejudged": true,
    "status": "covered",
    "used_inside": [
@@ -10429,12 +10455,13 @@
     "func:WidgetKit.widget-views-render-xros"
    ],
    "gaps": [
-    "[a] timelines reach currentConfigurations (0 configured today): assert a kind",
-    "[c] ControlCenter is unavailable on visionOS"
+    "[c] ControlCenter is unavailable on visionOS",
+    "[d] needs visionOS gaze / pinch input: the reference Mac's Xcode has no Simulator.app, SimulatorKit's Indigo builders reach no visionOS pointer (r26) (placing a widget)"
    ],
    "note": "widget-views-render-xros: outside a widget AccessoryWidgetBackground draws nothing on visionOS (Apple), 0 configured; widget-extension-descriptors PASSes on Apple now (chronod ran the extension in 52 s) (x86Sim PASS on each of its platforms, 2026-11-17)",
    "p10": true,
    "package": "P3 App extensions, system services, communication & parental controls",
+   "r28": true,
    "rejudged": true,
    "status": "thin"
   },
@@ -10760,10 +10787,11 @@
     "func:_PhotosUI_SwiftUI.photos-picker-binding-transferable"
    ],
    "gaps": [
-    "[a] loadTransferable of a picker-handed item (needs a selection in the out-of-process picker)"
+    "[d] needs visionOS gaze / pinch input: the reference Mac's Xcode has no Simulator.app, SimulatorKit's Indigo builders reach no visionOS pointer (r26) (a selection in the picker)"
    ],
    "note": "PhotosPicker shown with a selection binding; identifier-made item loads nil as on Apple.",
    "package": "P1 Media & AV",
+   "r28": true,
    "rejudged": true,
    "status": "covered"
   },
@@ -10798,13 +10826,13 @@
   },
   "_RealityKit_ComputeGraph": {
    "existing_checks": [
-    "func:_RealityKit_ComputeGraph.component-state-simulation-rate"
+    "func:_RealityKit_ComputeGraph.component-state-simulation-rate",
+    "func:_RealityKit_ComputeGraph.resource-component-renderer"
    ],
-   "gaps": [
-    "[a] attach a ComputeGraph resource/pipeline and assert simulated output"
-   ],
-   "note": "ComputeGraphComponent play/pause, fixed rate, seed, shared uniforms, viewpoint through RealityRenderer updates.",
+   "gaps": [],
+   "note": "ComputeGraphComponent play/pause, fixed rate, seed, shared uniforms, viewpoint through RealityRenderer updates. r28: ComputeGraphResource(graph:pipelines:dependencies:) on an entity through ComputeGraphComponent(resource:), 6 RealityRenderer updates: resource + pipelines kept, no uniform 'x' (inlined), step() leaves it paused (Apple and x86Sim PASS, 2026-11-18).",
    "package": "P2 Graphics, 3D, AR & games",
+   "r28": true,
    "rejudged": true,
    "status": "covered"
   },
