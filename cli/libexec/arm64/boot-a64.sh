@@ -34,14 +34,21 @@ fi
 # our in-simulator binaries are built per platform: host/<name>/arm64 (iOS), arm64-tvos, arm64-watchos
 A64_HOSTDIR=arm64; [ "$A64_PLATFORM" = ios ] || A64_HOSTDIR=arm64-$A64_PLATFORM
 export A64_PLATFORM
-export X86SIM_STATE=${A64_STATE:-$X86SIM_ROOT/var/run-a64}
+# A device other than var/device-a64 gets its own state dir and prefix by default, named as the launcher names them
+# (tools/launcher/core/src/instance.rs: device-a64<sfx> -> var/run-a64<sfx>, a64prefix<sfx>). These defaulted to
+# device-a64's, so a script booting another device by A64_DEVICE alone wrote into the user's phone (2026-11-19).
+A64_SFX=$(basename "$A64_DEVICE" | sed -n 's/^device-a64//p')
+[ "$(basename "$A64_DEVICE")" = device-a64 ] || [ -n "$A64_SFX" ] || A64_SFX=-$(basename "$A64_DEVICE")
+export X86SIM_STATE=${A64_STATE:-$X86SIM_ROOT/var/run-a64$A64_SFX}
 . "$X86SIM_ROOT/cli/lib/config.sh"
 if [ -z "${X86SIM_A64_JITCACHE_DIR:-}" ] && [ -n "$A64_BUILD" ] && [ "$A64_BUILD" != 24A434 ]; then
 	export X86SIM_A64_JITCACHE_DIR=$X86SIM_SCRATCH/jc-$A64_BUILD
 fi
-export DPREFIX=${A64_DPREFIX:-$X86SIM_SCRATCH/a64prefix}
+export DPREFIX=${A64_DPREFIX:-$X86SIM_SCRATCH/a64prefix$A64_SFX}
 export X86SIM_DPREFIX=$DPREFIX
-export X86SIM_METAL=${X86SIM_METAL-0}
+# visionOS draws everything through wakeboardd's Metal compositor: without Metal it aborts in a loop ("Error creating
+# composite 0 layer render pipeline state") and SurfBoard never comes up, so Metal defaults on there (as the launcher)
+if [ "$A64_PLATFORM" = xros ]; then export X86SIM_METAL=${X86SIM_METAL-all}; else export X86SIM_METAL=${X86SIM_METAL-0}; fi
 export X86SIM_MEM_MAX=${X86SIM_MEM_MAX-12G}
 X=$X86SIM_ROOT; cd "$X" || exit 1
 D=$X86SIM_DEVICE; ST=$X86SIM_STATE; SECS=${SECS:-90}
@@ -133,6 +140,10 @@ if [ -n "$X86SIM_METAL" ] && [ "$X86SIM_METAL" != 0 ] && [ -z "${A64_MTLVK_SOCKE
 		export X86SIM_METAL=0
 		stop_a64_mtlvk
 	fi
+fi
+if [ "$A64_PLATFORM" = xros ] && { [ -z "$X86SIM_METAL" ] || [ "$X86SIM_METAL" = 0 ]; }; then
+	echo "boot-a64: visionOS needs Metal (X86SIM_METAL=all and a working mtlvk); not booting without it" >&2
+	exit 1
 fi
 MIN="com.apple.cfprefsd.xpc.daemon com.apple.cfprefsd.xpc.daemon.system com.apple.notifyd com.apple.configd_sim
 	com.apple.runningboardd com.apple.lsd com.apple.containermanagerd com.apple.containermanagerd.system
