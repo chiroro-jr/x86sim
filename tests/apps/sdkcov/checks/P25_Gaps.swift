@@ -17,6 +17,8 @@ import HealthKit
 #endif
 #if canImport(PhotosUI) && os(iOS)
 import PhotosUI
+import AVRouting
+import AVKit
 #endif
 
 private var p25InputWait: Double { Double(ProcessInfo.processInfo.environment["SDKCOV_INPUT_WAIT"] ?? "") ?? 0 }
@@ -199,6 +201,60 @@ extension Registry {
             let d2 = "asset id \(r.assetIdentifier == nil ? "nil" : "set"), types \(r.itemProvider.registeredContentTypes.map(\.identifier).prefix(3)), \(img)"
             try expect(img.hasPrefix("image "), d2)
             return d2
+        })
+        #endif
+        // MARK: WidgetKit: the app's control placed in Control Center by the user (inputs.sh control's pre: Control
+        // Center opened, +, Add a Control, search "sdkcov", the control; ref-mac.sh PRE= the same touches), then tapped
+        // there (send): it is among currentControls; its AppIntent never runs on either simulator
+        #if canImport(WidgetKit) && os(iOS)
+        c.append(check("WidgetKit", "input-placed-control-perform", timeout: 120) {
+            let wait = p25InputWait
+            let cur = { ((try? await ControlCenter.shared.currentControls()) ?? []).map(\.kind) }
+            guard wait > 0 else { return "\(await cur()) (SDKCOV_INPUT_WAIT unset: no placed control awaited)" }
+            let t0 = Date()
+            var kinds: [String] = []
+            _ = await p3Wait(20) { kinds = await cur(); return kinds.contains("sdkcov.control") }
+            try expect(kinds.contains("sdkcov.control"), "no placed sdkcov.control: \(kinds)")
+            let ran = await p3Wait(wait) { !p3Marks("control-perform", since: t0).isEmpty }
+            let d = "placed \(kinds); perform \(p3Marks("control-perform", since: t0).count)x"
+            // Apple's iOS 27.2 simulator: the tap closes Control Center, the intent's perform never runs in the widget
+            // extension (the app does not carry the intent type)
+            try expect(!ran, "the control's intent ran (Apple's simulator: never): \(d)")
+            return d
+        })
+        #endif
+        // MARK: AVRouting: the route picker with a custom routing controller tapped by the host (inputs.sh routepick: the
+        // picker in the middle; ext/Discovery.swift would report a TV): discovery start, the controller's delegate events
+        // and authorized routes
+        #if canImport(PhotosUI) && os(iOS)
+        c.append(check("AVRouting", "input-route-picker-discovery", timeout: 120) {
+            let wait = p25InputWait
+            guard wait > 0 else { return "no input (SDKCOV_INPUT_WAIT unset)" }
+            final class D: NSObject, AVCustomRoutingControllerDelegate, @unchecked Sendable {
+                let log = P6Log()
+                func customRoutingController(_ c: AVCustomRoutingController, handle e: AVCustomRoutingEvent, completionHandler: @escaping (Bool) -> Void) {
+                    log.add("\(e.reason.rawValue)"); completionHandler(true)
+                }
+            }
+            let t0 = Date(), d = D()
+            let (rc, done) = try await onMain { () throws -> (AVCustomRoutingController, () -> Void) in
+                let rc = AVCustomRoutingController(); rc.delegate = d
+                let vc = UIViewController(); vc.view.backgroundColor = .white
+                let pv = AVRoutePickerView(frame: CGRect(x: 0, y: 0, width: 80, height: 80)); pv.customRoutingController = rc
+                pv.center = CGPoint(x: vc.view.bounds.midX, y: vc.view.bounds.midY); pv.autoresizingMask = [.flexibleLeftMargin, .flexibleRightMargin, .flexibleTopMargin, .flexibleBottomMargin]
+                vc.view.addSubview(pv)
+                let (_, close) = try p6Show(vc)
+                return (rc, close)
+            }
+            defer { Task { @MainActor in done() } }
+            _ = await p3Wait(wait) { !d.log.all.isEmpty }
+            let routes = await onMain { rc.authorizedRoutes.map { $0.networkEndpoint.map { "\($0)" } ?? "route" } }
+            let starts = p3Marks("discovery-start", since: t0).count
+            let r = "discovery start \(starts), reported \(p3Marks("discovery-report", since: t0).count), ext events \(p3Marks("discovery-event", since: t0)); delegate \(d.log.all); authorized \(routes)"
+            // Apple's iOS 27.2 simulator: a tap on the picker presents nothing, the discovery extension never starts, no
+            // route events (no AirPlay route UI in the simulator)
+            try expect(starts == 0 && d.log.all.isEmpty && routes.isEmpty, r)
+            return r
         })
         #endif
         return c

@@ -23,7 +23,7 @@ build=; want=
 for a in "$@"; do case $a in --no-build) build=--no-build ;; *) want="$want $a" ;; esac; done
 rt=$(cat "$X86SIM_DEVICE/runtime" 2>/dev/null); plat=${rt%%-*}
 case $plat in
-	ios) all="shake orientation biometric bioitem gamepad memwarn push tracking clip ctxmenu swipe sdrag ncontent cvmenu pencil locbutton fpauth widget gckey health photopick"
+	ios) all="shake orientation biometric bioitem gamepad memwarn push tracking clip ctxmenu swipe sdrag ncontent cvmenu pencil locbutton fpauth widget gckey health photopick control routepick"
 		case $(cat "$X86SIM_DEVICE/model" 2>/dev/null) in iPad*) all="$all pointer keyboard drag gcmouse" ;; esac ;; xros) all="shake biometric bioitem gamepad memwarn tracking push gckey" ;; tvos) all="gamepad memwarn tracking gckey" ;;
 	watchos) all="lifecycle locbutton swipe push" ;;
 	*) echo "inputs: no input checks for $plat" >&2; exit 0 ;;
@@ -124,6 +124,15 @@ for k in ${want:-$all}; do
 			press 0.5 0.56 0.08; nap 1; press 0.5 0.856 0.08; } ; undo() { :; } ;;
 		# (P25) the photo picker's first grid cell (selection limit 1: picked at once; Apple: ref-mac.sh INPUT='tap 0.17 0.22')
 		photopick) id=func:PhotosUI.input-picker-selection; send() { press 0.17 0.22 0.08; } ; undo() { :; } ;;
+		# (P25) the sdkcov control placed in Control Center before the app starts (pre: a swipe down at the top right, +,
+		# Add a Control, search "sdkcov", the control, two taps on an empty spot), then, while the check waits, Control
+		# Center opened, the control (top left) tapped, closed (iPhone 17 Pro layout; Apple: ref-mac.sh PRE= / INPUT=)
+		control) id=func:WidgetKit.input-placed-control-perform; pre() { xs home; nap 2; stroke 0.9 0.005 0.9 0.4 0; nap 2; press 0.13 0.043 0.08; nap 2
+			press 0.5 0.916 0.08; nap 4; press 0.5 0.135 0.08; nap 2; xs type sdkcov; nap 3; press 0.143 0.302 0.08; nap 3
+			press 0.5 0.75 0.08; nap 2; press 0.5 0.75 0.08; nap 2; }
+			send() { stroke 0.9 0.005 0.9 0.4 0; nap 2; press 0.18 0.14 0.08; nap 2; press 0.5 0.75 0.08; } ; undo() { :; } ;;
+		# (P25) the AVRoutePickerView in the middle of the screen tapped (Apple: ref-mac.sh INPUT='tap 0.5 0.5')
+		routepick) id=func:AVRouting.input-route-picker-discovery; send() { press 0.5 0.5 0.08; } ; undo() { :; } ;;
 		*) echo "inputs: unknown check $k" >&2; exit 2 ;;
 	esac
 	# per device: two devices of one platform don't share (and delete) each other's OUT
