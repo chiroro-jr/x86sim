@@ -101,9 +101,17 @@ for k in ${want:-$all}; do
 		# (P23) the sdkcov widget placed on the home screen before the app starts (pre): a long press on an empty spot, the
 		# edit menu's Add Widget, the gallery searched for "sdkcov", its Add Widget, Done (iPhone 17 Pro layout; Apple:
 		# ref-mac.sh PRE= with the same touches through Indigo)
-		widget) id=func:WidgetKit.input-placed-widget-timeline; pre() { xs home; nap 2; press 0.5 0.55 2; nap 2; press 0.17 0.037 0.1; nap 2
-			press 0.33 0.107 0.1; nap 4; press 0.5 0.2 0.1; nap 2; xs type sdkcov; nap 3; press 0.3 0.29 0.1; nap 5
-			press 0.5 0.905 0.1; nap 4; press 0.83 0.037 0.1; nap 2; } ; send() { :; } ; undo() { :; } ;;
+		# (P25) iPad (iPad Air 11-inch): edit at the top left, Add Widget, search, the sdkcov row, Add Widget, the top right
+		# checkmark (Apple: ref-mac.sh ipad PRE= the same)
+		widget) id=func:WidgetKit.input-placed-widget-timeline
+			case $(cat "$X86SIM_DEVICE/model" 2>/dev/null) in
+			iPad*) pre() { xs home; nap 2; press 0.5 0.6 2; nap 2; press 0.055 0.025 0.1; nap 2; press 0.125 0.05 0.1; nap 4
+				press 0.135 0.158 0.1; nap 2; xs type sdkcov; nap 3; press 0.125 0.219 0.1; nap 4; press 0.625 0.915 0.1; nap 4
+				press 0.945 0.025 0.1; nap 2; } ;;
+			*) pre() { xs home; nap 2; press 0.5 0.55 2; nap 2; press 0.17 0.037 0.1; nap 2
+				press 0.33 0.107 0.1; nap 4; press 0.5 0.2 0.1; nap 2; xs type sdkcov; nap 3; press 0.3 0.29 0.1; nap 5
+				press 0.5 0.905 0.1; nap 4; press 0.83 0.037 0.1; nap 2; } ;;
+			esac; send() { :; } ; undo() { :; } ;;
 		# (P23, watchOS) once the check has started: the Digital Crown pressed (the watch face), 4 s later sdkcov opened again from the host
 		lifecycle) id=func:WatchKit.input-lifecycle-round-trip; send() { [ -e "$OUT/lc-sent" ] && return
 			f=$(find "$X86SIM_DEVICE"/data/tmp -name 'sdkcov-*.err' -newer "$OUT/run.log" 2>/dev/null | head -1)
