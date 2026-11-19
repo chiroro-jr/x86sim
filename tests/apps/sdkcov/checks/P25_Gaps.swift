@@ -21,6 +21,12 @@ import AVRouting
 import AVKit
 #endif
 
+#if os(watchOS)
+import HealthKitUI
+import PhotosUI
+import _PhotosUI_SwiftUI
+#endif
+
 private var p25InputWait: Double { Double(ProcessInfo.processInfo.environment["SDKCOV_INPUT_WAIT"] ?? "") ?? 0 }
 
 extension Registry {
@@ -37,7 +43,13 @@ extension Registry {
             let d = "\(placed) placed sdkcov.static widgets; relevance() after invalidateRelevance \(p3Marks("widget-relevance", since: t0).count)"
             // Apple's simulator: asked at once with the widget on the home screen (inputs.sh widget / ref-mac.sh PRE=), never
             // without one
+            #if os(watchOS)
+            // watchOS: asked at once (Smart Stack relevance; Apple's fresh watch lists the widget as configured (1),
+            // x86Sim's none: reported, open)
+            try expect(asked, d)
+            #else
             try expect(asked == (placed > 0), d)
+            #endif
             return d
         })
         #endif
@@ -255,6 +267,72 @@ extension Registry {
             // route events (no AirPlay route UI in the simulator)
             try expect(starts == 0 && d.log.all.isEmpty && routes.isEmpty, r)
             return r
+        })
+        #endif
+        #if os(watchOS)
+        // MARK: SwiftUI on watchOS: a toolbar button (topBarTrailing) tapped by the host (inputs.sh wtoolbar: the top right)
+        c.append(check("SwiftUI", "input-watch-toolbar-item", timeout: 120) {
+            let wait = p25InputWait, log = P6Log()
+            let done = try await onMain {
+                try p6HostSwiftUI(NavigationStack {
+                    Text("sdkcov toolbar").navigationTitle("sdkcov")
+                        .toolbar { ToolbarItem(placement: .topBarTrailing) { Button { log.add("tool") } label: { Image(systemName: "plus") } } }
+                })
+            }
+            defer { Task { @MainActor in done() } }
+            guard wait > 0 else { return "toolbar on screen (SDKCOV_INPUT_WAIT unset: no tap awaited)" }
+            let ok = await p6Wait(wait) { !log.all.isEmpty }
+            try expect(ok, "the toolbar button's action never ran in \(Int(wait)) s")
+            return "toolbar button action ran \(log.all.count)x"
+        })
+        // MARK: HealthKitUI on watchOS: the access request modifier's trigger changed, Health's sheet answered by the
+        // host (inputs.sh whealth): the request's result, then the authorized step count round trip
+        c.append(check("HealthKitUI", "input-access-request-trigger", timeout: 240) {
+            let wait = p25InputWait
+            struct V: View {
+                let st: HKHealthStore; let out: P6Log; @State var t = 0
+                var body: some View {
+                    Text("sdkcov health").healthDataAccessRequest(store: st, shareTypes: [HKQuantityType(.stepCount)], readTypes: [HKQuantityType(.stepCount)], trigger: t) { r in
+                        switch r { case .success(let ok): out.add("success \(ok)"); case .failure(let e): out.add(p5HK(e).map { "HK \($0)" } ?? p5Err(e)) }
+                    }.task { try? await Task.sleep(for: .seconds(1)); t = 1 }
+                }
+            }
+            let st = HKHealthStore(), out = P6Log(), steps = HKQuantityType(.stepCount)
+            guard wait > 0 else { return "no input (SDKCOV_INPUT_WAIT unset)" }
+            await onMain { Runner.shared.overlay = AnyView(V(st: st, out: out)) }
+            defer { Task { @MainActor in Runner.shared.overlay = nil } }
+            _ = await p3Wait(wait + 60) { !out.all.isEmpty }
+            let shared = st.authorizationStatus(for: steps)
+            let tag = "sdkcov-\(UUID().uuidString)", t0 = Date().addingTimeInterval(-600)
+            let save = await p5HKTry { try await st.save(HKQuantitySample(type: steps, quantity: HKQuantity(unit: .count(), doubleValue: 77), start: t0, end: t0.addingTimeInterval(60), metadata: [HKMetadataKeyExternalUUID: tag])); return "saved" }
+            let pred = HKQuery.predicateForObjects(withMetadataKey: HKMetadataKeyExternalUUID, allowedValues: [tag])
+            let q = await p5HKTry { "\(try await HKSampleQueryDescriptor(predicates: [.quantitySample(type: steps, predicate: pred)], sortDescriptors: []).result(for: st).count) samples" }
+            let del = await p5HKTry { "\(try await st.deleteObjects(of: steps, predicate: pred)) deleted" }
+            let d = "result \(out.all), share \(shared.rawValue); save \(save), query \(q), delete \(del)"
+            try expect(out.all == ["success true"] && shared == .sharingAuthorized && save == "ok saved" && q == "ok 1 samples" && del == "ok 1 deleted", d)
+            return d
+        })
+        // MARK: _PhotosUI_SwiftUI on watchOS: the photos picker presented with a selection binding, the host tapping
+        // where a photo would be (inputs.sh wphotopick): the simulator's picker has no photos, the binding stays empty
+        c.append(check("_PhotosUI_SwiftUI", "input-watch-picker-transferable", timeout: 120) {
+            let wait = p25InputWait
+            guard wait > 0 else { return "no input (SDKCOV_INPUT_WAIT unset)" }
+            final class Box: @unchecked Sendable { var items: [PhotosPickerItem] = [] }
+            let box = Box()
+            struct V: View {
+                let box: Box; @State var shown = true; @State var sel: [PhotosPickerItem] = []
+                var body: some View {
+                    Text("sdkcov picker").photosPicker(isPresented: $shown, selection: $sel, maxSelectionCount: 1, matching: .images)
+                        .onChange(of: sel) { _, n in box.items = n }
+                }
+            }
+            await onMain { Runner.shared.overlay = AnyView(V(box: box)) }
+            defer { Task { @MainActor in Runner.shared.overlay = nil } }
+            let got = await p3Wait(wait) { await onMain { !box.items.isEmpty } }
+            let items = await onMain { box.items }
+            // the watch simulator's picker says "Unable to Load Photos in Simulator" (Apple's too): nothing to pick
+            try expect(!got, "picked \(items.count) items (the simulator's picker has no photos)")
+            return "nothing pickable (Unable to Load Photos in Simulator)"
         })
         #endif
         return c

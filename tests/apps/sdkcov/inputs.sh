@@ -25,7 +25,7 @@ rt=$(cat "$X86SIM_DEVICE/runtime" 2>/dev/null); plat=${rt%%-*}
 case $plat in
 	ios) all="shake orientation biometric bioitem gamepad memwarn push tracking clip ctxmenu swipe sdrag ncontent cvmenu pencil locbutton fpauth widget gckey health photopick control routepick"
 		case $(cat "$X86SIM_DEVICE/model" 2>/dev/null) in iPad*) all="$all pointer keyboard drag gcmouse" ;; esac ;; xros) all="shake biometric bioitem gamepad memwarn tracking push gckey" ;; tvos) all="gamepad memwarn tracking gckey" ;;
-	watchos) all="lifecycle locbutton swipe push" ;;
+	watchos) all="lifecycle locbutton swipe push wtoolbar whealth wphotopick" ;;
 	*) echo "inputs: no input checks for $plat" >&2; exit 0 ;;
 esac
 xs() { "$X86SIM_ROOT/cli/x86sim" "$@"; }
@@ -133,6 +133,19 @@ for k in ${want:-$all}; do
 			send() { stroke 0.9 0.005 0.9 0.4 0; nap 2; press 0.18 0.14 0.08; nap 2; press 0.5 0.75 0.08; } ; undo() { :; } ;;
 		# (P25) the AVRoutePickerView in the middle of the screen tapped (Apple: ref-mac.sh INPUT='tap 0.5 0.5')
 		routepick) id=func:AVRouting.input-route-picker-discovery; send() { press 0.5 0.5 0.08; } ; undo() { :; } ;;
+		# (P25, watchOS 46 mm) the toolbar button at the top right (Apple: ref-mac.sh watchos INPUT='tap 0.844 0.143')
+		wtoolbar) id=func:SwiftUI.input-watch-toolbar-item; send() { press 0.844 0.143 0.08; } ; undo() { :; } ;;
+		# (P25, watchOS) Health's sheet once the check has started: Review, write toggle, scrolled to Next, read toggle,
+		# scrolled to Continue, "Past 30 Days", scrolled to Done (Apple: ref-mac.sh watchos INPUT= the same, once)
+		whealth) id=func:HealthKitUI.input-access-request-trigger; send() { [ -e "$OUT/health-sent" ] && return
+			f=$(find "$X86SIM_DEVICE"/data/tmp -name 'sdkcov-*.err' -newer "$OUT/run.log" 2>/dev/null | head -1)
+			grep -qs "X86TEST sdkcov only " "$f" || return; nap 12; touch "$OUT/health-sent"
+			press 0.5 0.895 0.08; nap 3; press 0.84 0.78 0.08; nap 1.5; stroke 0.5 0.85 0.5 0.25 0; nap 1.5; stroke 0.5 0.85 0.5 0.25 0; nap 1.5
+			press 0.5 0.74 0.08; nap 3; press 0.84 0.855 0.08; nap 1.5; stroke 0.5 0.85 0.5 0.25 0; nap 1.5; stroke 0.5 0.85 0.5 0.25 0; nap 1.5
+			stroke 0.5 0.85 0.5 0.25 0; nap 1.5; press 0.5 0.74 0.08; nap 3; stroke 0.5 0.85 0.5 0.25 0; nap 1.5; press 0.5 0.55 0.08; nap 1.5
+			stroke 0.5 0.85 0.5 0.25 0; nap 1.5; stroke 0.5 0.85 0.5 0.25 0; nap 1.5; press 0.5 0.74 0.08; } ; undo() { :; } ;;
+		# (P25, watchOS) a tap where the picker's first photo would be (it shows "Unable to Load Photos in Simulator")
+		wphotopick) id=func:_PhotosUI_SwiftUI.input-watch-picker-transferable; send() { press 0.25 0.4 0.08; } ; undo() { :; } ;;
 		*) echo "inputs: unknown check $k" >&2; exit 2 ;;
 	esac
 	# per device: two devices of one platform don't share (and delete) each other's OUT
