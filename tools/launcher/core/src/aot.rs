@@ -952,6 +952,11 @@ pub fn build_locked(p: &Paths, cfg: &Config, opts: &BuildOpts, on_progress: &mut
         // nothing was built (no builder ran): what there is stays
         return Ok(r);
     }
+    // not one chunk finished: the builders cannot run at all (issue #10: Darling could not start, every builder log
+    // said why), so assembling from the previous chunks would only hide it behind a "done" and remove those logs
+    if r.chunks_done == 0 {
+        bail!("{} (no chunk finished in either try: the builders could not run; their logs are kept there)", r.message);
+    }
     let name = plan(p, cfg)?.image_name;
     // the chunks that did finish are recorded; a chunk whose rebuild failed keeps its previous build when its key
     // did not change (feedback rebuilds), else it is left out: only the failed ones are skipped

@@ -23,7 +23,7 @@ install)
 		rm -rf "$D.tmp"
 		cp -a "$SRC" "$D.tmp"
 		chown -R root:root "$D.tmp"
-		chmod -R go-w "$D.tmp"
+		chmod -R go-w,a+rX "$D.tmp"
 		chmod 1777 "$D.tmp/libexec/darling/private/var/tmp" 2>/dev/null || true
 		chmod 4755 "$D.tmp/bin/darling"
 		echo "$ID" > "$D.tmp/.x86sim-complete"
