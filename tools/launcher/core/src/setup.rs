@@ -195,7 +195,7 @@ pub fn checks() -> Vec<Check> {
     });
     // tools the scripts run
     let mut miss = vec![];
-    for t in ["python3", "curl", "openssl", "setsid"] {
+    for t in ["python3", "curl", "openssl", "setsid", "ip"] {
         if !on_path(t) {
             miss.push(t);
         }
@@ -206,9 +206,9 @@ pub fn checks() -> Vec<Check> {
         }
     }
     v.push(if miss.is_empty() {
-        check("Programs", Level::Ok, "python3, curl, openssl, ipsw, 7-Zip", "")
+        check("Programs", Level::Ok, "python3, curl, openssl, setsid, ip, ipsw, 7-Zip", "")
     } else {
-        check("Programs", Level::Fail, format!("missing: {}", miss.join(", ")), "Install them with your package manager (ipsw and 7-Zip come with the AppImage).")
+        check("Programs", Level::Fail, format!("missing: {}", miss.join(", ")), "Install them with your package manager (ip is in iproute2; ipsw and 7-Zip come with the AppImage).")
     });
     // systemd is optional: with a user manager each phone runs in a scope with a disk IO cap, low CPU weight and the
     // optional memory cap (cli/libexec/limited.sh); without one (no systemd, or a session without a user manager)
