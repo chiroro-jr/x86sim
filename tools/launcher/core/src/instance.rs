@@ -271,8 +271,12 @@ pub struct Summary {
 
 /// Every phone's state; samples CPU over `sample_ms` (0: memory and state only).
 pub fn summaries(sample_ms: u64) -> Vec<Summary> {
+    // one Monitor for the process: a fresh one forgot which phones had reached home, so a phone with a dark app open
+    // (every watchOS app) was reported "starting" again by the MCP server's phones_list
+    static MON: std::sync::Mutex<Option<Monitor>> = std::sync::Mutex::new(None);
     let insts = list();
-    let mut m = Monitor::default();
+    let mut guard = MON.lock().unwrap_or_else(|e| e.into_inner());
+    let m = guard.get_or_insert_with(Monitor::default);
     let mut st = m.poll(&insts);
     if sample_ms > 0 {
         std::thread::sleep(std::time::Duration::from_millis(sample_ms));
