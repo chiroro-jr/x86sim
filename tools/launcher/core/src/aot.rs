@@ -1627,6 +1627,11 @@ fn build_once(p: &Paths, cfg: &Config, opts: &BuildOpts, on_progress: &mut dyn F
         prog.state = "error".into();
         if prog.message.is_empty() || !prog.message.starts_with("chunk") {
             prog.message = format!("only {} of {} chunks finished: see {}", prog.chunks_done, prog.chunks_total, work.display());
+            if prog.chunks_done == 0 {
+                if let Some(line) = first_worker_error(&work) {
+                    prog.message.push_str(&format!(" (first worker error: {line})"));
+                }
+            }
         }
         publish(&mut prog, on_progress);
         return Ok(prog);
@@ -1927,4 +1932,24 @@ mod tests {
         assert_eq!(c.test_prefix, scratch().join("a64testprefix"));
         let _ = std::fs::remove_dir_all(&t);
     }
+}
+
+/// The first error line any w*.log in `work` holds (or its first line when none says "error"), so a build where no
+/// chunk finished says why: for example "darlingserver: error while loading shared libraries: ..." (issue #16).
+fn first_worker_error(work: &Path) -> Option<String> {
+    let mut logs: Vec<_> = std::fs::read_dir(work).ok()?.flatten().map(|e| e.path())
+        .filter(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with('w') && n.ends_with(".log")))
+        .collect();
+    logs.sort();
+    let mut first = None;
+    for log in logs {
+        let Ok(text) = std::fs::read_to_string(&log) else { continue };
+        for line in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
+            if line.to_ascii_lowercase().contains("error") {
+                return Some(line.chars().take(300).collect());
+            }
+            first.get_or_insert_with(|| line.chars().take(300).collect());
+        }
+    }
+    first
 }

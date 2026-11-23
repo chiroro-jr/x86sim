@@ -210,6 +210,28 @@ pub fn checks() -> Vec<Check> {
     } else {
         check("Programs", Level::Fail, format!("missing: {}", miss.join(", ")), "Install them with your package manager (ip is in iproute2; ipsw and 7-Zip come with the AppImage).")
     });
+    // shared libraries the shipped binaries need from the host (issue #16: darlingserver linked against
+    // libxml2.so.2, which Arch replaced with libxml2.so.16, and every pre-translate worker failed)
+    let mut bins: Vec<PathBuf> = vec![];
+    if let Some(dir) = darling_bin().parent() {
+        bins.extend(["darling", "darlingserver"].map(|b| dir.join(b)));
+    }
+    bins.extend(std::env::current_exe().ok());
+    let mut unresolved: Vec<String> = vec![];
+    for b in bins.iter().filter(|b| b.is_file()) {
+        let Ok(out) = Command::new("ldd").arg(b).stdin(Stdio::null()).stderr(Stdio::null()).output() else { continue };
+        for l in String::from_utf8_lossy(&out.stdout).lines().filter(|l| l.contains("not found")) {
+            let lib = l.split_whitespace().next().unwrap_or("").to_string();
+            let name = b.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let entry = format!("{lib} (for {name})");
+            if !unresolved.contains(&entry) {
+                unresolved.push(entry);
+            }
+        }
+    }
+    if !unresolved.is_empty() {
+        v.push(check("Shared libraries", Level::Fail, format!("missing: {}", unresolved.join(", ")), "Install the package that provides them with your package manager."));
+    }
     // systemd is optional: with a user manager each phone runs in a scope with a disk IO cap, low CPU weight and the
     // optional memory cap (cli/libexec/limited.sh); without one (no systemd, or a session without a user manager)
     // phones run uncapped
