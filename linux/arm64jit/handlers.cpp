@@ -778,6 +778,9 @@ static Handler timebase_handler(const std::string &n) {
         {"_mach_absolute_time", h_tb_ret}, {"_mach_absolute_time_kernel", h_tb_ret}, {"_mach_continuous_time", h_tb_ret},
         {"_mach_continuous_time_kernel", h_tb_ret}, {"_mach_approximate_time", h_tb_ret},
         {"_mach_continuous_approximate_time", h_tb_ret}, {"_kdebug_timestamp", h_tb_ret},
+        // the calling thread's CPU time in mach time (clock_gettime(CLOCK_THREAD_CPUTIME_ID) scales it by the timebase):
+        // unconverted it read 125/3 times too much (issue #17)
+        {"___thread_selfusage", h_tb_ret},
         {"_mach_timebase_info", h_tb_info}, {"_mach_timebase_info_trap", h_tb_info}, {"_mach_get_times", h_tb_get_times},
         {"_mk_timer_cancel", h_tb_out<1>}, {"_mach_wait_until", h_tb_in<0>}, {"_mk_timer_arm", h_tb_in<1>},
         {"_mk_timer_arm_leeway", h_tb_in<2, 3>},
