@@ -91,6 +91,7 @@ struct GuestThread final : Dynarmic::A64::UserCallbacks {
     int dbg_reason = 0, dbg_sig = 0;
     u64 dbg_info[3]{};  // Mach exception type, code, subcode
     bool dbg_reported = false, dbg_step_pending = false;
+    std::unique_ptr<Dynarmic::A64::Jit> dbg_aux;  // single steps inside a nested call (this Jit is in Run())
 
     GuestThread();
     void reset_after_unwind();  // after a longjmp out of call() (pthread_exit)
@@ -173,12 +174,16 @@ constexpr u32 kDbgSvc = 0xffce;
 extern std::atomic<int> g_dbg_on;   // a debugger is attached (or awaited): threads check the safe points
 extern std::atomic<int> g_dbg_nbp;  // breakpoints set: the code fetch looks them up
 std::optional<uint32_t> dbg_read_code(u64 a);
+bool dbg_bp_active(u64 a);
+void dbg_set_notifier(u64 a);
+std::unique_ptr<Dynarmic::A64::Jit> dbg_make_jit(GuestThread &t);  // jit.cpp
 void dbg_svc(GuestThread &t, u64 addr);
 void dbg_point(GuestThread &t, int where);  // 0: call() loop, 1: thunk entry, 2: thunk return, 3: exception
 void dbg_exception(GuestThread &t, u64 pc, int sig, u64 metype, u64 code, u64 sub);
 void dbg_init_from_env();
 bool dbg_check_request();
 void dbg_exiting(int linux_sig);
+void dbg_exit_code(int status);
 bool dbg_started();
 std::mutex &dbg_threads_mutex();
 void agout_dump(u32 attr);

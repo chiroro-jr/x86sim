@@ -764,6 +764,7 @@ static void h_exit(GuestThread &t, u32 i) {  // __exit: the guest process ends h
     if (getenv("X86SIM_A64_AOT_BUILD")) jitcache_aot_build(t);
     print_stats();
     jitcache_save_on_exit();
+    dbg_exit_code((int)t.x(0));  // a debugger attached: "process exited with status"
     ((void (*)(int))g_thunks[i].native)((int)t.x(0));
 }
 

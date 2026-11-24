@@ -878,6 +878,8 @@ static std::unique_ptr<Dynarmic::A64::Jit> make_jit(const Dynarmic::A64::UserCon
     return std::make_unique<Dynarmic::A64::Jit>(cfg);
 }
 
+std::unique_ptr<Dynarmic::A64::Jit> dbg_make_jit(GuestThread &t) { return make_jit(t.cfg); }
+
 GuestThread::GuestThread() {
     // The guest has its own TSD (tpidrro_el0): slots 0-9 (pthread_self, errno, mach thread self, ...) are copied from
     // Darling's native TSD (the gs base on x86_64); keys 10+ are the guest's alone. Sharing the native array let

@@ -62,6 +62,8 @@ loop (copy it to `.claude/skills/x86sim/` or your agent's equivalent). Agents th
 - A pool of devices kept booted for agents and CI, taken and given back with leases (see [Device pool](#device-pool)).
 - Launch with arguments and environment variables, stream an app's stdout, stderr or `os_log`, or have it wait for a
   debugger.
+- Debug an app with LLDB: attach to it running or launch it stopped, then breakpoints, stepping, backtraces of every
+  thread, variables, registers and memory (see [Debugging (LLDB)](#debugging-lldb)).
 - Find an app's bundle, data and app-group containers as ordinary Linux paths.
 
 **Graphics and input**
@@ -322,6 +324,46 @@ x86sim test qa --spm MyPackage                          # a Swift package's test
 `tests/apps/XCTestDemo/run.sh <phone>` runs the fixture (hosted unit tests, logic tests, UI tests, each with a
 deliberate failure) and checks every result against Apple's simulator.
 
+### Debugging (LLDB)
+
+`x86sim debug` attaches LLDB to an app (or any process) in a running phone, as Xcode's Debug > Attach to Process:
+
+```sh
+x86sim debug qa com.example.myapp                       # attach to the running app: an interactive lldb
+x86sim debug qa com.example.myapp --launch              # relaunch it stopped before dyld runs: break in main, +load
+x86sim debug qa com.example.myapp --wait                # attach as soon as you start it
+x86sim debug qa com.example.myapp --symbols build/MyApp.app.dSYM --batch -o 'breakpoint set -n viewDidLoad' -o continue -o bt
+x86sim debug qa 1234                                    # a process by pid (x86sim pidof)
+```
+
+Breakpoints (by name, file and line, address), `step` / `next` / `finish`, `bt all`, `frame variable`, `register
+read`, `memory read`, `image list` / `image lookup` (every image of the dyld cache, read from the process), and stops at
+crashes (`EXC_BAD_ACCESS`, Swift traps as `EXC_BREAKPOINT`) work with the host's `/usr/bin/lldb` (LLVM 17 or later;
+`X86SIM_LLDB` names another). Detaching removes the breakpoints and the app runs on. The MCP tools `debug_start`,
+`debug_command` and `debug_stop` keep an lldb session per phone. `tests/lldb/run.sh <phone>` checks it end to end.
+
+How: the app's arm64 code runs translated by libarm64jit, so no debugserver can see it. libarm64jit has a GDB remote
+stub (`linux/arm64jit/gdbstub.cpp`) that speaks debugserver's dialect on `/run/user/<uid>/x86sim-dbg-<UDID>-<pid>.sock`.
+It is off until asked for: `X86SIM_A64_DEBUG=1` (or `wait`) in the launch environment, or at run time a request file
+and `SIGUSR1`. Breakpoints are substituted in the translator's code fetch, never written to the app's memory.
+
+Limits:
+
+- **Swift values**: upstream lldb has no Swift support, so Swift frames are symbolized but `frame variable` / `po` of
+  Swift values do not work (C and Objective-C do). Break on Swift functions by their mangled name or by address, or
+  with `@_cdecl` names. The Swift toolchain's lldb (`x86sim dev setup`) does not start on this host (it needs
+  libpython3.12).
+- **Functions run natively** never hit a breakpoint: `objc_msgSend` (inlined by the translator), everything in
+  libsystem_kernel, libsystem_platform and libsystem_pthread (system calls, `pthread_*`, `_platform_memmove`: Darling's
+  native code behind stubs), `malloc` and friends, and a few accelerated routines (LZFSE, ASTC, Swift conformance
+  scans). Stepping into one steps over it; a thread blocked in one shows the stub's `ret` as its pc.
+- **No watchpoints**, and no hardware breakpoints (they are software ones).
+- **A stopped app is a stopped app**: SpringBoard's watchdog may kill an app stopped at launch for long (Apple's
+  simulator does the same); system daemons stopped for long can stall the phone.
+- **Attach at run time** uses `SIGUSR1`: an app that handles `SIGUSR1` itself can only be debugged with `--launch`.
+- With `--launch` the app's `+load` methods and initializers run after the first `continue`, so breakpoints there hit;
+  images loaded later (`dlopen`) are reported to lldb as they load.
+
 ### Device pool
 
 For agents and CI, a pool keeps devices booted at their home screen; a caller takes one, uses it and gives it back.
@@ -438,6 +480,7 @@ else the configured one. Erase, clone and keychain reset need it.
 | Feature sets | `features_list`, `feature_get`, `feature_set`, `features_preset` |
 | Apps | `app_install` (simulator or device builds), `app_uninstall`, `app_launch`, `app_terminate`, `app_list`, `app_logs` |
 | Tests | `xctest_run` (XCTest / XCUITest: an `.xctestrun` or bundles; per-test results, see [Tests](#tests-xctest-xcuitest)) |
+| Debugging | `debug_start`, `debug_command`, `debug_stop` (an lldb session on an app, see [Debugging (LLDB)](#debugging-lldb)) |
 | Screen as text and actions | `snapshot`, `tap`, `long_press`, `type`, `key`, `scroll`, `scroll_to`, `swipe`, `wait_for`, `press`, `open_url`, `screenshot` |
 | Hardware | `sim_button`, `sim_crown`, `sim_fold`, `sim_shake`, `sim_orientation`, `sim_biometric`, `sim_gamepad`, `sim_pointer`, `sim_system`, `sim_keyboard`, `sim_memory_warning` |
 | Settings (as simctl) | `sim_ui`, `sim_status_bar`, `sim_pasteboard`, `sim_keychain_reset`, `sim_locale`, `sim_timezone`, `sim_fidelity`, `sim_erase`, `sim_clone` |
@@ -556,7 +599,8 @@ above work. These are the known gaps:
 
 - **Apps** need arm64 code: simulator builds, or device builds that are converted on install. FairPlay-encrypted App
   Store downloads do not run.
-- **Debugging**: no debugger attaches to a simulator app; there is no Web Inspector or Instruments. XCTest and
+- **Debugging**: LLDB attaches (`x86sim debug`) but has no Swift expression support and no watchpoints (see
+  [Debugging (LLDB)](#debugging-lldb)); there is no Web Inspector or Instruments. XCTest and
   XCUITest bundles run (`x86sim test`), but an app's own test targets are built on a Mac (`xcodebuild
   build-for-testing`); only Swift package tests build on Linux.
 - **Maps** shows no map tiles: the map data comes from a Mac and is not part of a release.

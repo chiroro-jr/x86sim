@@ -272,6 +272,12 @@ case $c in
 		if [ $# -ge 2 ] && case $1 in -*|*.xctestrun|fetch-platform) false ;; *) true ;; esac && pick_device "$1"; then shift; use_device; fi
 		export X86SIM_DEVICE
 		exec python3 "$L/xctest.py" "$@" ;;
+	debug)
+		# LLDB on an app in the phone (lldbattach.py, the stub in libarm64jit); a leading <device> as for launch
+		. "$X/cli/lib/pickdevice.sh"
+		if [ $# -ge 2 ] && case $1 in -*) false ;; *) true ;; esac && pick_device "$1"; then shift; use_device; fi
+		export X86SIM_DEVICE
+		exec python3 "$L/lldbattach.py" "$@" ;;
 	launch|terminate|get_app_container|listapps|push|location|privacy|addmedia|log|io|pidof|spawn)
 		# simctl-style leading <device> (x86sim launch apps com.foo): a phone's name/folder/dir
 		. "$X/cli/lib/pickdevice.sh"

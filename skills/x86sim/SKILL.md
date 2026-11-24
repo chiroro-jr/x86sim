@@ -127,6 +127,19 @@ x86sim --phone qa launch --console com.example.myapp  # stdout / stderr here
 x86sim --phone qa logs                        # the phone's service logs; logs LABEL tails one
 ```
 
+## 6b. Debug with LLDB
+
+```sh
+x86sim debug qa com.example.myapp --batch -o 'bt all' -o detach          # attach, look, let it run on
+x86sim debug qa com.example.myapp --launch --symbols MyApp.app.dSYM --batch \
+    -o 'breakpoint set -n viewDidLoad' -o continue -o bt -o 'frame variable' -o detach
+```
+
+MCP: `debug_start {app, launch?, symbols?}`, then `debug_command {command}` (any lldb command; `continue` / `next` wait
+up to `timeout_s` for the next stop), `debug_stop`. C and Objective-C variables and expressions work; Swift values do
+not (upstream lldb), Swift frames are symbolized. `objc_msgSend` and libsystem functions run natively: breakpoints
+there never hit. Always `detach` / `debug_stop`: a stopped app stays stopped.
+
 ## 7. Build, run, repeat (omarchy-apple-dev)
 
 ```sh

@@ -101,10 +101,32 @@ void park(GuestThread &t) {
 
 // One guest instruction on this thread (a breakpoint at pc is not hit: the original instruction runs).
 void step_one(GuestThread &t) {
-    const u64 pc = t.jit->GetPC();
-    t_skip = pc;
-    t.jit->Step();
-    t_skip = 0;
+    auto &j = *t.jit;
+    const u64 pc = j.GetPC();
+    if (t.depth > 1) {
+        // a nested call: the outer call()'s Run() is on this thread's stack and dynarmic's Step() needs a Jit that is
+        // not executing. A thunk's svc is made here (CallSVC, as the translated block would); anything else is stepped
+        // on a second Jit of this thread with the same state.
+        const uint32_t insn = guest_code_word(pc).value_or(0);
+        if ((insn & 0xFFE0001Fu) == 0xD4000001u) {
+            j.SetPC(pc + 4);
+            t.CallSVC((insn >> 5) & 0xffff);
+            return;
+        }
+        if (!t.dbg_aux) t.dbg_aux = dbg_make_jit(t);
+        auto &a = *t.dbg_aux;
+        a.SetRegisters(j.GetRegisters()); a.SetSP(j.GetSP()); a.SetPC(pc); a.SetPstate(j.GetPstate());
+        a.SetVectors(j.GetVectors()); a.SetFpcr(j.GetFpcr()); a.SetFpsr(j.GetFpsr());
+        t_skip = pc;
+        a.Step();
+        t_skip = 0;
+        j.SetRegisters(a.GetRegisters()); j.SetSP(a.GetSP()); j.SetPC(a.GetPC()); j.SetPstate(a.GetPstate());
+        j.SetVectors(a.GetVectors()); j.SetFpcr(a.GetFpcr()); j.SetFpsr(a.GetFpsr());
+    } else {
+        t_skip = pc;
+        j.Step();
+        t_skip = 0;
+    }
     dbg_invalidate(pc, 4);  // the step block at pc holds the original instruction
 }
 }  // namespace
@@ -112,16 +134,20 @@ void step_one(GuestThread &t) {
 std::mutex &dbg_threads_mutex() { return g_thr_mu; }
 bool dbg_started() { return g_started.load(std::memory_order_relaxed); }
 
-// Translator code fetch: "svc #kDbgSvc" at a breakpoint.
+static u64 g_notifier;  // host.cpp: lldb's image list notifier, a "ret" only the code fetch has
+void dbg_set_notifier(u64 a) { g_notifier = a; }
+
+// Translator code fetch: "svc #kDbgSvc" at a breakpoint; "ret" at the notifier.
 std::optional<uint32_t> dbg_read_code(u64 a) {
     a &= GuestThread::kTbi;
-    if (a == t_skip) return std::nullopt;
-    for (int i = 0, n = g_bp_hi.load(std::memory_order_acquire); i < n; i++)
-        if (g_bp[i].load(std::memory_order_relaxed) == a) return 0xD4000001u | (kDbgSvc << 5);
+    if (a != t_skip)
+        for (int i = 0, n = g_bp_hi.load(std::memory_order_acquire); i < n; i++)
+            if (g_bp[i].load(std::memory_order_relaxed) == a) return 0xD4000001u | (kDbgSvc << 5);
+    if (a == g_notifier && a) return 0xD65F03C0u;
     return std::nullopt;
 }
 
-static bool bp_active(u64 a) {
+bool dbg_bp_active(u64 a) {
     for (int i = 0, n = g_bp_hi.load(); i < n; i++) if (g_bp[i].load() == a) return true;
     return false;
 }
@@ -129,7 +155,7 @@ static bool bp_active(u64 a) {
 // CallSVC: a breakpoint's svc ran. The thread stops at the breakpoint (pc = its address) when Run() returns.
 void dbg_svc(GuestThread &t, u64 addr) {
     t.jit->SetPC(addr);
-    if (g_dbg_on.load() && bp_active(addr)) report(t, kBreakpoint, 5);
+    if (g_dbg_on.load() && dbg_bp_active(addr)) report(t, kBreakpoint, 5);
     else dbg_invalidate(addr, 4);  // removed meanwhile: the block is translated again without it
     t.jit->HaltExecution(Dynarmic::HaltReason::UserDefined4);
 }
@@ -463,7 +489,7 @@ std::string region_info(u64 a) {
 
 // ---- breakpoints -----------------------------------------------------------------------------------------------------
 bool bp_set(u64 a) {
-    if (bp_active(a)) return true;
+    if (dbg_bp_active(a)) return true;
     for (int i = 0; i < kMaxBp; i++) {
         u64 z = 0;
         if (g_bp[i].compare_exchange_strong(z, a)) {
@@ -824,6 +850,13 @@ void dbg_exiting(int linux_sig) {
     static const int darwin[32] = {0, 1, 2, 3, 4, 5, 6, 10, 8, 9, 30, 11, 31, 13, 14, 15};
     Io io{fd, true};
     io_send(io, fmt("X%02x", linux_sig > 0 && linux_sig < 16 ? darwin[linux_sig] : linux_sig));
+}
+
+void dbg_exit_code(int status) {
+    int fd = g_session_fd.load();
+    if (fd < 0) return;
+    Io io{fd, true};
+    io_send(io, fmt("W%02x", status & 0xff));
 }
 
 }  // namespace a64
