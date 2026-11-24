@@ -22,6 +22,16 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 const SPRINGBOARD: &str = "com.apple.springboard";
+/// The system shells that are not apps, per platform: SpringBoard (iOS / iPadOS), PineBoard (tvOS's SpringBoard:
+/// alerts), Carousel (watchOS: the watch face, app grid, alerts), visionOS's SurfBoard (the Home View, alerts);
+/// tvOS's Home Screen is HeadBoard and its status / system UI TVSystemUIService
+const SHELLS: &[&str] = &[SPRINGBOARD, "com.apple.PineBoard", "com.apple.Carousel", "com.apple.SurfBoard"];
+const TV_HOME: &str = "com.apple.HeadBoard";
+const TV_SYSTEM_UI: &str = "com.apple.TVSystemUIService";
+
+fn is_shell(bundle: &str) -> bool {
+    SHELLS.contains(&bundle) || bundle == TV_HOME || bundle == TV_SYSTEM_UI
+}
 
 fn is_false(b: &bool) -> bool {
     !*b
@@ -147,6 +157,9 @@ pub struct Snapshot {
     /// an app was in the middle of an animation (a push, a sheet coming up) when it answered
     #[serde(skip_serializing_if = "is_false", default)]
     pub animating: bool,
+    /// where the focus engine's focus is (tvOS: what the remote's select acts on), x, y, width, height
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub focus: Option<[f64; 4]>,
     /// a process turned accessibility on for this request (its elements may lack labels yet): snapshot() asks again
     #[serde(skip)]
     pub ax_fresh: bool,
@@ -156,6 +169,23 @@ impl Snapshot {
     pub fn get(&self, r: &str) -> Option<&El> {
         let r = r.trim_start_matches('@');
         self.elements.iter().find(|e| e.r == r)
+    }
+
+    /// The element the focus engine's focus is on (tvOS): a focused element at the focus's place (a text field being
+    /// edited is focused too, while the remote's focus is on a key); without a focus engine, the front app's first
+    /// focused one
+    pub fn focused_el(&self) -> Option<&El> {
+        let overlap = |a: &[f64; 4], b: &[f64; 4]| {
+            let (x0, y0, x1, y1) = (a[0].max(b[0]), a[1].max(b[1]), (a[0] + a[2]).min(b[0] + b[2]), (a[1] + a[3]).min(b[1] + b[3]));
+            let i = if x1 > x0 && y1 > y0 { (x1 - x0) * (y1 - y0) } else { 0.0 };
+            i / (a[2] * a[3] + b[2] * b[3] - i).max(1.0)
+        };
+        let fs = self.elements.iter().filter(|e| e.focused && !e.offscreen);
+        if let Some(f) = self.focus {
+            // none there: the focus is on something no element stands for (tvOS's keyboard), not on the text field
+            return fs.clone().filter(|e| overlap(&e.frame, &f) > 0.5).max_by(|a, b| overlap(&a.frame, &f).total_cmp(&overlap(&b.frame, &f)));
+        }
+        fs.min_by_key(|x| self.front.iter().position(|a| *a == x.app).unwrap_or(usize::MAX))
     }
 
     /// The compact text form an agent reads.
@@ -214,6 +244,13 @@ impl Snapshot {
         }
         if !self.busy.is_empty() {
             out += &format!("busy (no answer): {}\n", self.busy.join(", "));
+        }
+        if let Some(f) = self.focus {
+            // tvOS: name what has the focus (an element above shows [focused]; else where it is)
+            match self.focused_el() {
+                Some(e) => out += &format!("focus: @{} {} {}\n", e.r, e.role, e.label.as_deref().map(quote).unwrap_or_default()),
+                None => out += &format!("focus: ({:.0},{:.0}) {:.0}x{:.0}, no element there\n", f[0] + f[2] / 2.0, f[1] + f[3] / 2.0, f[2], f[3]),
+            }
         }
         out
     }
@@ -475,11 +512,18 @@ pub struct SnapOpts {
     pub timeout_ms: u64,
 }
 
-fn layer_of(bundle: &str, window: &str, class: &str) -> &'static str {
+fn layer_of(bundle: &str, window: &str, class: &str, id: &str) -> &'static str {
     if class.starts_with("STUIStatusBar") || class.starts_with("UIStatusBar") || window.contains("StatusBar") {
         return "status";
     }
-    if bundle != SPRINGBOARD {
+    // tvOS: the Home Screen is its own app; the clock / network / user corner is TVSystemUIService's
+    if bundle == TV_HOME {
+        return "home";
+    }
+    if bundle == TV_SYSTEM_UI {
+        return if id.starts_with("com.apple.TVSystemUIService.status") { "status" } else { "system" };
+    }
+    if !SHELLS.contains(&bundle) {
         return "app";
     }
     if window.contains("HomeScreen") || window.contains("Wallpaper") || window.contains("FloatingDock") || window.contains("Dock") {
@@ -620,6 +664,15 @@ fn snapshot_once(inst: &Instance, opt: SnapOpts) -> Result<Snapshot> {
             }
         }
         let pid = v["pid"].as_u64().unwrap_or(0) as u32;
+        // the focus (tvOS): the active process's focused item
+        // (not a whole-screen item: a process whose focus sits on a window or a full-screen container)
+        if let Some(f) = v["focus_item"]["frame"].as_array() {
+            let f = [0, 1, 2, 3].map(|i| f.get(i).and_then(Value::as_f64).unwrap_or(0.0));
+            let whole = v["screen"].as_array().map(|sc| f[2] * f[3] >= 0.9 * sc[0].as_f64().unwrap_or(1.0) * sc[1].as_f64().unwrap_or(1.0)).unwrap_or(false);
+            if !whole && (snap.focus.is_none() || state == "active") {
+                snap.focus = Some(f);
+            }
+        }
         if bundle != SPRINGBOARD {
             if let Some(f) = v["windows"].as_array().and_then(|a| a.first()).and_then(|w| w["frame"].as_array()) {
                 app_rects.insert(bundle.clone(), [0, 1, 2, 3].map(|i| f.get(i).and_then(Value::as_f64).unwrap_or(0.0)));
@@ -632,7 +685,7 @@ fn snapshot_once(inst: &Instance, opt: SnapOpts) -> Result<Snapshot> {
             let win = e["win"].as_u64().unwrap_or(0) as usize;
             let window = wins.get(win).cloned().unwrap_or_default();
             let class = e["class"].as_str().unwrap_or("");
-            let layer = layer_of(&bundle, &window, class).to_string();
+            let layer = layer_of(&bundle, &window, class, e["id"].as_str().unwrap_or("")).to_string();
             if layer == "app" || layer == "home" {
                 has_app_content = true;
             }
@@ -662,7 +715,7 @@ fn snapshot_once(inst: &Instance, opt: SnapOpts) -> Result<Snapshot> {
                 container: s(&e["in"]),
             });
         }
-        if bundle != SPRINGBOARD && has_app_content {
+        if !is_shell(&bundle) && has_app_content {
             fronts.push((pid, bundle.clone(), state == "active"));
         }
     }
@@ -685,7 +738,9 @@ fn snapshot_once(inst: &Instance, opt: SnapOpts) -> Result<Snapshot> {
     }
     snap.front = fronts.into_iter().map(|f| f.1).collect();
     if snap.front.is_empty() {
-        snap.front.push(SPRINGBOARD.into());
+        // the home screen: the platform's (tvOS HeadBoard, a watch's Carousel, ...)
+        let home = snap.elements.iter().find(|e| e.layer == "home").map(|e| e.app.clone());
+        snap.front.push(home.unwrap_or_else(|| SPRINGBOARD.into()));
     }
     if snap.screen.0 <= 0.0 {
         snap.screen = (inst.screen.0 as f64 / inst.scale as f64, inst.screen.1 as f64 / inst.scale as f64);
@@ -772,10 +827,12 @@ pub fn find_all_q<'a>(snap: &'a Snapshot, target: &Target, worst: u8) -> Vec<&'a
             Target::Id(i) => (e.id.as_deref() == Some(i.as_str())).then_some(0),
             Target::Point(..) => None,
             Target::Text(t) => {
-                let t = t.to_lowercase();
-                let l = e.label.as_deref().unwrap_or("").to_lowercase();
-                let val = e.value.as_deref().unwrap_or("").to_lowercase();
-                let id = e.id.as_deref().unwrap_or("").to_lowercase();
+                // case and space blind: labels carry no-break spaces ("Apple\u{a0}TV", "8:14\u{202f}AM")
+                let n = |s: &str| s.chars().map(|c| if c.is_whitespace() { ' ' } else { c }).collect::<String>().to_lowercase();
+                let t = n(t);
+                let l = n(e.label.as_deref().unwrap_or(""));
+                let val = n(e.value.as_deref().unwrap_or(""));
+                let id = n(e.id.as_deref().unwrap_or(""));
                 if l == t {
                     Some(0)
                 } else if id == t || val == t {
@@ -985,8 +1042,12 @@ impl Outcome {
     }
 }
 
-/// Tap an element (ref, id:, text) or a point ("x y")
+/// Tap an element (ref, id:, text) or a point ("x y"). On an Apple TV (no touchscreen: the Siri Remote moves a focus)
+/// the focus is moved onto the element with the remote's arrows and select is pressed, as XCUIRemote does.
 pub fn tap(inst: &Instance, target: &str, hold_ms: u64, after: After) -> Result<Outcome> {
+    if inst.platform == "tvos" {
+        return tv_select(inst, target, hold_ms, after);
+    }
     let (x, y, what, before) = match parse_target(target) {
         Target::Point(x, y) => (x, y, format!("({x:.0},{y:.0})"), last(inst)),
         _ => {
@@ -1013,6 +1074,96 @@ pub fn tap(inst: &Instance, target: &str, hold_ms: u64, after: After) -> Result<
         wait_front_change(inst, before.as_ref().map(|b| b.front.clone()).unwrap_or_default(), Duration::from_secs(10));
     }
     Ok(outcome(inst, format!("{verb} {what} at ({x:.0},{y:.0})"), before, after))
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// tvOS: the focus engine
+
+fn center_of(f: &[f64; 4]) -> (f64, f64) {
+    (f[0] + f[2] / 2.0, f[1] + f[3] / 2.0)
+}
+
+/// The element a target names on an Apple TV: a point picks the element under it (front layer first)
+fn tv_find(snap: &Snapshot, target: &str) -> Result<El> {
+    if let Target::Point(x, y) = parse_target(target) {
+        let mut hits: Vec<&El> = snap.elements.iter().filter(|e| !e.offscreen && e.frame[0] <= x && x <= e.frame[0] + e.frame[2] && e.frame[1] <= y && y <= e.frame[1] + e.frame[3]).collect();
+        hits.sort_by(|a, b| (layer_rank(&a.layer), !actionable(&a.role), a.frame[2] * a.frame[3]).partial_cmp(&(layer_rank(&b.layer), !actionable(&b.role), b.frame[2] * b.frame[3])).unwrap_or(std::cmp::Ordering::Equal));
+        return hits.first().map(|e| (*e).clone()).ok_or_else(|| anyhow!("no element at ({x:.0},{y:.0})"));
+    }
+    find(snap, target).cloned()
+}
+
+/// Moves the tvOS focus onto a target with the remote's arrows (keyboard arrows: the same focus moves), checking the
+/// focus after every press: the larger distance first, the other axis when the focus does not move. Answers the
+/// element (now focused) and the snapshot that shows it.
+pub fn tv_focus(inst: &Instance, target: &str) -> Result<(El, Snapshot, u32)> {
+    let mut snap = snapshot(inst, SnapOpts::default())?;
+    let first = tv_find(&snap, target)?;
+    let mut h = hid_for(inst);
+    let mut presses = 0;
+    let mut blocked: HashSet<u32> = HashSet::new();
+    let mut last_focus: Option<[f64; 4]> = None;
+    let mut last_key = 0;
+    let mut same = 0;
+    for _ in 0..60 {
+        // the same element: its ref (refs follow the element as the focus scales it), else the target again
+        let e = find(&snap, &format!("@{}", first.r)).cloned().or_else(|_| tv_find(&snap, target))?;
+        if e.focused && snap.focused_el().map(|x| x.r == e.r).unwrap_or(true) {
+            return Ok((e, snap, presses));
+        }
+        // the focused element (the front app's first), else where the focus engine says it is
+        let fel = snap.focused_el().map(|x| x.frame);
+        let Some(f) = fel.or(snap.focus) else {
+            bail!("nothing has the focus on screen (an app that takes no remote focus?): cannot move it to @{}", e.r);
+        };
+        if last_focus == Some(f) && last_key != 0 {
+            // that press did not move the focus: that way is closed from here. A focus on a container that moves its
+            // own highlight (tvOS's keyboard: the focus is the whole keyboard) stays put for a few presses first.
+            same += 1;
+            if fel.is_some() || same >= 6 {
+                blocked.insert(last_key);
+            }
+        } else {
+            blocked.clear();
+            same = 0;
+        }
+        last_focus = Some(f);
+        let (fx, fy) = center_of(&f);
+        let (tx, ty) = center_of(&e.frame);
+        let (dx, dy) = (tx - fx, ty - fy);
+        // in the same row / column: along it; else the larger distance first
+        let same_row = (e.frame[1] < f[1] + f[3]) && (f[1] < e.frame[1] + e.frame[3]);
+        let same_col = (e.frame[0] < f[0] + f[2]) && (f[0] < e.frame[0] + e.frame[2]);
+        let horiz = if dx.abs() < 1.0 { 0 } else if dx > 0.0 { 0x4f } else { 0x50 };
+        let vert = if dy.abs() < 1.0 { 0 } else if dy > 0.0 { 0x51 } else { 0x52 };
+        let order = if same_row { [horiz, vert] } else if same_col { [vert, horiz] } else if dx.abs() > dy.abs() { [horiz, vert] } else { [vert, horiz] };
+        if std::env::var_os("X86SIM_AX_DEBUG").is_some() {
+            eprintln!("tv_focus: focus {f:?} target @{} {:?} blocked {blocked:?} order {order:?}", e.r, e.frame);
+        }
+        let Some(k) = order.into_iter().find(|k| *k != 0 && !blocked.contains(k)) else {
+            bail!("the focus cannot reach @{} {} from where it is (tried {}): it may not be focusable", e.r, e.label.as_deref().map(quote).unwrap_or_default(), presses);
+        };
+        let seq = frame_seq(inst);
+        h.key(true, k);
+        std::thread::sleep(Duration::from_millis(40));
+        h.key(false, k);
+        presses += 1;
+        last_key = k;
+        // the focus animates (scale, parallax): wait for it to settle before reading where it is
+        settle_since(inst, seq, Duration::from_millis(700), Duration::from_millis(150), Duration::from_millis(1500));
+        snap = snapshot(inst, SnapOpts::default())?;
+    }
+    bail!("the focus did not reach {target:?} in {presses} presses")
+}
+
+fn tv_select(inst: &Instance, target: &str, hold_ms: u64, after: After) -> Result<Outcome> {
+    let before = last(inst);
+    let (e, _, presses) = tv_focus(inst, target)?;
+    // select: the remote's click (held: a long press, e.g. to rearrange the Home Screen)
+    Hid::new(&inst.sock).press_for("select", hold_ms.max(80));
+    let verb = if hold_ms >= 500 { "long-pressed select on" } else { "selected" };
+    let did = format!("{verb} @{} {} {} (focus moved with {presses} remote press{})", e.r, e.role, e.label.as_deref().map(quote).unwrap_or_default(), if presses == 1 { "" } else { "es" });
+    Ok(outcome(inst, did, before, after))
 }
 
 /// Waits (on new frames) until `bundle` is in front, showing something
@@ -1183,6 +1334,20 @@ pub fn key(inst: &Instance, combo: &str, after: After) -> Result<Outcome> {
 /// up), `amount` in screens (1 = most of a screen), from the middle of the screen or of an element. No fling.
 pub fn scroll(inst: &Instance, direction: &str, amount: f64, at: Option<&str>, after: After) -> Result<Outcome> {
     let before = last(inst);
+    if inst.platform == "tvos" {
+        // an Apple TV scrolls by moving the focus: arrow presses (about 4 per screen), from the focus, not a point
+        let k = tv_arrow(direction)?;
+        let n = (amount.clamp(0.05, 2.0) * 4.0).round().max(1.0) as u32;
+        let mut h = hid_for(inst);
+        for _ in 0..n {
+            h.key(true, k);
+            std::thread::sleep(Duration::from_millis(40));
+            h.key(false, k);
+            std::thread::sleep(Duration::from_millis(250));
+        }
+        let _ = at;
+        return Ok(outcome(inst, format!("moved the focus {direction} {n} time(s) (Apple TV: the remote's arrows)"), before, after));
+    }
     let scr = screen_of(inst);
     let (cx, cy, area) = match at {
         Some(t) => {
@@ -1217,7 +1382,38 @@ pub fn swipe(inst: &Instance, from: (f64, f64), to: (f64, f64), ms: u64, after: 
     Ok(outcome(inst, format!("swiped ({:.0},{:.0}) -> ({:.0},{:.0})", from.0, from.1, to.0, to.1), before, after))
 }
 
+fn tv_arrow(direction: &str) -> Result<u32> {
+    Ok(match direction {
+        "down" => 0x51,
+        "up" => 0x52,
+        "right" => 0x4f,
+        "left" => 0x50,
+        o => bail!("direction {o:?}: up, down, left or right"),
+    })
+}
+
 pub fn swipe_dir(inst: &Instance, direction: &str, after: After) -> Result<Outcome> {
+    if inst.platform == "tvos" {
+        // a swipe on the Siri Remote's touch surface moves the focus one step that way (content follows the focus)
+        let before = last(inst);
+        let k = match direction {
+            "home" => {
+                Hid::new(&inst.sock).press_for("tv", 100);
+                return Ok(outcome(inst, "pressed the TV button (Apple TV: home)".into(), before, after));
+            }
+            "back" => {
+                Hid::new(&inst.sock).press_for("menu", 100);
+                return Ok(outcome(inst, "pressed back (menu) on the remote".into(), before, after));
+            }
+            // a swipe on the remote moves the focus the way the finger goes
+            d => tv_arrow(d).map_err(|_| anyhow!("direction {d:?} on an Apple TV: up down left right home back"))?,
+        };
+        let mut h = hid_for(inst);
+        h.key(true, k);
+        std::thread::sleep(Duration::from_millis(40));
+        h.key(false, k);
+        return Ok(outcome(inst, format!("moved the focus with a remote swipe {direction}"), before, after));
+    }
     let s = screen_of(inst);
     let (cx, cy) = (s.0 / 2.0, s.1 / 2.0);
     let (from, to) = match direction {
@@ -1327,7 +1523,8 @@ pub fn open_url(inst: &Instance, url: &str, after: After) -> Result<Outcome> {
     if after != After::None {
         // web pages open in Safari; other schemes in whichever app claims them (the front changes, or not at all)
         let l = url.to_lowercase();
-        if l.starts_with("http:") || l.starts_with("https:") {
+        // (no Safari on an Apple TV or a watch: there a web link opens what claims it, if anything)
+        if (l.starts_with("http:") || l.starts_with("https:")) && !matches!(inst.platform.as_str(), "tvos" | "watchos") {
             wait_front_is(inst, "com.apple.mobilesafari", Duration::from_secs(20));
         } else {
             wait_front_change(inst, before.as_ref().map(|b| b.front.clone()).unwrap_or_default(), Duration::from_secs(5));
@@ -1469,6 +1666,8 @@ mod tests {
         assert_eq!(find(&snap, "general").unwrap().r, "e2");
         assert_eq!(find(&snap, "Allow").unwrap().r, "e3");
         assert_eq!(find(&snap, "@e4").unwrap().r, "e4");
+        let nb = Snapshot { elements: vec![El { layer: "app".into(), ..el("e5", 1, "5", "button", "Apple\u{a0}TV Languages", 10.0) }], ..Default::default() };
+        assert_eq!(find(&nb, "apple tv languages").unwrap().r, "e5");
         assert!(find(&snap, "nothing").is_err());
     }
 

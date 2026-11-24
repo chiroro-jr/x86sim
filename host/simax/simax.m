@@ -148,6 +148,7 @@ typedef struct {
 	int win;                     // index of the window being walked
 	id focus;                    // the first responder
 	id focus_item;               // the focus engine's focused item (tvOS: what the remote's select acts on; iPad: keyboard focus)
+	CGRect focus_frame;          // its rect on the screen (CGRectNull: none or unknown)
 	int budget;                  // max nodes visited
 } Walk;
 
@@ -231,14 +232,13 @@ static void emit(Walk* w, id e, int depth, NSString* container) {
 	if (fi && !focused) {
 		if (e == fi) focused = YES;
 		else if ([fi isKindOfClass:[UIView class]] && [e isKindOfClass:[UIView class]] && [(UIView*)fi isDescendantOfView:(UIView*)e]) focused = YES;
-		else if ([e respondsToSelector:@selector(accessibilityContainer)]) {
-			id c = nil;
-			@try { c = [e accessibilityContainer]; } @catch (id ex) { c = nil; }
-			// a cell's accessibility element (SwiftUI, collection cells) stands for the focused view when it covers it
-			if (c == fi && [fi isKindOfClass:[UIView class]]) {
-				CGRect ff = place(w, to_screen(fi, ((UIView*)fi).bounds));
-				focused = CGRectContainsPoint(CGRectInset(f, -1, -1), CGPointMake(CGRectGetMidX(ff), CGRectGetMidY(ff)));
-			}
+		else if (!CGRectIsNull(w->focus_frame)) {
+			// an element standing for the focused view (a table cell's UITableViewCellAccessibilityElement, a SwiftUI
+			// node): nearly the same rect
+			CGRect i = CGRectIntersection(f, w->focus_frame);
+			double ai = CGRectIsNull(i) ? 0 : i.size.width * i.size.height;
+			double au = f.size.width * f.size.height + w->focus_frame.size.width * w->focus_frame.size.height - ai;
+			focused = au > 0 && ai / au > 0.6;
 		}
 	}
 	if (focused || (t & kTraitIsEditing)) d[@"focused"] = @YES;
@@ -578,6 +578,28 @@ static NSMutableDictionary* info(void) {
 	return d;
 }
 
+// the focused item's rect on the screen (CGRectNull: unknown)
+static CGRect focus_frame_of(id item) {
+	CGRect ff = CGRectNull;
+	if (!item) return ff;
+		@try {
+			if ([item isKindOfClass:[UIView class]]) {
+				UIView* fv = item;
+				CGPoint o = fv.window ? window_origin(fv.window) : CGPointZero;
+				ff = CGRectOffset(to_screen(fv, fv.bounds), o.x, o.y);
+			}
+			else if ([item respondsToSelector:@selector(frame)] && [item respondsToSelector:@selector(coordinateSpace)]) {
+				CGRect r = ((CGRect(*)(id, SEL))objc_msgSend)(item, @selector(frame));
+				id<UICoordinateSpace> cs = ((id(*)(id, SEL))objc_msgSend)(item, @selector(coordinateSpace));
+				id scr = ((id(*)(id, SEL))objc_msgSend)(NSClassFromString(@"UIScreen"), NSSelectorFromString(@"mainScreen"));
+				id<UICoordinateSpace> to = scr ? ((id(*)(id, SEL))objc_msgSend)(scr, NSSelectorFromString(@"coordinateSpace")) : nil;
+				ff = to ? [cs convertRect:r toCoordinateSpace:to] : r;
+			}
+		} @catch (id ex) {
+		}
+	return ff;
+}
+
 static void tree(NSDictionary* req, void (^reply)(NSDictionary*)) {
 	NSMutableDictionary* d = info();
 	// fg: only a process on screen walks (a background app answers its state and nothing else, and loads nothing)
@@ -600,6 +622,7 @@ static void tree(NSDictionary* req, void (^reply)(NSDictionary*)) {
 	w.budget = 20000;
 	NSArray* wins = visible_windows();
 	w.focus_item = focused_item(wins);
+	w.focus_frame = focus_frame_of(w.focus_item);
 	// front to back: a modal window on top (an alert) hides the windows below it from VoiceOver too, but they are still
 	// on screen; the host decides (it knows every process's windows)
 	for (int i = 0; i < (int)wins.count; i++) {
@@ -611,23 +634,7 @@ static void tree(NSDictionary* req, void (^reply)(NSDictionary*)) {
 	}
 	if (w.focus) d[@"focus"] = hex(w.focus);
 	if (w.focus_item) {
-		// where the focus is, also when no element stands for it (the host moves it there with the remote's arrows)
-		CGRect ff = CGRectNull;
-		@try {
-			if ([w.focus_item isKindOfClass:[UIView class]]) {
-				UIView* fv = w.focus_item;
-				CGPoint o = fv.window ? window_origin(fv.window) : CGPointZero;
-				ff = CGRectOffset(to_screen(fv, fv.bounds), o.x, o.y);
-			}
-			else if ([w.focus_item respondsToSelector:@selector(frame)] && [w.focus_item respondsToSelector:@selector(coordinateSpace)]) {
-				CGRect r = ((CGRect(*)(id, SEL))objc_msgSend)(w.focus_item, @selector(frame));
-				id<UICoordinateSpace> cs = ((id(*)(id, SEL))objc_msgSend)(w.focus_item, @selector(coordinateSpace));
-				id scr = ((id(*)(id, SEL))objc_msgSend)(NSClassFromString(@"UIScreen"), NSSelectorFromString(@"mainScreen"));
-				id<UICoordinateSpace> to = scr ? ((id(*)(id, SEL))objc_msgSend)(scr, NSSelectorFromString(@"coordinateSpace")) : nil;
-				ff = to ? [cs convertRect:r toCoordinateSpace:to] : r;
-			}
-		} @catch (id ex) {
-		}
+		CGRect ff = w.focus_frame;
 		NSMutableDictionary* fd = [NSMutableDictionary dictionaryWithDictionary:@{ @"oid": hex(w.focus_item), @"class": NSStringFromClass([w.focus_item class]) }];
 		if (!CGRectIsNull(ff)) fd[@"frame"] = @[ @(round(ff.origin.x * 10) / 10), @(round(ff.origin.y * 10) / 10), @(round(ff.size.width * 10) / 10), @(round(ff.size.height * 10) / 10) ];
 		NSString* fl = nil;

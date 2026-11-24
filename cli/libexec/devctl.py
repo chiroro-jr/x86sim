@@ -145,11 +145,32 @@ def ui_set_offline(what, value):
         die("x86sim ui: %s" % " | ".join(WHATS), 2)
 
 
+def platform():
+    """The phone's platform: ios, tvos, watchos or xros (its runtimes/ dir name)."""
+    try:
+        p = open(os.path.join(DEV, "runtime")).read().strip().split("-")[0]
+    except OSError:
+        return "ios"
+    return p if p in ("ios", "tvos", "watchos", "xros") else "ios"
+
+
+# Apple's tvOS and watchOS simulators have no appearance setting and no status bar overrides: simctl ui appearance
+# prints "unsupported" and setting it, like status_bar override, fails with ENOTSUP ("Runtime does not support
+# userInterfaceStyle"; Xcode 27.2). visionOS has both.
+NO_STYLE = ("tvos", "watchos")
+
+
 def ui(a):
     what = a[0] if a else None
     value = a[1] if len(a) > 1 else None
     if what and what not in WHATS:
         die("usage: x86sim ui [%s] [VALUE]" % "|".join(WHATS), 2)
+    if what == "appearance" and platform() in NO_STYLE:
+        if value:
+            die("x86sim ui appearance: Operation not supported (the %s runtime does not support userInterfaceStyle, as in "
+                "Apple's simulator)" % {"tvos": "tvOS", "watchos": "watchOS"}[platform()], 45)
+        print("unsupported")
+        return
     if running():
         st = helper("ui", what=what or "", value=value or "")
         st = {k: st[k] for k in WHATS if k in st}
@@ -160,6 +181,8 @@ def ui(a):
             ui_set_offline(what, value)
         st = ui_offline_state()
         st["note"] = "phone off: applies at its next boot"
+    if platform() in NO_STYLE:
+        st["appearance"] = "unsupported"
     if what and not value:
         print(st[what])
     else:
@@ -177,6 +200,12 @@ def status_bar(a):
         die("usage: x86sim status_bar override [--time T] [--dataNetwork N] [--wifiMode M] [--wifiBars 0-3] "
             "[--cellularMode M] [--cellularBars 0-4] [--operatorName S] [--batteryState S] [--batteryLevel 0-100] "
             "| clear | list", 2)
+    if platform() in NO_STYLE:
+        if a[0] == "list":
+            print("Current Status Bar Overrides:\n=============================")
+            return
+        die("x86sim status_bar: Operation not supported (no status bar overrides on %s, as in Apple's simulator)"
+            % {"tvos": "tvOS", "watchos": "watchOS"}[platform()], 45)
     if not running():
         die("x86sim status_bar: the phone is not running (overrides live in the running SpringBoard, as in Apple's simulator)")
     kw = {}
