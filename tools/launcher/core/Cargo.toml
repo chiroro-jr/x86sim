@@ -29,6 +29,14 @@ path = "src/bin/dev.rs"
 name = "x86sim-serve"
 path = "src/bin/serve.rs"
 
+[[bin]]
+name = "x86sim-pool"
+path = "src/bin/pool.rs"
+
+[[bin]]
+name = "x86sim-devapp"
+path = "src/bin/devapp.rs"
+
 [dependencies]
 anyhow = "1"
 memmap2 = "0.9"

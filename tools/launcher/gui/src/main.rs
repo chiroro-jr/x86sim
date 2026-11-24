@@ -8,6 +8,7 @@ mod global;
 mod home;
 mod omarchy;
 mod phone;
+mod pool;
 mod remote;
 mod setup;
 mod share;
@@ -676,6 +677,8 @@ impl eframe::App for App {
         self.sync();
         self.cursor_device = None;
         self.shortcuts(ctx);
+        // drag-and-drop installs (.app / .ipa / .xcarchive) and the pool section's background work (pool.rs)
+        self.pool_frame(ctx);
         if self.last_slow.elapsed() > Duration::from_secs(10) {
             self.last_slow = Instant::now();
             self.disk = host::disk(&x86sim_core::aot::scratch());

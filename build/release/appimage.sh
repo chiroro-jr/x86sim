@@ -24,6 +24,8 @@ IPSW_VER=3.1.741
 IPSW_SHA=${IPSW_SHA:-992a93c708861c14118ebd69c3493d2f5d0af08f57fb345839630ece3e227b20}
 SZ_VER=2604
 SZ_SHA=${SZ_SHA:-fc0327ba27e89bd086cf426dff17d77de582953cdbbc10a6576540a06853ffcd}
+RCS_VER=0.29.0
+RCS_SHA=${RCS_SHA:-dbe85cedd8ee4217b64e9a0e4c2aef92ab8bcaaa41f20bde99781ff02e600002}
 DNS_VER=2.8.0
 DNS_SHA=${DNS_SHA:-01d9bbc4a2d76bf0db7c1f729812ded6d912bd318d3b1cf81d30c0f845dbf3af}
 
@@ -54,7 +56,7 @@ echo "  omarchy-apple-dev $(git -C "$O" describe --tags --always), $(du -sh "$P/
 # build outputs at the paths the scripts and the launcher expect (repo-relative)
 mkdir -p "$P/linux/mtlvk/target/release" "$P/tools/launcher/target/release"
 cp "$OUT/cargo-mtlvk/release/mtlvk" "$P/linux/mtlvk/target/release/"
-for b in x86sim-launcher x86sim-aot x86sim-mcp x86sim-dev x86sim-ax x86sim-serve; do cp "$OUT/cargo-launcher/release/$b" "$P/tools/launcher/target/release/"; done
+for b in x86sim-launcher x86sim-aot x86sim-mcp x86sim-dev x86sim-ax x86sim-serve x86sim-pool x86sim-devapp; do cp "$OUT/cargo-launcher/release/$b" "$P/tools/launcher/target/release/"; done
 strip --strip-debug "$P/linux/mtlvk/target/release/mtlvk" "$P/tools/launcher/target/release/"*
 echo "$VERSION" > "$S/VERSION"
 
@@ -78,6 +80,10 @@ rm -rf "$OUT/tmp-ipsw"
 fetch "https://www.7-zip.org/a/7z$SZ_VER-linux-x64.tar.xz" 7z.tar.xz "$SZ_SHA"
 mkdir -p "$OUT/tmp-7z" && tar xJf "$DL/7z.tar.xz" -C "$OUT/tmp-7z" && cp "$OUT/tmp-7z/7zz" "$S/bin/7zz" && cp "$OUT/tmp-7z/License.txt" "$S/bin/LICENSE.7zip"
 rm -rf "$OUT/tmp-7z"
+# rcodesign: ad-hoc re-signing of device builds converted for the simulator (x86sim install X.ipa, core/src/devapp.rs)
+fetch "https://github.com/indygreg/apple-platform-rs/releases/download/apple-codesign%2F$RCS_VER/apple-codesign-$RCS_VER-x86_64-unknown-linux-musl.tar.gz" rcodesign.tar.gz "$RCS_SHA"
+mkdir -p "$OUT/tmp-rcs" && tar xzf "$DL/rcodesign.tar.gz" -C "$OUT/tmp-rcs" && cp "$OUT/tmp-rcs"/apple-codesign-*/rcodesign "$S/bin/rcodesign" && cp "$OUT/tmp-rcs"/apple-codesign-*/COPYING "$S/bin/LICENSE.rcodesign"
+rm -rf "$OUT/tmp-rcs"
 # runtime-fetch.py runs `7z`
 ln -s 7zz "$S/bin/7z"
 DNS_URL=$(curl -fsSL "https://pypi.org/pypi/dnspython/$DNS_VER/json" | python3 -c 'import json,sys; print(next(u["url"] for u in json.load(sys.stdin)["urls"] if u["filename"].endswith(".whl")))')
