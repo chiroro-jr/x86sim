@@ -140,6 +140,10 @@ fn ax_answer(o: ax::Outcome) -> Answer {
 }
 
 fn call(name: &str, a: &Value) -> anyhow::Result<Answer> {
+    // tests/mcp/panic.sh: a tool that panics, to prove the server survives one (only with this variable set)
+    if name == "__test_panic" && std::env::var_os("X86SIM_MCP_TEST_PANIC").is_some() {
+        panic!("test panic");
+    }
     call_json(name, a)
 }
 
@@ -441,7 +445,13 @@ fn main() {
             "tools/call" => {
                 let name = req["params"]["name"].as_str().unwrap_or("");
                 let args = req["params"].get("arguments").cloned().unwrap_or(json!({}));
-                Ok(match call(name, &args) {
+                // a panic in a tool (a bug, a malformed input that slipped through) is that call's error: the server
+                // goes on, with the pool leases its process holds
+                let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| call(name, &args))).unwrap_or_else(|p| {
+                    let m = p.downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| p.downcast_ref::<String>().cloned()).unwrap_or_default();
+                    Err(anyhow::anyhow!("{name}: internal error (panic: {m})"))
+                });
+                Ok(match r {
                     Ok(Answer::Json(v)) => json!({"content": [{"type": "text", "text": serde_json::to_string_pretty(&v).unwrap_or_default()}], "structuredContent": v}),
                     Ok(Answer::Text(t, None)) => json!({"content": [{"type": "text", "text": t}]}),
                     Ok(Answer::Text(t, Some(v))) => json!({"content": [{"type": "text", "text": t}], "structuredContent": v}),
