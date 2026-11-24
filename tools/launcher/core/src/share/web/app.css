@@ -94,5 +94,6 @@ dialog::backdrop { background: rgba(0,0,0,.5); }
 .toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--raised); border: 1px solid var(--border); padding: 8px 14px; border-radius: 8px; z-index: 10; max-width: calc(100vw - 32px); }
 /* Web Inspector panel (viewer side panel): the phone's inspectable pages */
 .webpages { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; font-size: 12px; }
-.webpage { display: flex; align-items: center; gap: 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.webpage { display: flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; }
+.webpage span { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .webpages .muted { color: var(--muted); white-space: normal; }

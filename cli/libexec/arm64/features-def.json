@@ -61,9 +61,9 @@
      "chunks": ["/testmanagerd", "automationmode-writer", "AutomationModeUI"], "cost_mb": 440, "when": "use"},
     {"id": "webinspector", "title": "Web Inspector", "default": true,
      "desc": "Inspect Safari pages and apps' web views (x86sim inspect, the viewer's Inspect button). Nothing runs until you inspect.",
-     "tech": "webinspectord (the runtime's Remote Web Inspector relay), on demand: the launcher wakes it at the first inspect (an XPC message through host/openurl) and libsimshim binds its debugger socket at /run/user/<uid>/x86sim-rwi-<UDID>.sock; it exits when the last inspector leaves. Measured: no process while nobody inspects. Off: no Web Inspector, no web_* MCP tools.",
+     "tech": "webinspectord (the runtime's Remote Web Inspector relay), on demand: the launcher wakes it at the first inspect (an XPC message through host/openurl) and libsimshim binds its debugger socket at /run/user/<uid>/x86sim-rwi-<UDID>.sock; it exits when the last inspector leaves. Measured: no process while nobody inspects; 40 MB RSS / 21 MB PSS while inspecting. Off: no Web Inspector, no web_* MCP tools.",
      "add_jobs": ["com.apple.webinspectord"],
-     "chunks": ["/webinspectord"], "cost_mb": 0, "when": "use"}
+     "chunks": ["/webinspectord"], "cost_mb": 21, "when": "use"}
   ],
   "presets": {
     "full": {},

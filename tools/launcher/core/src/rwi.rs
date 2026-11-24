@@ -653,6 +653,16 @@ pub fn pick(apps: &[WebApp], sel: Option<&str>) -> Result<WebPage> {
 // ---------------------------------------------------------------------------------------------------------------------
 // Sessions
 
+/// X86SIM_RWI_TRACE=<file>: every inspector message of every session appended there (debugging)
+fn trace(dir: &str, m: &str) {
+    if let Some(p) = std::env::var_os("X86SIM_RWI_TRACE") {
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(p) {
+            let cut: String = m.chars().take(4000).collect();
+            let _ = writeln!(f, "{dir} {cut}");
+        }
+    }
+}
+
 /// An inspector session on one page: inspector protocol messages (JSON text) both ways, as the page's backend sends them
 pub struct Session {
     pub conn: Conn,
@@ -688,6 +698,7 @@ impl Session {
     }
 
     pub fn send(&mut self, json: &str) -> Result<()> {
+        trace(">", json);
         self.conn.send(
             "_rpc_forwardSocketData:",
             vec![
@@ -719,9 +730,15 @@ impl Session {
                         Some("WIRMessageDataTypeFinalChunk") => {
                             self.chunks.extend(d);
                             let all = std::mem::take(&mut self.chunks);
-                            return Ok(Some(String::from_utf8_lossy(&all).into_owned()));
+                            let m = String::from_utf8_lossy(&all).into_owned();
+                            trace("<", &m);
+                            return Ok(Some(m));
                         }
-                        _ => return Ok(Some(String::from_utf8_lossy(&d).into_owned())),
+                        _ => {
+                            let m = String::from_utf8_lossy(&d).into_owned();
+                            trace("<", &m);
+                            return Ok(Some(m));
+                        }
                     }
                 }
                 "_rpc_applicationDisconnected:" if a.get("WIRApplicationIdentifierKey").and_then(Pl::text).as_deref() == Some(&self.page.app_id) => {
@@ -765,6 +782,8 @@ impl Drop for Session {
 pub struct Page {
     pub s: Session,
     target: Option<String>,
+    /// every target the page announced (id, type: page, frame, worker, ...); WebKit 27 gives frames their own
+    pub targets: Vec<(String, String)>,
     /// no Target domain (a JSContext, an older backend): commands go straight to the session
     direct: bool,
     next_id: i64,
@@ -774,7 +793,7 @@ pub struct Page {
 impl Page {
     pub fn on(conn: Conn, page: &WebPage) -> Result<Page> {
         let s = Session::on(conn, page)?;
-        let mut p = Page { s, target: None, direct: false, next_id: 1, events: vec![] };
+        let mut p = Page { s, target: None, targets: vec![], direct: false, next_id: 1, events: vec![] };
         // a web page announces its target at once
         let end = Instant::now() + Duration::from_secs(if page.kind == "web-page" { 8 } else { 2 });
         while p.target.is_none() && Instant::now() < end {
@@ -789,6 +808,9 @@ impl Page {
         }
         if p.target.is_none() {
             p.direct = true;
+        } else {
+            // the page's other targets (frames, workers) follow at once
+            p.pump(Duration::from_millis(300))?;
         }
         Ok(p)
     }
@@ -798,10 +820,18 @@ impl Page {
         match v["method"].as_str() {
             Some("Target.targetCreated") => {
                 let t = &v["params"]["targetInfo"];
+                if let Some(id) = t["targetId"].as_str() {
+                    self.targets.push((id.to_string(), t["type"].as_str().unwrap_or("").to_string()));
+                }
                 // the page's own target (not a worker), and the provisional one only once it is committed
                 if t["type"].as_str().is_none_or(|k| k == "page") && t["isProvisional"].as_bool() != Some(true) {
                     self.target = t["targetId"].as_str().map(String::from);
                 }
+                None
+            }
+            Some("Target.targetDestroyed") => {
+                let id = v["params"]["targetId"].as_str().unwrap_or("");
+                self.targets.retain(|(t, _)| t != id);
                 None
             }
             Some("Target.didCommitProvisionalTarget") => {
@@ -829,13 +859,18 @@ impl Page {
 
     /// A protocol command; its result (Err with the backend's error message)
     pub fn call(&mut self, method: &str, params: Value, timeout: Duration) -> Result<Value> {
+        self.call_to(None, method, params, timeout)
+    }
+
+    /// A command to one of the page's targets (None: the page's own)
+    pub fn call_to(&mut self, target: Option<&str>, method: &str, params: Value, timeout: Duration) -> Result<Value> {
         let id = self.next_id;
         self.next_id += 1;
         let inner = json!({"id": id, "method": method, "params": params});
         if self.direct {
             self.s.send(&inner.to_string())?;
         } else {
-            let t = self.target.clone().ok_or_else(|| anyhow!("the page has no target"))?;
+            let t = target.map(String::from).or_else(|| self.target.clone()).ok_or_else(|| anyhow!("the page has no target"))?;
             let outer = json!({"id": id + 1_000_000, "method": "Target.sendMessageToTarget", "params": {"targetId": t, "message": inner.to_string()}});
             self.s.send(&outer.to_string())?;
         }
@@ -960,16 +995,30 @@ fn console_line(m: &Value) -> Value {
     })
 }
 
-/// web_console: the page's console messages so far (WebKit keeps them; Console.enable replays them), then new ones for
-/// `follow`; at most `limit`, the newest
-fn console_once(inst: &Instance, target: Option<&str>, follow: Duration, limit: usize) -> Result<Value> {
+/// web_console: the page's console messages so far, then new ones for `follow`; at most `limit`, the newest. WebKit
+/// keeps a page's messages only once an inspector has connected to it (developer extras): what it logged before the
+/// first inspection is gone, so `reload` reloads the page with the console on and collects from its load.
+fn console_once(inst: &Instance, target: Option<&str>, follow: Duration, limit: usize, reload: bool) -> Result<Value> {
     let (p, mut page) = page_of(inst, target)?;
     // as Web Inspector starts a target: the console replays what the page logged before once the inspector is
     // enabled and initialized (Console.enable alone answered only new messages)
     let _ = page.call("Inspector.enable", json!({}), Duration::from_secs(10));
     let _ = page.call("Runtime.enable", json!({}), Duration::from_secs(10));
     page.call("Console.enable", json!({}), Duration::from_secs(10))?;
+    // and on the page's frame targets (WebKit 27: a frame's console messages live in its own target)
+    let others: Vec<String> = page.targets.iter().filter(|(t, k)| Some(t) != page.target.as_ref() && k != "worker").map(|(t, _)| t.clone()).collect();
+    for t in &others {
+        let _ = page.call_to(Some(t), "Runtime.enable", json!({}), Duration::from_secs(5));
+        let _ = page.call_to(Some(t), "Console.enable", json!({}), Duration::from_secs(5));
+    }
     let _ = page.call("Inspector.initialized", json!({}), Duration::from_secs(10));
+    let follow = if reload {
+        page.events.clear();
+        page.call("Page.reload", json!({}), Duration::from_secs(10))?;
+        follow.max(Duration::from_secs(3))
+    } else {
+        follow
+    };
     page.pump(Duration::from_millis(400) + follow)?;
     let mut msgs: Vec<Value> = vec![];
     for e in page.events.drain(..) {
@@ -990,19 +1039,25 @@ fn console_once(inst: &Instance, target: Option<&str>, follow: Duration, limit: 
     Ok(json!({"page": p.id, "url": p.url, "count": n, "messages": msgs}))
 }
 
-/// web_network: the page's requests so far (the Resource Timing entries: every request since the page loaded, with
-/// status codes where WebKit records them), then live ones (Network domain events) for `follow`
-fn network_once(inst: &Instance, target: Option<&str>, follow: Duration, limit: usize) -> Result<Value> {
+/// web_network: the page's requests so far (the Resource Timing entries: every request since the page loaded; no
+/// status codes there), then live ones (Network domain events) for `follow`; `reload`: the page reloaded with the
+/// network domain on, every request of its load live (with status and MIME type)
+fn network_once(inst: &Instance, target: Option<&str>, follow: Duration, limit: usize, reload: bool) -> Result<Value> {
     let (p, mut page) = page_of(inst, target)?;
-    let past = page.eval(
+    let follow = if reload { follow.max(Duration::from_secs(3)) } else { follow };
+    let past = if reload { json!([]) } else { page.eval(
         "(() => { const nav = performance.getEntriesByType('navigation').concat(performance.getEntriesByType('resource')); \
          return nav.map(e => ({url: e.name, type: e.initiatorType || e.entryType, status: e.responseStatus || null, \
          start_ms: Math.round(e.startTime), duration_ms: Math.round(e.duration), size: e.transferSize || e.encodedBodySize || null})); })()",
         Duration::from_secs(10),
-    )?;
+    )? };
     let mut live: Vec<Value> = vec![];
     if !follow.is_zero() {
         page.call("Network.enable", json!({}), Duration::from_secs(10))?;
+        if reload {
+            page.events.clear();
+            page.call("Page.reload", json!({}), Duration::from_secs(10))?;
+        }
         page.pump(follow)?;
         let mut by_id: Vec<(String, Value)> = vec![];
         for e in page.events.drain(..) {
@@ -1060,13 +1115,13 @@ pub fn dom(inst: &Instance, target: Option<&str>, selector: Option<&str>, max: u
 }
 
 /// web_console
-pub fn console(inst: &Instance, target: Option<&str>, follow: Duration, limit: usize) -> Result<Value> {
-    retry(|| console_once(inst, target, follow, limit))
+pub fn console(inst: &Instance, target: Option<&str>, follow: Duration, limit: usize, reload: bool) -> Result<Value> {
+    retry(|| console_once(inst, target, follow, limit, reload))
 }
 
 /// web_network
-pub fn network(inst: &Instance, target: Option<&str>, follow: Duration, limit: usize) -> Result<Value> {
-    retry(|| network_once(inst, target, follow, limit))
+pub fn network(inst: &Instance, target: Option<&str>, follow: Duration, limit: usize, reload: bool) -> Result<Value> {
+    retry(|| network_once(inst, target, follow, limit, reload))
 }
 
 #[cfg(test)]

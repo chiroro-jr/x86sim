@@ -175,7 +175,9 @@ x86sim inspect qa --url example.com           # WebKit's Web Inspector on that p
 
 MCP: `web_targets`, `web_eval` (`expression`; a promise is awaited), `web_console` (`follow_s`), `web_dom`
 (`selector`), `web_network` (`follow_s`); `target` is a page id from `web_targets`, text in its URL or title, or the
-app. Prefer them to screenshots for web content: the DOM and console say what a page did. An app's WKWebView shows
+app. Prefer them to screenshots for web content: the DOM and console say what a page did. Messages a page logged
+before it was first inspected are not kept (WebKit): `web_console` / `web_network` with `reload: true` reload it and
+catch its load. An app's WKWebView shows
 up only if the app sets `isInspectable = true` (as on Apple's simulator); Safari's pages always do.
 
 ## Gotchas

@@ -497,8 +497,10 @@ x86sim inspect qa --list            # only list them (id, app, kind, title, URL)
 
 The viewer of `x86sim serve` has the same under **Web pages…** (control links only: an inspector runs code in the
 page). Agents get MCP tools that need no browser: `web_targets` (pages per app), `web_eval` (JavaScript, its value;
-promises are awaited), `web_console` (everything the page logged, then new messages for `follow_s`), `web_dom`
-(outerHTML of a CSS selector or the document) and `web_network` (every request since the page loaded, then live ones).
+promises are awaited), `web_console` (the page's messages, then new ones for `follow_s`), `web_dom` (outerHTML of a
+CSS selector or the document) and `web_network` (every request since the page loaded, then live ones). WebKit keeps
+a page's console messages only from its first inspection on; `reload: true` reloads the page and collects its load's
+console messages or requests (with status codes).
 
 - Safari's pages are always inspectable. An app's `WKWebView` (or `JSContext`) is listed only when the app sets
   `isInspectable = true`, as in Apple's simulator.
