@@ -19,6 +19,9 @@ mod mcp_axinspect;
 // ---- Web Inspector (feat/r2-webinspect): web_targets, web_eval, web_console, web_dom, web_network ----
 #[path = "mcp_parts/web.rs"]
 mod mcp_web;
+// ---- LLDB (feat/r2-lldb): debug_start, debug_command, debug_stop ----
+#[path = "mcp_parts/debug.rs"]
+mod mcp_debug;
 
 fn tools() -> Value {
     let phone = json!({"type": "string", "description": "the phone: its name (as in the hub, e.g. \"QA\"), folder (device-a64-qa) or path. Default: the only running phone, else the configured one"});
@@ -122,6 +125,10 @@ fn tools() -> Value {
     if let Value::Array(v) = &mut t {
         v.extend(mcp_web::tools(&phone));
     }
+    // ---- LLDB (feat/r2-lldb) ----
+    if let Value::Array(v) = &mut t {
+        v.extend(mcp_debug::tools(&phone));
+    }
     t
 }
 
@@ -190,6 +197,9 @@ fn call_json(name: &str, a: &Value) -> anyhow::Result<Answer> {
         return r.map(|(t, v)| Answer::Text(t, v));
     }
     if let Some(r) = mcp_web::call(name, a, &|| phone_of(a, &cfg)) {
+        return r.map(Answer::Json);
+    }
+    if let Some(r) = mcp_debug::call(name, a, &|| phone_of(a, &cfg)) {
         return r.map(Answer::Json);
     }
     if matches!(name, "phones_list" | "sim_status") {

@@ -386,6 +386,61 @@ static void h_helper_vlog(GuestThread &t, u32) {
     if (write(2, s.data(), s.size()) < 0) {}
 }
 static u64 g_all_image_infos[512];
+static u64 g_main_mh;
+static u64 g_dyld_mh;
+// dyld_all_image_infos.notification for lldb (it breaks there to learn of image list changes, and only at an address
+// inside a module it knows): a "ret" in dyld_sim's header padding, supplied by the code fetch (gdbstub.cpp), never in
+// memory. h_helper_image_list_changes calls it as dyld calls notification(mode, count, dyld_image_info[]).
+static u64 g_dbg_notifier;
+static u64 dyld_notifier_address(u64 mh) {
+    const uint32_t *h = (const uint32_t *)mh;
+    if (!mh || h[0] != 0xfeedfacf) return 0;
+    const u64 a = mh + ((32 + h[5] + 15) & ~15ull);  // after the load commands
+    return *(const uint32_t *)a == 0 && *(const uint32_t *)(a + 4) == 0 ? a : 0;  // padding before __text
+}
+static std::string g_main_path;  // the main executable's Darwin path
+// qShlibInfoAddr (gdbstub.cpp): a copy of dyld_sim's dyld_all_image_infos as lldb's dynamic loader needs it. On a Mac
+// the host dyld owns the struct: its infoArray starts with the main executable, and notification, dyldImageLoadAddress
+// and dyldAllImageInfosAddress (the struct's own address) are set. dyld_sim's has none of them (libarm64jit maps the
+// main executable). Rebuilt on every request (lldb asks again at every image list change).
+static u64 g_dbg_infos[512];
+static u64 g_dbg_array[3 * 8192];
+u64 a64_all_image_infos() {
+    u64 *src = g_all_image_infos;
+    memcpy(g_dbg_infos, src, sizeof g_dbg_infos);
+    const uint32_t n = (uint32_t)(src[0] >> 32);
+    const u64 arr = src[1];
+    uint32_t k = 0;
+    if (g_main_mh) { g_dbg_array[0] = g_main_mh; g_dbg_array[1] = (u64)g_main_path.c_str(); g_dbg_array[2] = 0; k = 1; }
+    for (uint32_t i = 0; arr && i < n && k < 8192; i++) {
+        u64 e[3];
+        iovec l{e, sizeof e}, r{(void *)(arr + 24 * i), sizeof e};
+        if (process_vm_readv(getpid(), &l, 1, &r, 1, 0) != (ssize_t)sizeof e) break;
+        if (e[0] == g_main_mh) continue;
+        memcpy(&g_dbg_array[3 * k++], e, sizeof e);
+    }
+    u64 *p = g_dbg_infos;
+    p[0] = (u64)((uint32_t)src[0] ? (uint32_t)src[0] : 17) | (u64)k << 32;
+    p[1] = (u64)g_dbg_array;
+    p[2] = g_dbg_notifier;
+    if (!p[4]) p[4] = g_dyld_mh;
+    p[13] = (u64)p;  // dyldAllImageInfosAddress: else lldb "relocates" dyld by the difference
+    return (u64)p;
+}
+u64 a64_main_header() { return g_main_mh; }
+// notifyMonitorOfImageListChanges(unloading, count, loadAddresses[], imagePaths[]): with a debugger attached, the
+// notifier (lldb's breakpoint) runs as dyld's notification(mode, count, dyld_image_info[]) would
+static void h_helper_image_list_changes(GuestThread &t, u32) {
+    if (!g_dbg_on.load(std::memory_order_relaxed) || !g_dbg_notifier || !dbg_bp_active(g_dbg_notifier)) return;
+    const u64 n = (uint32_t)t.x(1);
+    const u64 *mh = (const u64 *)t.x(2), *paths = (const u64 *)t.x(3);
+    if (!n || !mh) return;
+    std::vector<u64> info(3 * n);
+    for (u64 k = 0; k < n; k++) { info[3 * k] = mh[k]; info[3 * k + 1] = paths ? paths[k] : 0; }
+    u64 regs[4] = {t.x(0), t.x(1), t.x(2), t.x(3)};
+    t.call(g_dbg_notifier, {(u64)(t.x(0) & 1), n, (u64)info.data()});
+    for (int k = 0; k < 4; k++) t.set_x(k, regs[k]);
+}
 static void h_helper_process_info(GuestThread &t, u32) {
     if (!g_all_image_infos[0]) g_all_image_infos[0] = 17;  // version
     t.set_x(0, (u64)g_all_image_infos);
@@ -421,7 +476,7 @@ static u64 build_syscall_helpers() {
         {"task_register_dyld_set_dyld_state", nullptr}, {"task_register_dyld_get_process_state", nullptr},
         {"task_info", nullptr}, {"thread_info", nullptr}, {"kdebug_is_enabled", h_generic_bool}, {"kdebug_trace", nullptr},
         {"kdebug_trace_string", nullptr}, {"amfi_check_dyld_policy_self", h_helper_amfi},
-        {"notifyMonitorOfMainCalled", h_noop}, {"notifyMonitorOfImageListChanges", h_noop},
+        {"notifyMonitorOfMainCalled", h_noop}, {"notifyMonitorOfImageListChanges", h_helper_image_list_changes},
         {"mach_msg_destroy", nullptr}, {"mach_port_construct", nullptr}, {"mach_port_destruct", nullptr},
         {"fstat$INODE64", nullptr}, {"vm_copy", nullptr}, {"task_dyld_process_info_notify_get", h_helper_notify_get},
         {"fsgetpath", nullptr}, {"getattrlistbulk", nullptr}, {"getattrlist", nullptr}, {"getfsstat$INODE64", nullptr},
@@ -544,6 +599,7 @@ static void fatal_exit(int code) {
 // A guest crash without a guest handler ends as on XNU: killed by that signal (the parent's wait status, RunningBoard's
 // crash reason), after libarm64jit's report.
 void die_with_signal(int sig, bool core) {
+    dbg_exiting(sig);
     if (!core) prctl(PR_SET_DUMPABLE, 0);
     struct sigaction sa{};
     sa.sa_handler = SIG_DFL;
@@ -624,6 +680,8 @@ static void on_fault(int sig, siginfo_t *si, void *uc) {
                 t->jit->LoadPinnedFromHost(h);
                 gpc = guest_fault_pc(*t, *blk, a, write);
             } else gpc = t->jit->GetPC();
+            // a debugger sees the fault first (EXC_BAD_ACCESS, KERN_INVALID_ADDRESS / KERN_PROTECTION_FAILURE, the address)
+            if (g_dbg_on.load() && blk) dbg_exception(*t, gpc, gsig, 1, gsig == 11 ? 1 : 2, a);
             const int res = guest_fault_now(*t, gsig, gcode, a, gpc, esr, uc, blk.has_value(), guard);
             if (res == 1) return;  // the access runs again (fixed, or faults again)
             if (res == 2) {
@@ -938,6 +996,7 @@ static void start_memlog() {
         for (;;) {
             if (sem_wait(&g_memlog_sem) != 0) continue;  // EINTR
             while (sem_trywait(&g_memlog_sem) == 0) {}    // signals sent while this one waited: one dump for all
+            if (dbg_check_request()) continue;            // x86sim debug: a request to start the debugger stub
             memlog_once(true);
         }
     }).detach();
@@ -1523,7 +1582,13 @@ extern "C" __attribute__((visibility("default"))) int a64_host_main(int argc, ch
     u64 gargv = (u64)&kargs[2], genvp = (u64)&kargs[env_at], gapple = (u64)&kargs[apple_at];
 
 
+    g_main_mh = main_exe.mh;
+    g_dyld_mh = dyld.mh;
+    g_dbg_notifier = dyld_notifier_address(dyld.mh);
+    dbg_set_notifier(g_dbg_notifier);
+    g_main_path = exe;
     GuestThread &t = GuestThread::self();
+    dbg_init_from_env();  // x86sim debug: X86SIM_A64_DEBUG=1|wait (gdbstub.cpp)
     gsample_start(&t);
     install_fault_report();
     double t_setup = ms_since(g_t0);

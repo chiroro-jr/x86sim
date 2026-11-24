@@ -147,6 +147,10 @@ Apps (as xcrun simctl install/uninstall/launch)
   log stream [--app BUNDLEID] [--process NAME] [--match TEXT]
                        os_log of an app (relaunched; libsimshim formats os_log into a file) or of a process
   pidof BUNDLEID       pid of the running app (inside Darling)
+  debug [PHONE] BUNDLEID|PID [--launch|--wait] [--symbols X.dSYM] [--batch] [-o CMD]...
+                       LLDB on the app: attach to it running, or --launch it stopped before dyld; breakpoints, step,
+                       bt all, variables (C / Objective-C; Swift values need swift-lldb), registers, memory
+                       (lldbattach.py; --start / --cmd / --stop: the MCP server's session)
   spawn [--env K=V] [--timeout S] PROGRAM [args...]
                        run a simulator binary in the device (as simctl spawn): its output, its exit status
   io screenshot [out.png] | io recordVideo [--codec h264|hevc] [--secs N] OUT.mp4
@@ -294,6 +298,12 @@ case $c in
 		if [ $# -ge 2 ] && case $1 in -*|*.xctestrun|fetch-platform) false ;; *) true ;; esac && pick_device "$1"; then shift; use_device; fi
 		export X86SIM_DEVICE
 		exec python3 "$L/xctest.py" "$@" ;;
+	debug)
+		# LLDB on an app in the phone (lldbattach.py, the stub in libarm64jit); a leading <device> as for launch
+		. "$X/cli/lib/pickdevice.sh"
+		if [ $# -ge 2 ] && case $1 in -*) false ;; *) true ;; esac && pick_device "$1"; then shift; use_device; fi
+		export X86SIM_DEVICE
+		exec python3 "$L/lldbattach.py" "$@" ;;
 	launch|terminate|get_app_container|listapps|push|location|privacy|addmedia|log|io|pidof|spawn)
 		# simctl-style leading <device> (x86sim launch apps com.foo): a phone's name/folder/dir
 		. "$X/cli/lib/pickdevice.sh"
