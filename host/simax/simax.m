@@ -57,8 +57,9 @@ static void alog(const char* fmt, ...) {
 // most system UI have no labels. UIKit loads them at launch when accessibility automation is on (what XCUITest turns
 // on); a running process loads them when the AX preference changes. We turn automation on in-process only, the first
 // time a process is asked for its tree, so a phone nobody inspects pays nothing.
-static void load_ax(void) {
-	if (atomic_exchange(&g_ax_loaded, true)) return;
+// true the first time (the caller's answer is then taken before the bundles labelled anything: the host asks again)
+static bool load_ax(void) {
+	if (atomic_exchange(&g_ax_loaded, true)) return false;
 	void* h = dlopen("/usr/lib/libAccessibility.dylib", RTLD_LAZY);
 	void (*set_auto)(int) = h ? dlsym(h, "_AXSSetAutomationEnabled") : NULL;
 	void (*set_app)(int) = h ? dlsym(h, "_AXSApplicationAccessibilitySetEnabled") : NULL;
@@ -68,6 +69,7 @@ static void load_ax(void) {
 	void (*init)(void) = dlsym(RTLD_DEFAULT, "_UIAccessibilityInitialize");
 	if (init) init();
 	alog("ax: automation %p app %p init %p", set_auto, set_app, init);
+	return true;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -470,7 +472,7 @@ static void tree(NSDictionary* req, void (^reply)(NSDictionary*)) {
 		reply(d);
 		return;
 	}
-	if (![req[@"noax"] boolValue]) load_ax();
+	if (![req[@"noax"] boolValue] && load_ax()) d[@"ax_fresh"] = @YES;
 	if (!UIApplication.sharedApplication) {
 		reply(d);
 		return;

@@ -143,6 +143,9 @@ pub struct Snapshot {
     /// an app was in the middle of an animation (a push, a sheet coming up) when it answered
     #[serde(skip_serializing_if = "is_false", default)]
     pub animating: bool,
+    /// a process turned accessibility on for this request (its elements may lack labels yet): snapshot() asks again
+    #[serde(skip)]
+    pub ax_fresh: bool,
 }
 
 impl Snapshot {
@@ -483,6 +486,17 @@ fn s(v: &Value) -> Option<String> {
 }
 
 pub fn snapshot(inst: &Instance, opt: SnapOpts) -> Result<Snapshot> {
+    let s = snapshot_once(inst, opt.clone())?;
+    if !s.ax_fresh {
+        return Ok(s);
+    }
+    // a process just turned accessibility on for this request: its answer came before the accessibility bundles
+    // labelled anything (a fresh phone's first snapshot listed no home-screen icons). Once more after they load.
+    settle(inst, Duration::from_millis(300), Duration::from_secs(2));
+    snapshot_once(inst, opt)
+}
+
+fn snapshot_once(inst: &Instance, opt: SnapOpts) -> Result<Snapshot> {
     let t0 = Instant::now();
     let req = json!({"op": "tree", "fg": true, "all": opt.all});
     let timeout = Duration::from_millis(if opt.timeout_ms > 0 { opt.timeout_ms } else { 6000 });
@@ -513,6 +527,9 @@ pub fn snapshot(inst: &Instance, opt: SnapOpts) -> Result<Snapshot> {
         }
         if v["animating"].as_bool().unwrap_or(false) {
             snap.animating = true;
+        }
+        if v["ax_fresh"].as_bool().unwrap_or(false) {
+            snap.ax_fresh = true;
         }
         let state = v["state"].as_str().unwrap_or("");
         if state != "active" && state != "inactive" {
