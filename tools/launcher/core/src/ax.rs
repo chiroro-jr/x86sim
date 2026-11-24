@@ -1361,3 +1361,77 @@ mod tests {
         assert_eq!(key_named("0x2a"), Some(0x2a));
     }
 }
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Keyboard: Apple Simulator's I/O > Keyboard menu
+
+/// The hardware keyboard's connection, as host/simhid remembers it (<data>/hwkeyboard; connected unless disconnected)
+pub fn hw_keyboard_connected(inst: &Instance) -> bool {
+    Hid::new(&inst.sock).hw_keyboard_connected()
+}
+
+/// host/simhid answers on the phone's input socket (the phone is up)
+fn simhid_up(inst: &Instance) -> bool {
+    let p = std::fs::canonicalize(&inst.sock).unwrap_or_else(|_| inst.sock.clone());
+    std::os::unix::net::UnixStream::connect(p).is_ok()
+}
+
+/// The software keyboard is on screen: its keys are in the snapshot (role "key", UIKit's keyboard-key trait)
+pub fn software_keyboard_up(s: &Snapshot) -> bool {
+    s.elements.iter().filter(|e| e.role == "key" && !e.offscreen).count() >= 10
+}
+
+/// `keyboard software on|off|toggle` / `keyboard hardware connect|disconnect|toggle` / `keyboard status`, as Apple's
+/// Toggle Software Keyboard (Cmd-K) and Connect Hardware Keyboard (Shift-Cmd-K)
+pub fn keyboard(inst: &Instance, what: &str, how: &str, after: After) -> Result<Outcome> {
+    let before = last(inst);
+    let hw = hw_keyboard_connected(inst);
+    let did = match (what, how) {
+        ("status", _) | ("", _) => {
+            let up = snapshot(inst, SnapOpts::default()).map(|s| software_keyboard_up(&s)).unwrap_or(false);
+            format!("hardware keyboard {}; software keyboard {}", if hw { "connected" } else { "disconnected" }, if up { "shown" } else { "hidden" })
+        }
+        ("hardware" | "hw", "connect" | "on" | "disconnect" | "off" | "toggle") => {
+            let on = match how {
+                "connect" | "on" => true,
+                "disconnect" | "off" => false,
+                _ => !hw,
+            };
+            if simhid_up(inst) {
+                Hid::new(&inst.sock).hw_keyboard(on);
+                std::thread::sleep(Duration::from_millis(300));
+            } else {
+                // simhid applies it at the next boot
+                std::fs::write(inst.sock.with_file_name("hwkeyboard"), if on { "connected\n" } else { "disconnected\n" })?;
+            }
+            format!("hardware keyboard {}", if on { "connected" } else { "disconnected" })
+        }
+        ("software" | "sw", "on" | "off" | "toggle" | "show" | "hide") => {
+            anyhow::ensure!(simhid_up(inst), "{} is not running", inst.name);
+            let want = match how {
+                "on" | "show" => Some(true),
+                "off" | "hide" => Some(false),
+                _ => None,
+            };
+            let up = || snapshot(inst, SnapOpts::default()).map(|s| software_keyboard_up(&s)).unwrap_or(false);
+            if want.is_some_and(|w| w == up()) {
+                format!("software keyboard already {}", if want == Some(true) { "shown" } else { "hidden" })
+            } else {
+                hid_for(inst).soft_keyboard_toggle();
+                std::thread::sleep(Duration::from_millis(600));
+                let now = up();
+                let mut d = format!("toggled the software keyboard: {}", if now { "shown" } else { "hidden" });
+                if want.is_some_and(|w| w != now) {
+                    d += if want == Some(true) {
+                        " (it shows while a text field is focused: tap one first)"
+                    } else {
+                        " (still up: with the hardware keyboard disconnected it stays up while a field is focused)"
+                    };
+                }
+                d
+            }
+        }
+        _ => bail!("keyboard software on|off|toggle | hardware connect|disconnect|toggle | status"),
+    };
+    Ok(outcome(inst, did, before, after))
+}

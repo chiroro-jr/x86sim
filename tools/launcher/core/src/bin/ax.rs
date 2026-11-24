@@ -21,6 +21,9 @@ const USAGE: &str = "usage: x86sim-ax [--phone NAME] <command> [args]
   scroll-to TARGET [--dir down] [--max 10]
   wait-for TARGET [--gone] [--timeout S]   (default 20 s)
   press BUTTON [MS]                    home lock side volup voldown siri action ...
+  keyboard software on|off|toggle | hardware connect|disconnect|toggle | status
+                                       Apple's I/O > Keyboard: Toggle Software Keyboard (Cmd-K), Connect Hardware
+                                       Keyboard (Shift-Cmd-K; kept across boots)
   open URL | launch BUNDLEID [ARGS] | terminate BUNDLEID
   screenshot [OUT.png] [--scale N]     N: divisor (default: the device scale, a picture in points)
 Actions print what they did and the screen after it (--after diff: only changes, --after none: nothing; --json).
@@ -175,6 +178,11 @@ fn run() -> Result<()> {
         "press" => {
             let b = args.first().cloned().ok_or_else(|| anyhow!("press: a button (home lock side ...)"))?;
             print(ax::press(&inst, &b, args.get(1).and_then(|m| m.parse().ok()).unwrap_or(100), after)?)
+        }
+        "keyboard" | "kb" => {
+            let w = args.first().cloned().unwrap_or_else(|| "status".into());
+            let h = args.get(1).cloned().unwrap_or_else(|| "toggle".into());
+            print(ax::keyboard(&inst, &w, &h, after)?)
         }
         "open" => {
             need("a URL")?;

@@ -37,7 +37,19 @@ before connecting (Linux's own limit is 108):
   fold | unfold                  (open), moved there over <ms> (default 600) in 100 Hz reports; fold / unfold = hinge
                                  0 / 180. CoreMotion reads it from the hinge service (vendor page 0xff0c, usage 0x21)
                                  and SpringBoard's device pose picks the outer or inner display
-  key down|up <usage>            keyboard usage (page 7), e.g. 4 = 'a', 0x28 = return
+  key down|up <usage> [page]     keyboard usage (page 7), e.g. 4 = 'a', 0x28 = return; another page's key on the
+                                 keyboard service: key down 0x1ae 0x0c = the on-screen keyboard key (Consumer AL Keyboard
+                                 Layout), Apple's Toggle Software Keyboard (UIKit flips its minimized keyboard while a
+                                 hardware keyboard is connected; Consumer 0xb8 Eject did the same in Apple's simulator)
+  hwkb connect|disconnect        Connect Hardware Keyboard, as CoreSimulator's -[SimDevice setHardwareKeyboardEnabled:
+                                 keyboardType:error:]: CoreSimulatorBridge calls GraphicsServices'
+                                 GSEventSetHardwareKeyboardAttachedWithCountryCodeAndType, i.e. the state of the darwin
+                                 notification GSEventHardwareKeyboardAttached (bit 0 attached, country << 8, type << 16)
+                                 + a post (Apple's iOS 27.2 simulator: 1 at boot, 0 after a disconnect). Disconnected,
+                                 UIKit shows the software keyboard on every focus and keeps it up while keys type.
+                                 backboardd sets the state to 1 whenever a keyboard service arrives (our on-demand one
+                                 at its first key): simhid watches it and puts 0 back while disconnected. Kept in
+                                 <data>/hwkeyboard (connected | disconnected) and applied again at the next boot
   kbidle <seconds>               this client's keyboard idle detach: after its last key the on-demand keyboard stays
                                  attached that long (default SIMHID_KB_IDLE_S, 30; <= 0 never detaches)
   kbsettle <ms>                  this client's wait after the keyboard service is attached (default

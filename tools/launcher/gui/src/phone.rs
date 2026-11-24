@@ -18,9 +18,9 @@ const WATCH_EDGE: f32 = 22.0;
 fn toolbar_w(platform: &str) -> f32 {
     if platform == "tvos" { 116.0 } else { 46.0 }
 }
-const GESTURES: &str ="Click the screen to tap, drag to swipe.\nDrag in from an edge for system gestures (Home, Control Center, back).\nCtrl + drag to pinch, Shift + drag to scroll with two fingers.\nF1 Home · F2 Lock · F3/F4 volume";
+const GESTURES: &str ="Click the screen to tap, drag to swipe.\nDrag in from an edge for system gestures (Home, Control Center, back).\nCtrl + drag to pinch, Shift + drag to scroll with two fingers.\nF1 Home · F2 Lock · F3/F4 volume\nCtrl+K software keyboard · Ctrl+Shift+K hardware keyboard";
 /// Models 2: a two-screen phone's 3D view adds its own controls
-const GESTURES_DUO: &str = "Click the screen to tap, drag to swipe.\nDrag in from an edge for system gestures (Home, Control Center, back).\nCtrl + drag to pinch, Shift + drag to scroll with two fingers.\nRight-drag (or Alt + drag) turns the phone; scroll with the right button held (or Alt) zooms; double right-click resets the view.\nF1 Home · F2 Lock · F3/F4 volume";
+const GESTURES_DUO: &str = "Click the screen to tap, drag to swipe.\nDrag in from an edge for system gestures (Home, Control Center, back).\nCtrl + drag to pinch, Shift + drag to scroll with two fingers.\nRight-drag (or Alt + drag) turns the phone; scroll with the right button held (or Alt) zooms; double right-click resets the view.\nF1 Home · F2 Lock · F3/F4 volume\nCtrl+K software keyboard · Ctrl+Shift+K hardware keyboard";
 const GESTURES_TV: &str = "The keyboard is the remote: arrow keys move, Return selects, Esc goes back.\nClick the screen or the clickpad's centre to select; the wheel over either moves the focus.\nF1 TV (home) · F2 play / pause · F3/F4 volume";
 const GESTURES_WATCH: &str = "Click the screen to tap, drag to swipe.\nThe mouse wheel (over the screen or the crown) or a drag on the crown turns it; a click on the crown presses it.\nF1 presses the crown (watch face / apps) · F2 sleeps / wakes the screen; the side button opens Control Center";
 

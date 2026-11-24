@@ -392,6 +392,18 @@ static NSArray<UIWindow*>* visible_windows(void) {
 			[a addObject:win];
 		}
 	}
+	// the software keyboard: UIKit's keyboard window (UIRemoteKeyboardWindow) is not one of a scene's windows; its keys
+	// are what an agent reads while the keyboard is up (Toggle Software Keyboard, a disconnected hardware keyboard)
+	SEL all = NSSelectorFromString(@"allWindowsIncludingInternalWindows:onlyVisibleWindows:");
+	if ([UIWindow respondsToSelector:all]) {
+		NSArray* every = ((NSArray * (*)(id, SEL, BOOL, BOOL)) objc_msgSend)([UIWindow class], all, YES, YES);
+		for (UIWindow* win in every) {
+			if (![win isKindOfClass:[UIWindow class]] || [a containsObject:win]) continue;
+			if (![NSStringFromClass([win class]) containsString:@"Keyboard"]) continue;
+			if (win.hidden || win.alpha < 0.01 || win.bounds.size.width < 1) continue;
+			[a addObject:win];
+		}
+	}
 	// back to front
 	[a sortWithOptions:NSSortStable usingComparator:^NSComparisonResult(UIWindow* x, UIWindow* y) {
 		return x.windowLevel < y.windowLevel ? NSOrderedAscending : x.windowLevel > y.windowLevel ? NSOrderedDescending : NSOrderedSame;

@@ -362,6 +362,8 @@ function phoneView(id) {
           btn("Switcher", "App Switcher", () => send({ t: "sys", a: "app_switcher" }))));
         parts.push(group("Device", btn("Rotate ←", "Rotate left", () => send({ t: "rotate", dir: "left" })), btn("Rotate →", "Rotate right", () => send({ t: "rotate", dir: "right" })),
           btn("Shake", "Device > Shake", () => send({ t: "shake" })), btn("Paste…", "Type text into the phone", openPaste)));
+        parts.push(group("Keyboard", btn("Software", "I/O > Keyboard > Toggle Software Keyboard (Cmd-K): the on-screen keyboard while a text field is focused", () => send({ t: "sys", a: "soft_keyboard" })),
+          btn("Hardware", "I/O > Keyboard > Connect Hardware Keyboard (Shift-Cmd-K): connect / disconnect; disconnected, the software keyboard shows on every focus", () => send({ t: "sys", a: "hw_keyboard" }))));
         if (info.two_screens) {
           fold = h("div", { class: "btns" }, ...info.poses.map((ps) => btn(ps.label, "Hinge: " + ps.label, () => send({ t: "hinge", pose: ps.key }))));
           parts.push(h("div", {}, h("h4", { text: "Fold" }), fold));

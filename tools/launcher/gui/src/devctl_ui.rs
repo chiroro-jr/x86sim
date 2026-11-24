@@ -1,6 +1,7 @@
 //! Phone page, "Simulate" section: what Apple's Simulator offers in its Features / Device menus and simctl for one
 //! phone: appearance (light / dark), text size (Dynamic Type), Increase Contrast, the fidelity preset (fast: a 3x
-//! iPhone drawn at 2x plus Reduce Transparency / Motion; high: native), and Erase / Clone. Everything goes through
+//! iPhone drawn at 2x plus Reduce Transparency / Motion; high: native), the keyboard (Connect Hardware Keyboard, Toggle
+//! Software Keyboard), and Erase / Clone. Everything goes through
 //! cli/x86sim (cli/libexec/devctl.py), on a thread: a running phone is changed at once through its helper, one that
 //! is off at its next boot.
 use crate::theme::*;
@@ -96,6 +97,24 @@ impl DevctlUi {
     }
 }
 
+impl DevctlUi {
+    /// The keyboard (x86sim_core::ax::keyboard, as the CLI's `x86sim keyboard` and MCP sim_keyboard) on a thread
+    fn keyboard(&self, inst: &instance::Instance, what: &'static str, how: &'static str, ctx: &egui::Context) {
+        let id = inst.id.clone();
+        self.busy.lock().unwrap().insert(id.clone(), format!("Keyboard: {what} {how}…"));
+        let (busy, said, inst, ctx) = (self.busy.clone(), self.said.clone(), inst.clone(), ctx.clone());
+        std::thread::spawn(move || {
+            let msg = match x86sim_core::ax::keyboard(&inst, what, how, x86sim_core::ax::After::None) {
+                Ok(o) => format!("{}: {}", inst.name, o.did),
+                Err(e) => format!("Couldn't do it: {e}"),
+            };
+            busy.lock().unwrap().remove(&id);
+            said.lock().unwrap().push(msg);
+            ctx.request_repaint();
+        });
+    }
+}
+
 impl App {
     /// Messages of finished commands, the phone list after an erase / clone (each frame)
     pub fn devctl_poll(&mut self) {
@@ -167,6 +186,27 @@ impl App {
         if let Some(i) = segmented(ui, &opts.map(|o| o.1), opts.iter().position(|o| o.0 == st.fidelity), idle) {
             cmd = Some((vec!["fidelity".into(), opts[i].0.into()], format!("{}: fidelity {} (the scale at the next start)", inst.name, opts[i].1)));
         }
+        // Keyboard: Apple's I/O > Keyboard (Connect Hardware Keyboard is kept across boots; the software keyboard's
+        // toggle needs the phone up and a focused text field)
+        let hw = x86sim_core::ax::hw_keyboard_connected(inst);
+        let mut kb: Option<(&'static str, &'static str)> = None;
+        ui.add_space(S1);
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+            ui.label(egui::RichText::new("Connect Hardware Keyboard").size(T_SMALL).family(medium()).color(pal().ink_2));
+            ui.label(egui::RichText::new(icon::INFO).family(icons()).size(12.0).color(pal().ink_3)).on_hover_text("I/O > Keyboard > Connect Hardware Keyboard (Shift-Cmd-K; Ctrl+Shift+K in the viewer). Off: the software keyboard comes up on every text field, as on a device without a keyboard; typing still works.");
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let mut on = hw;
+                if ui.add_enabled_ui(idle, |ui| toggle(ui, &mut on)).inner.changed() {
+                    kb = Some(("hardware", if on { "connect" } else { "disconnect" }));
+                }
+            });
+        });
+        ui.add_space(S1);
+        let r = ui.add_enabled(running && working.is_none(), Btn::secondary("Toggle Software Keyboard").icon(icon::KEYBOARD).small());
+        if r.on_hover_text("I/O > Keyboard > Toggle Software Keyboard (Cmd-K; Ctrl+K in the viewer): the on-screen keyboard while a text field is focused and a hardware keyboard is connected").clicked() {
+            kb = Some(("software", "toggle"));
+        }
         if let Some(w) = &working {
             ui.add_space(S1);
             busy(ui, w);
@@ -216,6 +256,9 @@ impl App {
         }
         if let Some((args, done)) = cmd {
             self.devctl.run(&id, &dev, args, done, &ctx);
+        }
+        if let Some((what, how)) = kb {
+            self.devctl.keyboard(inst, what, how, &ctx);
         }
     }
 }

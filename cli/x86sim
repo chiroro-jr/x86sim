@@ -72,6 +72,10 @@ Agents (read the screen as text, act on elements; same core as the MCP server's 
                        until it shows (or goes); wakes on new frames
   press BUTTON | open URL
                        a hardware button / a URL, answering with the screen
+  keyboard software on|off|toggle | keyboard hardware connect|disconnect|toggle | keyboard [status]
+                       Apple's I/O > Keyboard: Toggle Software Keyboard (Cmd-K: the on-screen keyboard while a hardware
+                       keyboard is connected), Connect Hardware Keyboard (Shift-Cmd-K; disconnected, the software
+                       keyboard shows on every focus as on a device; kept across boots). type works either way
 
 Display and input
   view [--bg]          GTK viewer window with mouse/keyboard input (simview.py; DISPLAY defaults to :0)
@@ -233,6 +237,11 @@ case $c in
 	key) if [ $# = 1 ] && num "$1"; then exec python3 "$L/simtouch.py" key "$@"; else ax key "$@"; fi ;;
 	pinch|pan2|home|lock|crown|openurl|app|dismiss|raw|button|shake|rotate|orientation|biometric|gamepad|memwarn|pointer|gesture|appswitcher|standby|trackpad)
 		exec python3 "$L/simtouch.py" "$c" "$@" ;;
+	keyboard)
+		# a leading <device> as for the simctl-style commands (the launcher's Simulate section passes the phone's folder)
+		. "$X/cli/lib/pickdevice.sh"
+		if [ $# -ge 1 ] && case $1 in software|sw|hardware|hw|status) false ;; *) true ;; esac && pick_device "$1"; then shift; use_device; fi
+		ax keyboard "$@" ;;
 	# type: into the focused field as the software keyboard (any text; --clear --submit; --keys: key presses)
 	type) ax type "$@" ;;
 	text) exec python3 "$L/simtouch.py" text "$*" ;;

@@ -50,6 +50,7 @@ entitlement-gated services) is not counted as an x86Sim gap.
 |---|---|---|---|
 | Touch, multi-touch, edge gestures | mouse in the launcher; real multi-touch in the browser; `tap` / `swipe` / `pinch` / `pan2` from the CLI | same | inputs.sh |
 | Hardware keyboard, paste | yes; Ctrl+V types the Linux clipboard | same | |
+| Toggle Software Keyboard, Connect Hardware Keyboard (I/O > Keyboard, Cmd-K / Shift-Cmd-K) | `x86sim keyboard software on\|off\|toggle`, `keyboard hardware connect\|disconnect`, MCP `sim_keyboard`, launcher Simulate section and Ctrl+K / Ctrl+Shift+K, browser viewer; Apple's mechanisms (the on-screen-keyboard key on the keyboard service; GraphicsServices' hardware-keyboard state, as CoreSimulatorBridge sets it); the connection is kept across boots | same | wt-kbd 2026-11-24: shown with the hardware keyboard connected, disconnected = software keyboard on focus and while typing, `type` both ways, snapshot lists the keys; compared with Apple's iOS 27.2 simulator |
 | Buttons (Home, Lock, side, volume, Siri, Action, Apple Pay) | `x86sim button`, MCP `sim_button` | same | inputs.sh |
 | Shake, rotate, orientation, memory warning | `shake`, `rotate`, `orientation`, `memwarn`; MCP `sim_shake`, `sim_orientation`, `sim_memory_warning` | same | inputs.sh |
 | Face ID / Touch ID / Optic ID | `biometric enroll\|unenroll\|match\|nomatch`, MCP `sim_biometric` | same | inputs.sh |

@@ -81,6 +81,8 @@ fn tools() -> Value {
          "inputSchema": {"type": "object", "properties": {"phone": phone, "target": {"type": "string"}, "gone": {"type": "boolean"}, "timeout": {"type": "number"}}, "required": ["target"]}},
         {"name": "press", "description": "Press a hardware button (home, lock, side, volup, voldown, siri, action, ...; as sim_button) and answer with the screen after it.",
          "inputSchema": {"type": "object", "properties": {"phone": phone, "button": {"type": "string"}, "ms": {"type": "integer"}, "after": after}, "required": ["button"]}},
+        {"name": "sim_keyboard", "description": "Apple Simulator's I/O > Keyboard. software: on / off / toggle the on-screen keyboard while a hardware keyboard is connected (Toggle Software Keyboard, Cmd-K; it shows while a text field is focused). hardware: connect / disconnect / toggle the simulated hardware keyboard (Connect Hardware Keyboard, Shift-Cmd-K; disconnected, the software keyboard shows on every focus as on a device; kept across boots, also for a phone that is off). status: both states. Typing (type, key) works either way; snapshot lists the keyboard's keys (role key) while it is up. Answers with the screen.",
+         "inputSchema": {"type": "object", "properties": {"phone": phone, "keyboard": {"type": "string", "enum": ["software", "hardware", "status"]}, "action": {"type": "string", "enum": ["on", "off", "toggle", "connect", "disconnect"]}, "after": after}, "required": ["keyboard"]}},
         {"name": "screenshot", "description": "The screen as an image (PNG), upright. Default scale: one pixel per point, so positions match the snapshot's coordinates; scale=1 for full device pixels, 2 for half, etc. (a divisor).",
          "inputSchema": {"type": "object", "properties": {"phone": phone, "scale": {"type": "integer"}}}},
         {"name": "open_url", "description": "Open a URL (web page in Safari, deep link, prefs:/settings link) as simctl openurl, and answer with the screen.",
@@ -377,6 +379,7 @@ fn call_json(name: &str, a: &Value) -> anyhow::Result<Answer> {
             let t = std::time::Duration::from_secs_f64(a["timeout"].as_f64().unwrap_or(20.0).clamp(0.1, 600.0));
             return Ok(ax_answer(ax::wait_for(&inst, a["target"].as_str().unwrap_or(""), a["gone"].as_bool().unwrap_or(false), t)?));
         }
+        "sim_keyboard" => return Ok(ax_answer(ax::keyboard(&inst, a["keyboard"].as_str().unwrap_or("status"), a["action"].as_str().unwrap_or("toggle"), after)?)),
         "press" => return Ok(ax_answer(ax::press(&inst, a["button"].as_str().unwrap_or("home"), a["ms"].as_u64().unwrap_or(100), after)?)),
         "open_url" => return Ok(ax_answer(ax::open_url(&inst, a["url"].as_str().unwrap_or(""), after)?)),
         "app_terminate" => return Ok(ax_answer(ax::terminate(&inst, a["bundle_id"].as_str().unwrap_or(""), after)?)),

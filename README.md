@@ -68,6 +68,10 @@ loop (copy it to `.claude/skills/x86sim/` or your agent's equivalent). Agents th
   available as a fallback.
 - Touch with the mouse: tap, swipe, edge gestures, pinch and two-finger scroll. Your keyboard types into the device,
   and Ctrl+V pastes from the Linux clipboard.
+- The keyboard menu of Apple's Simulator: Toggle Software Keyboard (Ctrl+K in the viewer) brings up the on-screen
+  keyboard while a hardware keyboard is connected, and Connect Hardware Keyboard (Ctrl+Shift+K) can disconnect it so the
+  software keyboard comes up on every text field, as on a device. Both are in the launcher's Simulate section, the
+  browser viewer, `x86sim keyboard` and the MCP tool `sim_keyboard`.
 - Home, lock and volume buttons; an on-screen Siri Remote for Apple TV; a Digital Crown and side button for Apple
   Watch; look-and-pinch for Apple Vision Pro, driven by the mouse.
 
@@ -379,7 +383,7 @@ else the configured one. Erase, clone and keychain reset need it.
 | Feature sets | `features_list`, `feature_get`, `feature_set`, `features_preset` |
 | Apps | `app_install` (simulator or device builds), `app_uninstall`, `app_launch`, `app_terminate`, `app_list`, `app_logs` |
 | Screen as text and actions | `snapshot`, `tap`, `long_press`, `type`, `key`, `scroll`, `scroll_to`, `swipe`, `wait_for`, `press`, `open_url`, `screenshot` |
-| Hardware | `sim_button`, `sim_crown`, `sim_fold`, `sim_shake`, `sim_orientation`, `sim_biometric`, `sim_gamepad`, `sim_pointer`, `sim_system`, `sim_memory_warning` |
+| Hardware | `sim_button`, `sim_crown`, `sim_fold`, `sim_shake`, `sim_orientation`, `sim_biometric`, `sim_gamepad`, `sim_pointer`, `sim_system`, `sim_keyboard`, `sim_memory_warning` |
 | Settings (as simctl) | `sim_ui`, `sim_status_bar`, `sim_pasteboard`, `sim_keychain_reset`, `sim_locale`, `sim_timezone`, `sim_fidelity`, `sim_erase`, `sim_clone` |
 | Capture | `sim_screenshot` (a PNG file), `sim_record_video` |
 | Pool | `pool_status`, `phone_take`, `phone_release` |
@@ -395,7 +399,8 @@ lacks it, e.g. plain HTTP on the LAN); quality, size and frame rate are picked o
 - **Input**: click or drag to touch (edge swipes become Home, Control Center and Notification Center as on a
   device), real multi-touch from a touchscreen, Alt + drag to pinch or rotate, Shift + drag for a two-finger pan, the
   wheel scrolls (the Digital Crown on a watch, the remote's swipes on a TV), the hardware keyboard (Ctrl / Cmd is
-  Command), Ctrl+V types the clipboard into the device, F1 to F4 Home, Lock and volume.
+  Command), Ctrl+V types the clipboard into the device, F1 to F4 Home, Lock and volume, Keyboard > Software / Hardware
+  (Toggle Software Keyboard, Connect Hardware Keyboard).
 - **Controls per platform**: iPhone / iPad buttons (Home, Lock, volume, Siri, Action, App Switcher), rotate, shake,
   the iPhone Duo's fold poses; an Apple TV's Siri Remote; an Apple Watch's crown, side button and hand gestures.
 - **Capture**: a full-size PNG screenshot, and recording the stream to a video file.

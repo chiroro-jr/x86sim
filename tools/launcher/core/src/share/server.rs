@@ -775,6 +775,15 @@ impl Input {
                         self.inst.memory_warning().map_err(|e| e.to_string())?;
                         return Ok(());
                     }
+                    "soft_keyboard" => {
+                        self.hid.soft_keyboard_toggle();
+                        return Ok(());
+                    }
+                    "hw_keyboard" => {
+                        let on = !self.hid.hw_keyboard_connected();
+                        self.hid.hw_keyboard(on);
+                        return Ok(());
+                    }
                     "double_tap" => "gesture doubletap",
                     "wrist_flick" => "gesture wristflick",
                     a => return Err(format!("unknown action {a}")),
