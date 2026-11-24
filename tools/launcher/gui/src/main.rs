@@ -2,6 +2,7 @@
 //! touch and keyboard plus a fold-out panel (features, logs, performance, advanced); global pages for iOS versions,
 //! pre-translation (AOT) and settings. Logic lives in x86sim-core; the GUI repaints only when a frame or a status
 //! changes.
+mod duo3d;
 mod global;
 mod home;
 mod omarchy;
@@ -86,6 +87,8 @@ pub struct App {
     pub status: HashMap<String, instance::Status>,
     pub view: View,
     pub viewers: HashMap<String, viewer::Viewer>,
+    /// Models 2: a two-screen phone in 3D while its hinge is bent (duo3d.rs)
+    pub duo3d: HashMap<String, duo3d::Duo3d>,
     pub hub: host::HubSettings,
     pub updater: updater::Updater,
     pub open: HashSet<&'static str>,
@@ -220,6 +223,7 @@ impl App {
             status: HashMap::new(),
             view,
             viewers: HashMap::new(),
+            duo3d: HashMap::new(),
             hub: host::load_hub(),
             updater: Default::default(),
             open,
@@ -295,6 +299,18 @@ impl App {
         v.set_display(screen, display, o);
         v.set_boot_time(bt);
         Some(v)
+    }
+
+    /// Models 2: the 3D model of a two-screen phone, its hinge moved on to this frame; None for a one-screen phone
+    pub fn duo(&mut self, id: &str, ctx: &egui::Context) -> Option<(&mut duo3d::Duo3d, instance::Instance)> {
+        let inst = self.inst(id)?.clone();
+        inst.inner.as_ref()?;
+        if !self.duo3d.contains_key(id) {
+            self.duo3d.insert(id.to_string(), duo3d::Duo3d::new(&inst, ctx.clone())?);
+        }
+        let d = self.duo3d.get_mut(id)?;
+        d.update(&inst, ctx.input(|i| i.time), ctx);
+        Some((d, inst))
     }
 
     pub fn start(&mut self, id: &str) {

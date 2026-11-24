@@ -38,6 +38,50 @@ pub struct Shared {
     pub scaling: AtomicU8,
 }
 
+/// Models 2: where a pointer position lands on a phone's screen: normalised (x, y) on the picture as drawn upright,
+/// the screen's upright size in pixels (for edge gestures), and the touch target simhid needs for it (display id and
+/// panel turn, the main screen's turn) when it is not the one the viewer is set to (`None`: as set)
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Hit {
+    pub x: f32,
+    pub y: f32,
+    pub size: (u32, u32),
+    pub target: Option<(Option<(u32, u32)>, u32)>,
+    /// which surface (the 3D model's screen halves), for following a drag on it
+    pub surface: u8,
+}
+
+/// Maps pointer positions to a phone's screens: the flat picture (`FlatMap`) or the 3D model (duo3d)
+pub trait ScreenMap {
+    /// The screen point under `p`; None off every screen
+    fn hit(&self, p: egui::Pos2) -> Option<Hit>;
+    /// Where `p` is on the surface `of` was on (a drag keeps to the screen it began on), unclamped
+    fn follow(&self, p: egui::Pos2, of: &Hit) -> (f32, f32);
+    /// Points the screen `of` is on spans across and down (wheel scrolls move a finger by that much)
+    fn span(&self, of: &Hit) -> (f32, f32);
+}
+
+/// The flat picture drawn in `screen`
+pub struct FlatMap {
+    pub screen: egui::Rect,
+    pub size: (u32, u32),
+}
+
+impl ScreenMap for FlatMap {
+    fn hit(&self, p: egui::Pos2) -> Option<Hit> {
+        self.screen.contains(p).then(|| {
+            let (x, y) = self.follow(p, &Hit { x: 0.0, y: 0.0, size: self.size, target: None, surface: 0 });
+            Hit { x, y, size: self.size, target: None, surface: 0 }
+        })
+    }
+    fn follow(&self, p: egui::Pos2, _of: &Hit) -> (f32, f32) {
+        ((p.x - self.screen.left()) / self.screen.width(), (p.y - self.screen.top()) / self.screen.height())
+    }
+    fn span(&self, _of: &Hit) -> (f32, f32) {
+        (self.screen.width(), self.screen.height())
+    }
+}
+
 pub struct Viewer {
     pub shared: Arc<Shared>,
     tex: Option<egui::TextureHandle>,
@@ -52,6 +96,9 @@ pub struct Viewer {
     pan2: bool,
     /// mouse wheel as a one-finger drag: the finger's position and the last wheel event
     wheel: Option<((f32, f32), std::time::Instant)>,
+    /// the screen the current touch (or wheel scroll) began on: it carries on there
+    touch_hit: Option<Hit>,
+    wheel_hit: Option<Hit>,
     /// Shift as the phone knows it
     shift_held: bool,
     /// Platforms 1: an Apple Watch: the mouse wheel turns its Digital Crown (host/simhid "crown")
@@ -88,7 +135,7 @@ pub fn scaling_of(s: &str) -> u8 {
 
 /// The frame shrunk by `step` and turned upright. `smooth`: each output pixel is the average of its step x step block
 /// (a box filter) instead of the block's first pixel, so a phone drawn small keeps its text and lines whole.
-fn convert(f: &x86sim_core::ring::Frame, step: usize, rot: u32, smooth: bool) -> Img {
+pub(crate) fn convert(f: &x86sim_core::ring::Frame, step: usize, rot: u32, smooth: bool) -> Img {
     let (w, h) = (f.w as usize / step, f.h as usize / step);
     let stride = f.stride as usize;
     let mut small = Vec::with_capacity(w * h);
@@ -202,7 +249,7 @@ impl Viewer {
                 }
             })
             .expect("ring thread");
-        Viewer { shared, tex: None, tex_seq: 0, hid: hid::Hid::new(&inst.sock), touching: false, last_norm: (0.0, 0.0), focused: false, screen: inst.screen, id: inst.id.clone(), pinch: false, pan2: false, wheel: None, shift_held: false,
+        Viewer { shared, tex: None, tex_seq: 0, hid: hid::Hid::new(&inst.sock), touching: false, last_norm: (0.0, 0.0), focused: false, screen: inst.screen, id: inst.id.clone(), pinch: false, pan2: false, wheel: None, touch_hit: None, wheel_hit: None, shift_held: false,
             crown: inst.model_id.starts_with("Watch"),
             remote: inst.model_id.starts_with("AppleTV"),
             wheel_acc: egui::Vec2::ZERO,
@@ -316,7 +363,8 @@ impl Viewer {
             }
         }
         if interactive {
-            self.input(ui, &resp, screen, live);
+            let map = FlatMap { screen, size: self.screen };
+            self.input(ui, &resp, screen, &map, live);
             if self.focused {
                 ui.painter().rect_stroke(rect, radius + bezel * 0.7, egui::Stroke::new(1.0_f32, pal().active), egui::StrokeKind::Outside);
             }
@@ -362,7 +410,20 @@ impl Viewer {
         ctx.output_mut(|o| o.cursor_icon = egui::CursorIcon::None);
     }
 
-    fn input(&mut self, ui: &mut egui::Ui, resp: &egui::Response, screen: egui::Rect, live: bool) {
+    /// Models 2: touches and keys through another view of the screens (the 3D model): `resp` is its area
+    pub fn input_mapped(&mut self, ui: &mut egui::Ui, resp: &egui::Response, map: &dyn ScreenMap, live: bool) {
+        self.input(ui, resp, resp.rect, map, live);
+    }
+
+    /// Sends the next touch event to the screen `h` is on
+    fn aim(&mut self, h: Option<Hit>) {
+        if let Some((display, main_rot)) = h.and_then(|h| h.target) {
+            self.hid.display = display;
+            self.hid.main_rot = main_rot;
+        }
+    }
+
+    fn input(&mut self, ui: &mut egui::Ui, resp: &egui::Response, screen: egui::Rect, map: &dyn ScreenMap, live: bool) {
         let ctx = ui.ctx().clone();
         if live && self.pointer_mode {
             if ctx.input(|i| i.pointer.primary_pressed()) {
@@ -375,7 +436,6 @@ impl Viewer {
             self.pointer_input(&ctx, resp, screen);
         }
         let (pressed, released, pos, moving, shift, ctrl) = ctx.input(|i| (i.pointer.primary_pressed(), i.pointer.primary_released(), i.pointer.interact_pos().or(i.pointer.latest_pos()), i.pointer.is_moving(), i.modifiers.shift, i.modifiers.ctrl));
-        let norm = |p: egui::Pos2| ((p.x - screen.left()) / screen.width(), (p.y - screen.top()) / screen.height());
         let pressed = pressed && !(live && self.pointer_mode);
         if pressed {
             if let Some(p) = pos {
@@ -385,14 +445,16 @@ impl Viewer {
                     if live && self.remote {
                         self.hid.key(true, 0x28);
                         self.touching = true;
-                    } else if live {
-                        let (x, y) = norm(p);
+                    } else if let (true, Some(h)) = (live, map.hit(p)) {
+                        let (x, y) = (h.x, h.y);
                         self.last_norm = (x, y);
                         self.touching = true;
+                        self.touch_hit = Some(h);
+                        self.aim(Some(h));
                         if ctrl || shift {
                             self.two_finger("down", x, y, ctrl);
                         } else {
-                            let edge = hid::edge_at(x, y, self.screen.0, self.screen.1);
+                            let edge = hid::edge_at(x, y, h.size.0, h.size.1);
                             self.hid.touch("down", x, y, edge);
                         }
                         self.pinch = ctrl;
@@ -411,7 +473,7 @@ impl Viewer {
             // the wheel / touchpad as the remote's touch surface: an arrow key a notch (40 points of scroll)
             if live {
                 let (delta, hover) = ctx.input(|i| (i.raw_scroll_delta, i.pointer.hover_pos()));
-                if delta != egui::Vec2::ZERO && hover.is_some_and(|p| screen.contains(p)) {
+                if delta != egui::Vec2::ZERO && hover.is_some_and(|p| map.hit(p).is_some()) {
                     self.wheel_acc += delta;
                     const NOTCH: f32 = 40.0;
                     while self.wheel_acc.y.abs() >= NOTCH || self.wheel_acc.x.abs() >= NOTCH {
@@ -427,11 +489,12 @@ impl Viewer {
             }
         }
         if !self.remote && self.touching && moving {
-            if let Some(p) = pos {
-                let (x, y) = norm(p);
+            if let (Some(p), Some(h)) = (pos, self.touch_hit) {
+                let (x, y) = map.follow(p, &h);
                 let (x, y) = (x.clamp(0.0, 1.0), y.clamp(0.0, 1.0));
                 if (x, y) != self.last_norm {
                     self.last_norm = (x, y);
+                    self.aim(Some(h));
                     if self.pinch || self.pan2 {
                         self.two_finger("move", x, y, self.pinch);
                     } else {
@@ -443,6 +506,8 @@ impl Viewer {
         if !self.remote && self.touching && released {
             self.touching = false;
             let (x, y) = self.last_norm;
+            let h = self.touch_hit.take();
+            self.aim(h);
             if self.pinch || self.pan2 {
                 self.two_finger("up", x, y, self.pinch);
             } else {
@@ -455,7 +520,7 @@ impl Viewer {
         // wheel down / content up = crown towards the bottom (positive)
         if live && self.crown {
             let (delta, hover) = ctx.input(|i| (i.raw_scroll_delta, i.pointer.hover_pos()));
-            if delta.y != 0.0 && hover.is_some_and(|p| screen.contains(p)) {
+            if delta.y != 0.0 && hover.is_some_and(|p| map.hit(p).is_some()) {
                 // ~60 a notch: half a Settings row (a step of ~120 scrolls one; 0.16 a pixel barely moved)
                 self.hid.crown(-delta.y * 1.2);
             }
@@ -463,17 +528,22 @@ impl Viewer {
         // mouse wheel / touchpad scroll over the screen: a finger dragging the content (lifted after a short pause)
         if live && !self.touching && !self.crown && !self.remote && !self.pointer_mode {
             let (delta, hover) = ctx.input(|i| (i.raw_scroll_delta, i.pointer.hover_pos()));
-            let over = hover.is_some_and(|p| screen.contains(p));
-            if delta != egui::Vec2::ZERO && over {
-                let start = hover.map(norm).unwrap_or((0.5, 0.5));
+            let over = hover.and_then(|p| map.hit(p));
+            if delta != egui::Vec2::ZERO && (over.is_some() || self.wheel.is_some()) {
+                // a scroll carries on on the screen it began on
+                let h = self.wheel_hit.or(over).unwrap();
+                self.wheel_hit = Some(h);
+                self.aim(Some(h));
+                let start = over.map(|o| (o.x, o.y)).unwrap_or((0.5, 0.5));
                 let ((mut x, mut y), _) = self.wheel.unwrap_or_else(|| {
                     // never start on an edge (that would be a system gesture)
                     let s = (start.0.clamp(0.1, 0.9), start.1.clamp(0.15, 0.85));
                     self.hid.touch("down", s.0, s.1, None);
                     (s, std::time::Instant::now())
                 });
-                x += delta.x / screen.width();
-                y += delta.y / screen.height();
+                let span = map.span(&h);
+                x += delta.x / span.0.max(1.0);
+                y += delta.y / span.1.max(1.0);
                 if !(0.05..=0.95).contains(&x) || !(0.08..=0.92).contains(&y) {
                     // ran out of screen: lift and grab again where the scroll began
                     self.hid.touch("up", x.clamp(0.0, 1.0), y.clamp(0.0, 1.0), None);
@@ -489,6 +559,8 @@ impl Viewer {
         }
         if let Some(((x, y), at)) = self.wheel {
             if at.elapsed() >= Duration::from_millis(140) {
+                let h = self.wheel_hit.take();
+                self.aim(h);
                 self.hid.touch("up", x, y, None);
                 self.wheel = None;
             } else {

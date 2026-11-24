@@ -19,6 +19,8 @@ fn toolbar_w(platform: &str) -> f32 {
     if platform == "tvos" { 116.0 } else { 46.0 }
 }
 const GESTURES: &str ="Click the screen to tap, drag to swipe.\nDrag in from an edge for system gestures (Home, Control Center, back).\nCtrl + drag to pinch, Shift + drag to scroll with two fingers.\nF1 Home · F2 Lock · F3/F4 volume";
+/// Models 2: a two-screen phone's 3D view adds its own controls
+const GESTURES_DUO: &str = "Click the screen to tap, drag to swipe.\nDrag in from an edge for system gestures (Home, Control Center, back).\nCtrl + drag to pinch, Shift + drag to scroll with two fingers.\nRight-drag (or Alt + drag) turns the phone; scroll with the right button held (or Alt) zooms; double right-click resets the view.\nF1 Home · F2 Lock · F3/F4 volume";
 const GESTURES_TV: &str = "The keyboard is the remote: arrow keys move, Return selects, Esc goes back.\nClick the screen or the clickpad's centre to select; the wheel over either moves the focus.\nF1 TV (home) · F2 play / pause · F3/F4 volume";
 const GESTURES_WATCH: &str = "Click the screen to tap, drag to swipe.\nThe mouse wheel (over the screen or the crown) or a drag on the crown turns it; a click on the crown presses it.\nF1 presses the crown (watch face / apps) · F2 sleeps / wakes the screen; the side button opens Control Center";
 
@@ -191,7 +193,30 @@ impl App {
             let r = ui.horizontal_top(|ui| {
                 ui.add_space(((ui.available_width() - w) / 2.0).max(0.0));
                 let start = ui.cursor().min.x;
-                let case = self.viewer(id).map(|v| v.show(ui, avail, live, placeholder, true, viewer::FULL));
+                // Models 2: a two-screen phone is shown as its 3D model while it runs, its screens live on it and
+                // touchable through it (duo3d::DuoMap); the right (or middle) button, or Alt, turns and zooms it
+                let ctx = ui.ctx().clone();
+                let three_d = live && self.duo(id, &ctx).is_some();
+                let case = if three_d {
+                    if let Some(v) = self.viewer(id) {
+                        v.shared.mode.store(viewer::OFF, std::sync::atomic::Ordering::Relaxed);
+                    }
+                    let (rect, _) = ui.allocate_exact_size(avail, egui::Sense::hover());
+                    let mut touch = None;
+                    if let Some((d, inst)) = self.duo(id, &ctx) {
+                        let resp = d.paint(ui, rect, &inst);
+                        let moving = ui.input(|i| i.modifiers.alt || i.pointer.secondary_down() || i.pointer.middle_down());
+                        if !moving {
+                            touch = d.screen_map(&inst).map(|m| (resp, m));
+                        }
+                    }
+                    if let (Some((resp, map)), Some(v)) = (touch, self.viewer(id)) {
+                        v.input_mapped(ui, &resp, &map, live);
+                    }
+                    Some(rect)
+                } else {
+                    self.viewer(id).map(|v| v.show(ui, avail, live, placeholder, true, viewer::FULL))
+                };
                 // Platforms 1: a watch's crown and side button stand off its case's right edge, as on the watch
                 if let (true, Some(case)) = (watch, case) {
                     ui.add_space(edge);
@@ -460,6 +485,7 @@ impl App {
                     ui.add(Btn::tool(icon::INFO)).on_hover_text(match platform.as_str() {
                         "tvos" => GESTURES_TV,
                         "watchos" => GESTURES_WATCH,
+                        _ if hinge.is_some() => GESTURES_DUO,
                         _ => GESTURES,
                     });
                 });
@@ -504,6 +530,9 @@ impl App {
                 if let Some(vw) = self.viewer(id) {
                     vw.hinge(v, ms);
                 }
+                if let Some(d) = self.duo3d.get_mut(id) {
+                    d.commanded = Some((v, now));
+                }
                 sent = v;
                 sent_at = now;
             }
@@ -541,6 +570,9 @@ impl App {
                 if ui.add(b).on_hover_text(pose.label).clicked() {
                     if let Some(vw) = self.viewer(id) {
                         vw.hinge_pose(pose);
+                    }
+                    if let Some(d) = self.duo3d.get_mut(id) {
+                        d.commanded = Some((pose.angle, now));
                     }
                     v = pose.angle;
                     sent = v;
