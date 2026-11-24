@@ -751,7 +751,7 @@ stop_helpers() {
 	pkill -f "mdnsresponder.py .*/$(basename "$ST")/mDNSResponder\$" 2>/dev/null
 	rm -f "$ST/mdns.pid" "$ST/mDNSResponder"
 	[ -f "$ST/simaudio.pid" ] && kill "$(cat "$ST/simaudio.pid")" 2>/dev/null
-	rm -f "$ST/simaudio.pid"
+	rm -f "$ST/simaudio.pid" "$ST/simaudio-tap.sock"
 	[ -f "$ST/fmrelay.pid" ] && kill "$(cat "$ST/fmrelay.pid")" 2>/dev/null
 	rm -f "$ST/fmrelay.pid"
 }
@@ -894,11 +894,12 @@ done
 # Speed 27: the audio devices (what a Mac's CoreSimulator/coreaudiod provide): host/simaudio/arm64/libsimaudio.dylib in
 # each process (mksimdevice, X86SIM_AUDIO) streams PCM to cli/libexec/simaudio.py (PipeWire). Without an input device
 # Siri's recording failed at once (corespeechd: "siriInputSource 'sino'. No Input available", AudioQueue -66680 finding
-# Default-InputOutput, prepareRecordForStream -11790) and Siri never got further.
-if [ "${X86SIM_AUDIO:-0}" != 0 ]; then
+# Default-InputOutput, prepareRecordForStream -11790) and Siri never got further. simaudio.py runs on every boot: its
+# tap (simaudio-tap.sock) lets x86sim serve play the phone in a browser; X86SIM_AUDIO=1 also plays it on PipeWire and
+# records the host's microphone (else input streams get silence, or a browser's microphone through the tap).
+X86SIM_AUDIO_PLAYBACK=$([ "${X86SIM_AUDIO:-0}" != 0 ] && echo 1 || echo 0) \
 	setsid python3 "$X/cli/libexec/simaudio.py" "$ST/simaudio.sock" > "$ST/simaudio.log" 2>&1 < /dev/null &
-	echo $! > "$ST/simaudio.pid"
-fi
+echo $! > "$ST/simaudio.pid"
 if [ "${X86SIM_JETSAM:-1}" != 0 ]; then
 	setsid python3 "$X/cli/libexec/jetsam.py" > "$ST/jetsam.log" 2>&1 < /dev/null &
 	echo $! > "$ST/jetsam.pid"

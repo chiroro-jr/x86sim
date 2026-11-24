@@ -182,10 +182,10 @@ pub enum Out {
     Close,
 }
 
-/// The binary header of a video packet: kind (1 H.264 Annex B access unit, 2 JPEG), flags (1 key frame), width, height
+/// The binary header of a video packet: kind (1 H.264 Annex B access unit, 2 JPEG; audio.rs: 3 Opus, 4 PCM), flags (1 key frame), width, height
 /// (u16 LE each), the capture time (u64 LE microseconds, unix), then the payload
 pub const HDR_LEN: usize = 14;
-fn packet(kind: u8, key: bool, w: u32, h: u32, t_us: u64, payload: &[u8]) -> Vec<u8> {
+pub fn packet(kind: u8, key: bool, w: u32, h: u32, t_us: u64, payload: &[u8]) -> Vec<u8> {
     let mut v = Vec::with_capacity(HDR_LEN + payload.len());
     v.push(kind);
     v.push(key as u8);

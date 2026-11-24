@@ -186,7 +186,9 @@ function phoneView(id) {
   const wrap = h("div", { class: "screenwrap" }, canvas, dots, overlay);
   const stage = h("div", { class: "stage" }, wrap);
   const side = h("aside", { class: "side" });
-  main.append(h("div", { class: "phone" }, stage, side));
+  // a narrow screen (a phone's browser): the most used controls right under the screen, the rest below
+  const quick = h("div", { class: "quick" });
+  main.append(h("div", { class: "phone" }, stage, quick, side));
   const stats = h("div", { class: "stats" });
   const prefs = JSON.parse(localStorageGet("x86sim_prefs") || "{}");
   const canH264 = "VideoDecoder" in window && window.isSecureContext;
@@ -196,11 +198,14 @@ function phoneView(id) {
   // --- sizing: the canvas keeps the stream's aspect inside the stage
   let fw = 0, fh = 0;
   function fit() {
-    if (!fw) return;
-    const r = stage.getBoundingClientRect();
-    const s = Math.min((r.width - 24) / fw, (r.height - 24) / fh);
-    canvas.style.width = Math.max(50, Math.floor(fw * s)) + "px";
-    canvas.style.height = Math.max(50, Math.floor(fh * s)) + "px";
+    // before the first frame: the phone's shape from its screen size
+    const scr = info?.screen;
+    const w = fw || (scr && scr[0]), hh = fh || (scr && scr[1]);
+    if (!w) return;
+    const r = stage.getBoundingClientRect(), m = innerWidth <= 760 ? 12 : 24;
+    const s = Math.min((r.width - m) / w, (r.height - m) / hh);
+    canvas.style.width = Math.max(50, Math.floor(w * s)) + "px";
+    canvas.style.height = Math.max(50, Math.floor(hh * s)) + "px";
   }
   const ro = new ResizeObserver(fit);
   ro.observe(stage);
@@ -225,8 +230,15 @@ function phoneView(id) {
     lastStats = now;
     const l = lat.length ? lat.reduce((a, b) => a + b, 0) / lat.length : null;
     statLine = `${codec.toUpperCase()} ${fw}×${fh}\n${(frames / dt).toFixed(0)} fps · ${(bytes * 8 / dt / 1e6).toFixed(2)} Mbit/s` + (l !== null && l >= 0 && l < 5000 ? `\nframe age ${l.toFixed(0)} ms` : "");
+    if (soundOn && actx && aLat.length) {
+      // packet age on arrival + what is queued + the output's own latency
+      const net = aLat.reduce((a, b) => a + b, 0) / aLat.length;
+      const q = Math.max(0, nextT - actx.currentTime) * 1000, out = ((actx.outputLatency || 0) + (actx.baseLatency || 0)) * 1000;
+      statLine += `\nsound ${aCodec} ${(net + q + out).toFixed(0)} ms (net ${net.toFixed(0)}, queue ${q.toFixed(0)}, out ${out.toFixed(0)})` + (aLost || aUnder ? ` · ${aLost} dropped, ${aUnder} gaps` : "");
+      window.__x86simSound = { net, queue: q, out, codec: aCodec, lost: aLost, gaps: aUnder };
+    }
     stats.textContent = statLine;
-    frames = 0; bytes = 0; lat = [];
+    frames = 0; bytes = 0; lat = []; aLat = [];
   }, 1000);
 
   // --- video
@@ -281,6 +293,117 @@ function phoneView(id) {
       .catch(() => {}).finally(() => { jpegBusy = false; if (pendingJpeg) { const d = pendingJpeg; pendingJpeg = null; onJpeg(d); } });
   }
 
+  // --- sound: the phone's mix as Opus (WebCodecs AudioDecoder) or 16-bit PCM, 10 ms packets scheduled ~40 ms ahead on
+  // an AudioContext; off until the viewer turns it on (browsers start audio only from a click). The microphone: the
+  // viewer's getUserMedia as 16-bit mono 48 kHz frames back to the phone (control links, an explicit toggle, HTTPS).
+  const canOpus = "AudioDecoder" in window && window.isSecureContext;
+  const canMic = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) && window.isSecureContext && "AudioWorkletNode" in window;
+  let actx = null, gain = null, adec = null, aCodec = "", nextT = 0, soundOn = false, volume = prefs.volume ?? 0.8;
+  let aLat = [], aLost = 0, aUnder = 0, aMin = 1, aN = 0, soundBtn = null, quickSound = null, micBtn = null, mic = null;
+  async function soundStart() {
+    try {
+      actx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000, latencyHint: "interactive" });
+    } catch { actx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: "interactive" }); }
+    actx.resume();
+    gain = actx.createGain();
+    gain.gain.value = volume;
+    gain.connect(actx.destination);
+    aCodec = "pcm";
+    if (canOpus) {
+      const cfg = { codec: "opus", sampleRate: 48000, numberOfChannels: 2 };
+      const sup = await AudioDecoder.isConfigSupported(cfg).catch(() => ({ supported: false }));
+      if (sup.supported) {
+        adec = new AudioDecoder({ output: (d) => { playAudioData(d); d.close(); }, error: (e) => { console.warn("audio", e); adec = null; if (soundOn) { soundStop(); soundStart(); } } });
+        adec.configure(cfg);
+        aCodec = "opus";
+      }
+    }
+    soundOn = true; nextT = 0;
+    send({ t: "audio", on: true, codec: aCodec });
+    updateSound();
+  }
+  function soundStop() {
+    soundOn = false;
+    send({ t: "audio", on: false });
+    if (adec && adec.state !== "closed") try { adec.close(); } catch {}
+    adec = null;
+    if (actx) actx.close().catch(() => {});
+    actx = null; gain = null;
+    updateSound();
+  }
+  function updateSound() {
+    for (const b of [soundBtn, quickSound]) if (b) { b.textContent = soundOn ? "🔊 Sound on" : "🔇 Sound off"; b.classList.toggle("on", soundOn); }
+    if (micBtn) { micBtn.textContent = mic ? "🎙 Mic on" : "🎙 Mic off"; micBtn.classList.toggle("on", !!mic); }
+  }
+  function schedule(planes, n) {
+    if (!actx) return;
+    const now = actx.currentTime;
+    // underrun (or the first packet): start 30 ms ahead; more than 150 ms queued: drop to catch up
+    if (nextT < now + 0.005) { if (nextT) aUnder++; nextT = now + 0.03; aMin = 1; aN = 0; }
+    else if (nextT > now + 0.15) { aLost++; return; }
+    // a second in which the queue never went below 45 ms (a burst after a stall): skip a packet to give 10 ms back
+    aMin = Math.min(aMin, nextT - now);
+    if (++aN >= 100) { const skip = aMin > 0.045; aMin = 1; aN = 0; if (skip) return; }
+    const b = actx.createBuffer(2, n, 48000);
+    b.copyToChannel(planes[0], 0);
+    b.copyToChannel(planes[1] || planes[0], 1);
+    const src = actx.createBufferSource();
+    src.buffer = b;
+    src.connect(gain);
+    src.start(nextT);
+    nextT += n / 48000;
+  }
+  function playAudioData(d) {
+    const n = d.numberOfFrames, planes = [];
+    for (let c = 0; c < Math.min(2, d.numberOfChannels); c++) {
+      const a = new Float32Array(n);
+      d.copyTo(a, { planeIndex: c, format: "f32-planar" });
+      planes.push(a);
+    }
+    schedule(planes, n);
+  }
+  function onAudio(kind, restart, t, data) {
+    if (!soundOn || !actx) return;
+    aLat.push(Date.now() - t / 1000);
+    if (restart) nextT = 0;
+    if (kind === 3 && adec && adec.state === "configured") {
+      adec.decode(new EncodedAudioChunk({ type: "key", timestamp: t, data }));
+    } else if (kind === 4) {
+      const n = data.byteLength / 4, dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
+      const l = new Float32Array(n), r = new Float32Array(n);
+      for (let i = 0; i < n; i++) { l[i] = dv.getInt16(i * 4, true) / 32768; r[i] = dv.getInt16(i * 4 + 2, true) / 32768; }
+      schedule([l, r], n);
+    }
+  }
+  function setVolume(v) {
+    volume = v;
+    if (gain) gain.gain.value = v;
+    save();
+  }
+  async function micStart() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+      const ctx = new AudioContext({ latencyHint: "interactive" });
+      await ctx.audioWorklet.addModule("mic.js");
+      const node = new AudioWorkletNode(ctx, "x86sim-mic", { numberOfInputs: 1, numberOfOutputs: 0, channelCount: 1, channelCountMode: "explicit" });
+      node.port.onmessage = (e) => {
+        if (!ws || ws.readyState !== 1) return;
+        const f = e.data, b = new ArrayBuffer(1 + f.length * 2), dv = new DataView(b);
+        dv.setUint8(0, 5);
+        for (let i = 0; i < f.length; i++) dv.setInt16(1 + i * 2, Math.max(-32768, Math.min(32767, Math.round(f[i] * 32767))), true);
+        ws.send(b);
+      };
+      ctx.createMediaStreamSource(stream).connect(node);
+      mic = { stream, ctx, node };
+    } catch (e) { toast("Microphone: " + (e.message || e.name)); mic = null; }
+    updateSound();
+  }
+  function micStop() {
+    if (mic) { mic.stream.getTracks().forEach((t) => t.stop()); mic.ctx.close().catch(() => {}); mic = null; }
+    send({ t: "mic", on: false });
+    updateSound();
+  }
+
   function connect() {
     if (ws) { ws.onclose = null; ws.close(); }
     if (!alive) return;
@@ -289,7 +412,7 @@ function phoneView(id) {
     const u = `${proto}//${location.host}/ws/${encodeURIComponent(id)}?codec=${codec}&w=${wantWidth()}&q=${quality}&fps=${fps}` + (TOKEN ? "&t=" + encodeURIComponent(TOKEN) : "");
     ws = new WebSocket(u);
     ws.binaryType = "arraybuffer";
-    ws.onopen = () => { retry = 0; };
+    ws.onopen = () => { retry = 0; if (soundOn) { nextT = 0; send({ t: "audio", on: true, codec: aCodec }); } };
     ws.onmessage = (ev) => {
       if (typeof ev.data === "string") return onText(JSON.parse(ev.data));
       const dv = new DataView(ev.data);
@@ -297,6 +420,7 @@ function phoneView(id) {
       const t = Number(dv.getBigUint64(6, true));
       const data = new Uint8Array(ev.data, 14);
       bytes += ev.data.byteLength;
+      if (kind === 3 || kind === 4) return onAudio(kind, key, t, data);
       lat.push(Date.now() - t / 1000);
       if (kind === 1) onH264(key, w, hh, t, data);
       else if (kind === 2) onJpeg(data);
@@ -371,6 +495,21 @@ function phoneView(id) {
       }
       if (p !== "ios") parts.push(group("Text", btn("Paste…", "Type text into the phone", openPaste)));
     }
+    soundBtn = btn("", "The phone's sound in this browser", () => (soundOn ? soundStop() : soundStart()));
+    quickSound = btn("", "The phone's sound in this browser", () => (soundOn ? soundStop() : soundStart()));
+    const q = [];
+    if (control && (p === "ios" || p === "xros")) q.push(hold("home", "Home"));
+    if (control && p === "ios") q.push(btn("Switcher", "App Switcher", () => send({ t: "sys", a: "app_switcher" })));
+    if (control && p === "tvos") q.push(hold("menu", "Back"), hold("tv", "TV"));
+    if (control && p === "watchos") q.push(hold("home", "Crown"), hold("side", "Side"));
+    if (control) q.push(btn("Type…", "Type text into the phone", openPaste));
+    q.push(quickSound);
+    quick.replaceChildren(...q);
+    const volIn = h("input", { type: "range", min: 0, max: 1, step: 0.05, value: volume, title: "Volume (this browser only)", class: "vol", oninput: (e) => setVolume(Number(e.target.value)) });
+    micBtn = control ? btn("", canMic ? "Your microphone into the phone (asks the browser for it)" : "The microphone needs HTTPS (or localhost) and a browser with AudioWorklet", () => (mic ? micStop() : micStart())) : null;
+    if (micBtn && !canMic) micBtn.disabled = true;
+    parts.push(group("Sound", soundBtn, volIn, micBtn));
+    updateSound();
     recBtn = btn("Record", "Record the screen to a video file", toggleRec);
     parts.push(group("Capture", h("a", { class: "btn small", href: withToken(`/api/phones/${encodeURIComponent(id)}/screenshot.png`), download: "", text: "Screenshot" }), recBtn));
     const qSel = h("select", { onchange: (e) => { quality = Number(e.target.value); save(); connect(); } }, ["Low", "Medium", "High"].map((l, i) => h("option", { value: i, selected: i === quality, text: l })));
@@ -389,7 +528,7 @@ function phoneView(id) {
     return [h("h4", { text: "Keys" }), ...l.map(([a, b]) => h("div", {}, h("b", { text: a }), " " + b))];
   }
   function updateSide() {}
-  function save() { localStorageSet("x86sim_prefs", JSON.stringify({ codec, quality, fps })); }
+  function save() { localStorageSet("x86sim_prefs", JSON.stringify({ codec, quality, fps, volume })); }
 
   // --- recording (the canvas as the browser shows it)
   let rec = null, chunks = [];
@@ -603,10 +742,12 @@ function phoneView(id) {
   // a bigger window asks for a sharper stream (reconnect when the wanted width changes by a third)
   let lastW = 0;
   const sizeIv = setInterval(() => { const w = wantWidth(); if (lastW && Math.abs(w - lastW) / lastW > 0.33) connect(); lastW = w; }, 2000);
-  api("/api/phones").then((ps) => { const p = ps.find((x) => x.id === id || x.name === id); if (p) { info = { ...p, ...info }; lastW = wantWidth(); } }).catch(() => {});
+  api("/api/phones").then((ps) => { const p = ps.find((x) => x.id === id || x.name === id); if (p) { info = { ...p, ...info }; lastW = wantWidth(); fit(); } }).catch(() => {});
   return () => {
     alive = false;
     releaseAll();
+    if (mic) micStop();
+    if (soundOn) soundStop();
     if (rec) rec.stop();
     if (ws) { ws.onclose = null; ws.close(); }
     if (dec && dec.state !== "closed") try { dec.close(); } catch {}

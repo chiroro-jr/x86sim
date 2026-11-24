@@ -6,6 +6,7 @@
 //! plain local browser gets in (loopback peer, a loopback Host, no proxy headers, a same-origin Origin): a tunnel's
 //! requests arrive from loopback too but carry forwarding headers and their own Host, and a web page elsewhere can
 //! neither name a loopback Host through DNS rebinding nor pass the Origin check on the WebSocket.
+use super::audio;
 use super::tunnel::{self, Kind, Tunnel};
 use super::video::{self, Codec, Out, StreamKey};
 use super::ws;
@@ -23,6 +24,7 @@ use std::time::{Duration, Instant};
 const INDEX: &str = include_str!("web/index.html");
 const APP_JS: &str = include_str!("web/app.js");
 const APP_CSS: &str = include_str!("web/app.css");
+const MIC_JS: &str = include_str!("web/mic.js");
 
 pub struct Server {
     pub opts: Options,
@@ -396,6 +398,7 @@ fn handle(srv: &Arc<Server>, mut s: TcpStream, peer: SocketAddr) {
         }
         "/app.js" => return respond(&mut s, 200, "text/javascript; charset=utf-8", &[], APP_JS.as_bytes()),
         "/app.css" => return respond(&mut s, 200, "text/css; charset=utf-8", &[], APP_CSS.as_bytes()),
+        "/mic.js" => return respond(&mut s, 200, "text/javascript; charset=utf-8", &[], MIC_JS.as_bytes()),
         "/favicon.ico" => return respond(&mut s, 204, "image/x-icon", &[], b""),
         _ => {}
     }
@@ -561,13 +564,29 @@ fn session(_srv: &Arc<Server>, s: TcpStream, inst: Instance, g: Grant, q: &HashM
     let quality = q.get("q").and_then(|v| v.parse::<u8>().ok()).unwrap_or(1).min(2);
     let fps = q.get("fps").and_then(|v| v.parse::<u32>().ok()).unwrap_or(30).clamp(5, 60);
     let (tx, rx) = mpsc::sync_channel::<Out>(6);
-    let mut w = match s.try_clone() {
+    let w = match s.try_clone() {
         Ok(w) => w,
         Err(_) => return,
     };
     let _ = w.set_write_timeout(Some(Duration::from_secs(10)));
+    // sound has its own queue (100 ms of 10 ms packets) and writer: it goes out between video frames, never behind a
+    // queue of them, and a slow socket loses sound packets on their own
+    let w = Arc::new(Mutex::new(w));
+    let (atx, arx) = mpsc::sync_channel::<Out>(10);
+    let aw = w.clone();
+    let audio_writer = std::thread::spawn(move || {
+        for m in arx {
+            if let Out::Bin(b) = m {
+                if ws::write(&mut *aw.lock().unwrap(), 2, &b).is_err() {
+                    break;
+                }
+            }
+        }
+    });
     let writer = std::thread::spawn(move || {
         for m in rx {
+            let mut g = w.lock().unwrap();
+            let mut w: &mut TcpStream = &mut g;
             let r = match m {
                 Out::Video(p, _) => ws::write(&mut w, 2, &p),
                 Out::Bin(b) => ws::write(&mut w, 2, &b),
@@ -582,19 +601,24 @@ fn session(_srv: &Arc<Server>, s: TcpStream, inst: Instance, g: Grant, q: &HashM
                 break;
             }
         }
-        let _ = w.shutdown(std::net::Shutdown::Both);
+        let _ = w.lock().unwrap().shutdown(std::net::Shutdown::Both);
     });
     let control = g.role == Role::Control;
     let state = |inst: &Instance| json!({"t": "state", "orientation": inst.orientation(), "hinge": inst.hinge(), "inner_active": inst.inner_active(), "running": crate::ring::Ring::new(&inst.ring).seq() != 0});
     let _ = tx.send(Out::Text(
         json!({"t": "hello", "role": g.role, "phone": inst.id, "name": inst.name, "model": inst.model, "platform": inst.platform, "two_screens": inst.inner.is_some(),
-               "codec": if codec == Codec::H264 { "h264" } else { "jpeg" }, "expires": g.expires, "poses": hid::HINGE_POSES.iter().map(|p| json!({"key": p.key, "label": p.label})).collect::<Vec<_>>()})
+               "codec": if codec == Codec::H264 { "h264" } else { "jpeg" }, "expires": g.expires, "audio": true, "poses": hid::HINGE_POSES.iter().map(|p| json!({"key": p.key, "label": p.label})).collect::<Vec<_>>()})
         .to_string(),
     ));
     let (streamer, sub) = video::join(&inst, StreamKey { phone: inst.id.clone(), codec, width, quality, fps }, tx.clone());
     let mut r = s;
     let _ = r.set_read_timeout(Some(Duration::from_millis(1000)));
     let mut input = Input::new(&inst);
+    // the phone's sound once the page asks for it ({"t": "audio", "on": true, "codec": "opus" | "pcm"}), the viewer's
+    // microphone once it sends one (control role)
+    let mut sound: Option<(Arc<audio::Audio>, u64)> = None;
+    let mut mic: Option<(Arc<audio::Audio>, u64)> = None;
+    static MIC_IDS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1 << 40);
     let mut last_state = Value::Null;
     let mut last_check = Instant::now() - Duration::from_secs(5);
     loop {
@@ -620,6 +644,22 @@ fn session(_srv: &Arc<Server>, s: TcpStream, inst: Instance, g: Grant, q: &HashM
                     Some("ping") => {
                         let _ = tx.send(Out::Text(json!({"t": "pong", "c": v["c"]}).to_string()));
                     }
+                    Some("audio") => {
+                        if let Some((a, id)) = sound.take() {
+                            a.leave(id);
+                        }
+                        if v["on"].as_bool() == Some(true) {
+                            let c = if v["codec"].as_str() == Some("pcm") { audio::Codec::Pcm } else { audio::Codec::Opus };
+                            sound = Some(audio::join(&inst, atx.clone(), c));
+                        }
+                    }
+                    Some("mic") if control => {
+                        if v["on"].as_bool() != Some(true) {
+                            if let Some((a, id)) = mic.take() {
+                                a.mic_off(id);
+                            }
+                        }
+                    }
                     _ if control => {
                         if let Err(e) = input.handle(&v) {
                             let _ = tx.send(Out::Text(json!({"t": "error", "error": e}).to_string()));
@@ -629,6 +669,10 @@ fn session(_srv: &Arc<Server>, s: TcpStream, inst: Instance, g: Grant, q: &HashM
                         let _ = tx.send(Out::Text(json!({"t": "error", "error": "this link can only watch"}).to_string()));
                     }
                 }
+            }
+            Ok(ws::Msg::Binary(b)) if control && b.first() == Some(&audio::KIND_MIC) => {
+                let (a, id) = mic.get_or_insert_with(|| (audio::get(&inst), MIC_IDS.fetch_add(1, Ordering::Relaxed)));
+                a.mic(*id, &b[1..]);
             }
             Ok(ws::Msg::Ping(p)) => {
                 let _ = tx.send(Out::Pong(p));
@@ -641,6 +685,14 @@ fn session(_srv: &Arc<Server>, s: TcpStream, inst: Instance, g: Grant, q: &HashM
     }
     input.release();
     streamer.leave(sub);
+    if let Some((a, id)) = sound.take() {
+        a.leave(id);
+    }
+    if let Some((a, id)) = mic.take() {
+        a.mic_off(id);
+    }
+    drop(atx);
+    let _ = audio_writer.join();
     let _ = tx.send(Out::Close);
     drop(tx);
     let _ = writer.join();
