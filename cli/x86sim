@@ -151,6 +151,9 @@ Apps (as xcrun simctl install/uninstall/launch)
                        LLDB on the app: attach to it running, or --launch it stopped before dyld; breakpoints, step,
                        bt all, variables (C / Objective-C; Swift values need swift-lldb), registers, memory
                        (lldbattach.py; --start / --cmd / --stop: the MCP server's session)
+  profile [PHONE] BUNDLEID|PID [--secs N] [--out FILE] [--format speedscope|gecko|text] [--period-us N]
+                       CPU profile of the app (as Instruments' Time Profiler): top functions by self / total time per
+                       thread, and a speedscope or Firefox Profiler file (the translator's sampler, profile.rs)
   spawn [--env K=V] [--timeout S] PROGRAM [args...]
                        run a simulator binary in the device (as simctl spawn): its output, its exit status
   io screenshot [out.png] | io recordVideo [--codec h264|hevc] [--secs N] OUT.mp4
@@ -291,6 +294,14 @@ case $c in
 		b=${X86SIM_SERVE:-$X/tools/launcher/target/release/x86sim-serve}
 		[ -x "$b" ] || { echo "x86sim: $b is not built (cd tools/launcher && cargo build --release)" >&2; exit 1; }
 		exec "$b" inspect "$@" ;;
+	profile)
+		# CPU profiler (libarm64jit prof.cpp's sampler, symbolicated by x86sim-serve profile); a leading <device> as for launch
+		. "$X/cli/lib/pickdevice.sh"
+		if [ $# -ge 2 ] && case $1 in -*) false ;; *) true ;; esac && pick_device "$1"; then shift; use_device; fi
+		export X86SIM_DEVICE
+		b=${X86SIM_SERVE:-$X/tools/launcher/target/release/x86sim-serve}
+		[ -x "$b" ] || { echo "x86sim: $b is not built (cd tools/launcher && cargo build --release)" >&2; exit 1; }
+		exec "$b" profile "$@" ;;
 	install|uninstall) exec "$L/appinstall.sh" "$c" "$@" ;;
 	test|xctest)
 		# XCTest / XCUITest bundles (xctest.py); a leading <device> as for launch

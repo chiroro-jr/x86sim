@@ -182,6 +182,8 @@ void dbg_point(GuestThread &t, int where);  // 0: call() loop, 1: thunk entry, 2
 void dbg_exception(GuestThread &t, u64 pc, int sig, u64 metype, u64 code, u64 sub);
 void dbg_init_from_env();
 bool dbg_check_request();
+bool prof_check_request();  // x86sim profile (prof.cpp)
+bool prof_active();
 void dbg_exiting(int linux_sig);
 void dbg_exit_code(int status);
 bool dbg_started();

@@ -485,8 +485,8 @@ void for_each_guest_thread(void (*fn)(GuestThread *, void *), void *arg) {
 }
 void susp_thread_fini(GuestThread &t) {
     // the debugger's thread list holds GuestThreads under its mutex: not removed (and freed) meanwhile
-    std::unique_lock<std::mutex> dl(dbg_threads_mutex(), std::defer_lock);
-    if (dbg_started()) dl.lock();
+    // (x86sim profile's sampler too: always taken, a profile can start at any time; uncontended otherwise)
+    std::lock_guard<std::mutex> dl(dbg_threads_mutex());
     for (int k = 0; k < kReg; k++) if (g_reg_t[k].load() == &t) { g_reg_port[k].store(0); g_reg_t[k].store(nullptr); break; }
     if (t.susp_timer) { timer_delete((timer_t)t.susp_timer); t.susp_timer = nullptr; }
 }

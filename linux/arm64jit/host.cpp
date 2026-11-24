@@ -428,6 +428,29 @@ u64 a64_all_image_infos() {
     return (u64)p;
 }
 u64 a64_main_header() { return g_main_mh; }
+// x86sim profile (prof.cpp): the loaded images (mach header, Darwin path), the main executable first
+void a64_image_list(std::vector<std::pair<u64, std::string>> &out) {
+    auto rd = [](u64 a, void *to, size_t n) {
+        iovec l{to, n}, r{(void *)a, n};
+        return process_vm_readv(getpid(), &l, 1, &r, 1, 0) == (ssize_t)n;
+    };
+    if (g_main_mh) out.push_back({g_main_mh, g_main_path});
+    const uint32_t n = (uint32_t)(g_all_image_infos[0] >> 32);
+    const u64 arr = g_all_image_infos[1];
+    for (uint32_t i = 0; arr && i < n && i < 65536; i++) {
+        u64 e[3];
+        if (!rd(arr + 24 * i, e, sizeof e)) break;
+        if (e[0] == g_main_mh || !e[1]) continue;
+        char p[1024];
+        size_t k = 0;
+        for (; k + 64 <= sizeof p; k += 64) {  // a path may end before a page it does not reach: 64-byte steps
+            if (!rd(e[1] + k, p + k, 64)) { p[k] = 0; break; }
+            if (memchr(p + k, 0, 64)) break;
+        }
+        p[sizeof p - 1] = 0;
+        if (p[0]) out.push_back({e[0], p});
+    }
+}
 // notifyMonitorOfImageListChanges(unloading, count, loadAddresses[], imagePaths[]): with a debugger attached, the
 // notifier (lldb's breakpoint) runs as dyld's notification(mode, count, dyld_image_info[]) would
 static void h_helper_image_list_changes(GuestThread &t, u32) {
@@ -996,7 +1019,8 @@ static void start_memlog() {
         for (;;) {
             if (sem_wait(&g_memlog_sem) != 0) continue;  // EINTR
             while (sem_trywait(&g_memlog_sem) == 0) {}    // signals sent while this one waited: one dump for all
-            if (dbg_check_request()) continue;            // x86sim debug: a request to start the debugger stub
+            // x86sim debug / x86sim profile: a request to start the debugger stub, or to start / stop a profile
+            if (prof_check_request() | dbg_check_request()) continue;
             memlog_once(true);
         }
     }).detach();

@@ -793,7 +793,7 @@ void serve(int lfd) {
 }  // namespace
 
 // /run/user/<uid>, or X86SIM_A64_DEBUG_DIR (a rootless Darling's uid 0 has none)
-static std::string dbg_dir() {
+std::string dbg_dir() {  // also prof.cpp's request files
     if (const char *d = getenv("X86SIM_A64_DEBUG_DIR"); d && *d) return d;
     return "/run/user/" + std::to_string((int)getuid());
 }

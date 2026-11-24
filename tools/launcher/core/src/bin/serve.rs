@@ -68,6 +68,10 @@ fn main() {
         libc::signal(libc::SIGPIPE, libc::SIG_DFL);
     }
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // x86sim profile: CPU profile of an app (profile.rs)
+    if args.first().map(String::as_str) == Some("profile") {
+        std::process::exit(x86sim_core::profile::cli(&args[1..]));
+    }
     // x86sim inspect: Web Inspector for a phone's pages (share/inspect.rs)
     if args.first().map(String::as_str) == Some("inspect") {
         std::process::exit(share::inspect::cli(&args[1..]));

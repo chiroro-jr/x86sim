@@ -613,6 +613,15 @@ fn handle(srv: &Arc<Server>, mut s: TcpStream, peer: SocketAddr) {
                     }
                     None => json_resp(&mut s, 409, &json!({"error": "no frame: is the phone running?"})),
                 },
+                // x86sim profile of the front app (or ?app=BUNDLEID) for ?secs (default 5), as a download
+                "profile.json" if control => {
+                    let secs = req.query.get("secs").and_then(|v| v.parse().ok()).unwrap_or(5.0f64);
+                    let fmt = req.query.get("format").and_then(|f| crate::profile::Format::parse(f)).unwrap_or(crate::profile::Format::Speedscope);
+                    match crate::profile::take(&inst, req.query.get("app").map(String::as_str), secs, fmt) {
+                        Ok((name, body)) => respond(&mut s, 200, "application/json", &[("Content-Disposition", format!("attachment; filename=\"{name}\""))], &body),
+                        Err(e) => json_resp(&mut s, 409, &json!({"error": format!("{e:#}")})),
+                    }
+                }
                 _ => json_resp(&mut s, 404, &json!({"error": "not found"})),
             }
         }
