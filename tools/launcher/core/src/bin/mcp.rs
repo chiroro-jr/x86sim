@@ -77,6 +77,9 @@ fn phone_of(a: &Value, cfg: &aot::Config) -> anyhow::Result<instance::Instance> 
 }
 
 fn call(name: &str, a: &Value) -> anyhow::Result<Value> {
+    if let Some(r) = pool_mcp::call(name, a) {
+        return r;
+    }
     let cfg = aot::Paths::new(&aot::Paths::default_jc()).load_config();
     if matches!(name, "phones_list" | "sim_status") {
         return Ok(json!({"phones": instance::summaries(1000)}));
@@ -281,7 +284,7 @@ fn main() {
                 "serverInfo": {"name": "x86sim", "version": env!("CARGO_PKG_VERSION")}
             })),
             "ping" => Ok(json!({})),
-            "tools/list" => Ok(json!({"tools": tools()})),
+            "tools/list" => Ok(json!({"tools": pool_mcp::extend(tools())})),
             "tools/call" => {
                 let name = req["params"]["name"].as_str().unwrap_or("");
                 let args = req["params"].get("arguments").cloned().unwrap_or(json!({}));
@@ -300,5 +303,58 @@ fn main() {
         };
         let _ = writeln!(out, "{resp}");
         let _ = out.flush();
+    }
+}
+
+// ==== Phone pool + device builds (feat/ap-ipa-pool): pool_status / phone_take / phone_release, app_install of an .ipa
+// (x86sim_core::pool, x86sim_core::devapp). Kept apart from the tools above so it merges as one block.
+mod pool_mcp {
+    use serde_json::{json, Value};
+    use x86sim_core::pool;
+
+    /// The pool tools added to the list; app_install's description names the device builds it now takes
+    pub fn extend(mut tools: Value) -> Value {
+        if let Some(arr) = tools.as_array_mut() {
+            for t in arr.iter_mut() {
+                if t["name"] == "app_install" {
+                    t["description"] = json!("Install an app on a running phone, as simctl install: installd installs it and the home screen shows its icon. Takes a simulator .app, or a device build: an .ipa, an .xcarchive or a device .app (converted for the simulator first: every Mach-O retagged to the simulator platform, Info.plist platform keys, ad-hoc re-signed keeping entitlements; arm64 only; FairPlay-encrypted App Store downloads are refused). Returns the bundle id and, for a device build, what was converted.");
+                    t["inputSchema"]["properties"]["path"]["description"] = json!("the .app directory, .ipa file or .xcarchive on this machine");
+                }
+            }
+            let pool = json!({"type": "string", "description": "the pool (default \"pool\"; x86sim pool up N --pool NAME makes one)"});
+            let reset = json!({"type": "string", "enum": pool::RESETS, "description": "what happens when it is given back: none, apps (default: uninstall the apps installed during the lease, with their data, then Home), restart (fresh boot), erase (re-cloned from the pool's template, then booted)"});
+            arr.push(json!({"name": "pool_status", "description": "The phone pool (phones kept booted for agents; made with `x86sim pool up N`): each phone's state (free / leased / resetting), whether it is at its home screen, who holds it and for how long, memory per phone, how many more fit in memory, KSM sharing and reflink cloning.",
+                "inputSchema": {"type": "object", "properties": {"pool": pool}}}));
+            arr.push(json!({"name": "phone_take", "description": "Take a booted phone from the pool (atomic: no other caller gets it). Returns its name: pass it as `phone` to the other tools. The lease ends when this MCP session ends (the server's process is the holder) or after ttl_s (default 1800; renew by taking again is not needed: call phone_take with renew=<phone>); then the phone is reset and free again. Give it back with phone_release.",
+                "inputSchema": {"type": "object", "properties": {"pool": pool, "ttl_s": {"type": "integer"}, "reset": reset, "wait_s": {"type": "integer", "description": "wait up to this long for a phone to be free (default 0)"}, "renew": {"type": "string", "description": "extend the lease of this phone you hold instead of taking another"}}}}));
+            arr.push(json!({"name": "phone_release", "description": "Give a pool phone back. It is reset in the background (reset, default: the mode given at phone_take) and free again when done.",
+                "inputSchema": {"type": "object", "properties": {"pool": pool, "phone": {"type": "string"}, "reset": reset}, "required": ["phone"]}}));
+        }
+        tools
+    }
+
+    pub fn call(name: &str, a: &Value) -> Option<anyhow::Result<Value>> {
+        let p = a["pool"].as_str().filter(|s| !s.is_empty()).map(String::from).or_else(|| std::env::var("X86SIM_POOL").ok()).unwrap_or_else(|| "pool".into());
+        Some(match name {
+            "pool_status" => pool::status(&p).and_then(|s| Ok(serde_json::to_value(s)?)),
+            "phone_take" => {
+                if let Some(ph) = a["renew"].as_str() {
+                    return Some(pool::renew(&p, ph, a["ttl_s"].as_u64().unwrap_or(0)).map(|e| json!({"phone": ph, "expires": e})));
+                }
+                let o = pool::TakeOpts {
+                    holder: format!("mcp:{}", std::process::id()),
+                    holder_pid: Some(std::process::id()),
+                    ttl_s: a["ttl_s"].as_u64().unwrap_or(0),
+                    reset: a["reset"].as_str().unwrap_or("").into(),
+                    wait_s: a["wait_s"].as_u64().unwrap_or(0),
+                };
+                pool::take(&p, &o).and_then(|t| Ok(serde_json::to_value(t)?))
+            }
+            "phone_release" => match a["phone"].as_str() {
+                Some(ph) => pool::release(&p, ph, a["reset"].as_str()).map(|m| json!({"phone": ph, "released": true, "reset": m})),
+                None => Err(anyhow::anyhow!("phone required")),
+            },
+            _ => return None,
+        })
     }
 }

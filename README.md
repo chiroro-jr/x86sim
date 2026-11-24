@@ -36,7 +36,9 @@ from scripts or by an AI agent. No Mac and no Apple ID are needed.
 **Apps**
 
 - Install, launch, terminate and uninstall your own apps: arm64 iOS-simulator builds, the kind Xcode produces for
-  the simulator.
+  the simulator, and device builds: an `.ipa`, an `.xcarchive` or a device `.app` is converted on install (see
+  [Device builds](#device-builds)). In the launcher, drop one on a device's window.
+- A pool of devices kept booted for agents and CI, taken and given back with leases (see [Device pool](#device-pool)).
 - Launch with arguments and environment variables, stream an app's stdout, stderr or `os_log`, or have it wait for a
   debugger.
 - Find an app's bundle, data and app-group containers as ordinary Linux paths.
@@ -188,6 +190,7 @@ x86sim device create --model "iPhone 17 Pro" work
 x86sim runtime list all                       # runtimes in Apple's catalogue
 
 x86sim install MyApp.app                      # an arm64 iOS-simulator build
+x86sim install MyApp.ipa                      # or a device build: .ipa, .xcarchive, device .app
 x86sim launch --console com.example.myapp -arg value
 x86sim terminate com.example.myapp
 x86sim listapps --json
@@ -207,11 +210,57 @@ x86sim io recordVideo --secs 10 out.mp4
 `x86sim help` lists every command. A second tool, `x86sim-aot` (`./x86sim-*.AppImage aot`), starts and stops
 devices, edits feature sets and builds the pre-translated image from a terminal.
 
+#### Device builds
+
+`x86sim install` (and the MCP tool `app_install`, and a drop on the launcher) also takes what you would install on an
+iPhone: an `.ipa`, an `.xcarchive` or a device `.app`. The arm64 code is the same either way, so the conversion is
+metadata, on a copy (the input is never changed):
+
+- every Mach-O in the bundle (app, frameworks, app extensions, a watch app) is retagged to the simulator platform
+  (`LC_BUILD_VERSION`, or an old `LC_VERSION_MIN_*` rewritten as one); a fat file keeps its arm64 slice;
+- each bundle's `Info.plist` names the simulator (`CFBundleSupportedPlatforms`, `DTPlatformName`, `DTSDKName`);
+- the app is re-signed ad hoc, each binary keeping the entitlements its signature had (rcodesign).
+
+App Store downloads are encrypted with FairPlay (`LC_ENCRYPTION_INFO` cryptid 1) for the device they were bought
+on and are refused with a message saying so; export a development, ad-hoc or enterprise build instead. Binaries
+without an arm64 slice (armv7, arm64e only, x86_64) are refused too. `x86sim-devapp inspect X.ipa` shows what a
+bundle holds; `tests/apps/build-ipa.sh` builds a small device `.ipa` (an embedded fat framework, entitlements) on a
+Mac as a fixture.
+
+#### Device pool
+
+For agents and CI, a pool keeps devices booted at their home screen; a caller takes one, uses it and gives it back.
+
+```sh
+x86sim pool up 3 --model "iPhone 17 Pro"      # pool-1..pool-3, booted one at a time while memory allows
+phone=$(x86sim pool take --ttl 900 --hold-parent)   # a free booted device, held by this shell for 15 min
+x86sim install "$phone" MyApp.ipa && x86sim launch "$phone" com.example.myapp
+x86sim pool release "$phone"                  # reset in the background, then free again
+x86sim pool status                            # who holds what, memory per device, room for more
+x86sim pool down --delete
+```
+
+- **Leases** end at their TTL (`--ttl`, default 30 min; `pool renew`) or when the holder process exits (`--pid`,
+  `--hold-parent`; the MCP server holds with its own process, so a session that ends frees its devices). Any pool
+  command reaps them. Taking is atomic across processes (a lock around the pool's state in `var/pool/`).
+- **Reset on release** (`--reset` at take or release): `apps` (default: uninstall the apps installed during the
+  lease, with their data, then Home), `restart` (a fresh boot), `erase` (re-cloned from the template), `none`.
+- **Fast creation**: members are clones of `<pool>-template`, a device of the pool's model booted once and stopped,
+  copied with `cp --reflink=auto` (instant and sharing disk on btrfs / XFS) and given their own paths and UDID.
+- **Memory**: `pool up` boots a device only while available memory stays above a reserve (3 GB, `--reserve-mb`)
+  after the measured cost of one device; it stops short rather than risk the out-of-memory killer (`--force`).
+- **KSM**: pool devices opt in to kernel same-page merging (`PR_SET_MEMORY_MERGE`, no root). KSM itself is off
+  until root turns it on: `x86sim pool ksm` shows the two commands, `x86sim pool ksm on` runs them with sudo on a
+  terminal, in the open.
+- `--pool NAME` keeps several pools (one model each). The launcher's Devices page shows each pool and can release a
+  device; the MCP tools are `pool_status`, `phone_take` and `phone_release`.
+
 ### MCP server
 
 `x86sim-mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server over stdio for AI agents and
 other MCP clients. Its tools list, create, start, stop and restart devices, fold the iPhone Duo, read and change
-feature sets, install, launch, list and uninstall apps, and report the state of the pre-translated image.
+feature sets, install (simulator or device builds), launch, list and uninstall apps, take and release pool devices,
+and report the state of the pre-translated image.
 
 ```sh
 claude mcp add x86sim -- /path/to/x86sim.AppImage mcp      # AppImage

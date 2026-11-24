@@ -51,7 +51,10 @@ Display and input
   fps [secs]           delivered frames per second (fpsmeter.py)
 
 Apps (as xcrun simctl install/uninstall/launch)
-  install PATH.app     install an iOS-simulator app (arm64) through installd; it gets a container and an icon
+  install PATH.app|PATH.ipa|PATH.xcarchive
+                       install an app through installd; it gets a container and an icon. A device build (.ipa,
+                       .xcarchive, a device .app) is converted for the simulator first (arm64 only; FairPlay-encrypted
+                       App Store downloads are refused); x86sim-devapp inspect PATH shows what it is
   uninstall BUNDLEID   remove an installed app
   launch [--console|--console-pty] [-w|--wait-for-debugger] [--terminate-running-process] [--oslog] [--env K=V] BUNDLEID [args...]
                        open an app through FrontBoard with arguments and environment (SIMCTL_CHILD_NAME=value in
@@ -78,6 +81,13 @@ Apps (as xcrun simctl install/uninstall/launch)
                        run a simulator binary in the device (as simctl spawn): its output, its exit status
   io screenshot [out.png] | io recordVideo [--codec h264|hevc] [--secs N] OUT.mp4
                        as simctl io: newest frame / MP4 from the frame ring until Ctrl-C
+
+Pool (phones kept booted for agents / CI; x86sim-pool, see `x86sim pool help`)
+  pool up N [--model M] [--preset lean]   clone and boot N phones (memory permitting)
+  pool take [--ttl S] [--reset none|apps|restart|erase] [--pid PID|--hold-parent] [--wait S]
+                       a booted free phone's name; the lease ends at the TTL or when the holder process exits
+  pool release PHONE [--reset MODE] | renew PHONE | status | down [--delete] | ksm [on|off]
+                       (--pool NAME for another pool; default "pool")
 
 Build
   build [target]       make [target] in the repo root (mtlvk, darling, ...; see `make help`)
@@ -136,6 +146,10 @@ case $c in
 		. "$X/cli/lib/pickdevice.sh"
 		if [ $# -ge 1 ] && { [ $# -ge 2 ] || [ "$c" = listapps ]; } && pick_device "$1"; then shift; export X86SIM_DEVICE; fi
 		exec python3 "$L/simctl.py" "$c" "$@" ;;
+	pool)
+		b=$X/tools/launcher/target/release/x86sim-pool
+		[ -x "$b" ] || { echo "x86sim pool: build tools/launcher first (cargo build --release)" >&2; exit 1; }
+		exec "$b" "$@" ;;
 	build) exec make -C "$X" "$@" ;;
 	repos) exec "$L/repos.sh" "$@" ;;
 	upstream-sync) exec "$L/repos.sh" upstream-sync "$@" ;;

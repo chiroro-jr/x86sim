@@ -4,6 +4,7 @@
 pub mod aot;
 pub mod appcache;
 pub mod apps;
+pub mod devapp;
 pub mod discover;
 pub mod dyldcache;
 pub mod features;
@@ -13,6 +14,7 @@ pub mod hot;
 pub mod instance;
 pub mod key;
 pub mod logs;
+pub mod pool;
 pub mod macho;
 pub mod ring;
 pub mod setup;

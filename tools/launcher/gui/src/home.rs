@@ -100,6 +100,9 @@ impl App {
             }
         }
 
+        // phones kept booted for agents (x86sim pool), when a pool exists (pool.rs)
+        self.pool_section(ui);
+
         // phones whose iOS isn't installed: one compact group per version
         let mut groups: Vec<(String, String, Vec<String>)> = vec![]; // (ios, build, ids)
         for i in self.insts.iter().filter(|i| !i.runtime_present) {
