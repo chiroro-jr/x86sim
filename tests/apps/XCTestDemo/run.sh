@@ -1,7 +1,8 @@
 #!/bin/bash
 # x86Sim: run XCTestDemo's tests on a phone with `x86sim test` and check the outcome is Apple's (Xcode 27.2, iOS 27.2
 # simulator on a Mac, see tests/apps/README.md): every test target, the deliberate failures failing with their
-# file:line, the skip skipped. Exit 0 when it matches.
+# file:line, the skip skipped. Exit 0 when it matches. On every platform (the phone's: iPhone / iPad, Apple TV, Apple
+# Watch, Vision Pro), UI tests included unless --no-ui.
 #   tests/apps/XCTestDemo/run.sh <phone> [--no-build] [--no-ui]
 # UI tests need the phone's xctest feature (x86sim-aot --device <phone> features set xctest on; restart the phone).
 set -uo pipefail

@@ -121,9 +121,8 @@ entitlement-gated services) is not counted as an x86Sim gap.
 | Watch or drive a device from a browser, share it | `x86sim serve`, MCP `share_*`, Tailscale / cloudflared | better: Apple has no browser streaming |
 
 Element snapshots and actions are verified on iPhone, iPad (windowed apps, landscape, keyboard, pointer), Apple TV,
-Apple Watch and Vision Pro (2026-11-24). XCTestDemo (`tests/apps/XCTestDemo/run.sh`) gives Apple's results on iPad,
-Apple TV and Vision Pro (unit, logic and UI tests) and on Apple Watch for unit and logic tests; watchOS UI tests fail
-here with XCTest's "Lost connection to the application" (open).
+Apple Watch and Vision Pro (2026-11-24). XCTestDemo (`tests/apps/XCTestDemo/run.sh`) gives Apple's results (unit,
+logic and UI tests) on iPhone, iPad, Apple TV, Apple Watch and Vision Pro.
 
 ## Multi-device
 
