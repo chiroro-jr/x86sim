@@ -151,6 +151,7 @@ typedef struct {
 	id focus_item;               // the focus engine's focused item (tvOS: what the remote's select acts on; iPad: keyboard focus)
 	CGRect focus_frame;          // its rect on the screen (CGRectNull: none or unknown)
 	int budget;                  // max nodes visited
+	NSMutableDictionary* nth;    // per cell key + role: how many elements of that role the cell gave so far
 } Walk;
 
 // a frame in a window's coordinates -> the screen's (as the agent sees the display)
@@ -158,6 +159,36 @@ static CGRect place(Walk* w, CGRect f) {
 	if (w->rot == 3) f = CGRectMake(f.origin.y, w->portrait.width - (f.origin.x + f.size.width), f.size.height, f.size.width);
 	else if (w->rot == 4) f = CGRectMake(w->portrait.height - (f.origin.y + f.size.height), f.origin.x, f.size.height, f.size.width);
 	return CGRectOffset(f, w->off.x, w->off.y);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Stable keys. A cell is recycled while a list scrolls: the same object shows another row, and another object the row
+// it showed. What stays is the row's index path in its table / collection view, so an element in a cell is keyed by
+// "<list oid>:<section>.<item>/<role><n>" (n: the n-th element of that role in the cell). The host keeps refs on keys.
+static UIView* view_of(id e) {
+	id o = e;
+	for (int i = 0; i < 24 && o; i++) {
+		if ([o isKindOfClass:[UIView class]]) return o;
+		@try { o = [o respondsToSelector:@selector(accessibilityContainer)] ? [o accessibilityContainer] : nil; } @catch (id ex) { o = nil; }
+	}
+	return nil;
+}
+
+static NSString* cell_key(id e) {
+	UIView* cell = nil;
+	BOOL table = NO;
+	for (UIView* p = view_of(e); p; p = p.superview) {
+		if (is(p, @"UITableViewCell")) { cell = p; table = YES; break; }
+		if (is(p, @"UICollectionViewCell")) { cell = p; break; }
+	}
+	if (!cell) return nil;
+	UIView* list = cell.superview;
+	while (list && !is(list, table ? @"UITableView" : @"UICollectionView")) list = list.superview;
+	if (!list) return nil;
+	NSIndexPath* ip = nil;
+	@try { ip = ((id(*)(id, SEL, id))objc_msgSend)(list, NSSelectorFromString(@"indexPathForCell:"), cell); } @catch (id ex) { ip = nil; }
+	if (!ip || ip.length < 2) return nil;
+	return [NSString stringWithFormat:@"%@:%ld.%ld", hex(list), (long)[ip indexAtPosition:0], (long)[ip indexAtPosition:1]];
 }
 
 static BOOL view_hidden(UIView* v) {
@@ -248,6 +279,13 @@ static void emit(Walk* w, id e, int depth, NSString* container) {
 	d[@"depth"] = @(depth);
 	if (container) d[@"in"] = container;
 	d[@"class"] = NSStringFromClass([e class]);
+	NSString* ck = cell_key(e);
+	if (ck) {
+		NSString* k = [ck stringByAppendingFormat:@"/%@", role];
+		int n = [w->nth[k] intValue];
+		w->nth[k] = @(n + 1);
+		d[@"key"] = [k stringByAppendingFormat:@"%d", n];
+	}
 	[w->out addObject:d];
 }
 
@@ -310,11 +348,19 @@ static void walk(Walk* w, id o, int depth, NSString* container) {
 #if SIMAX_WEB
 // ---------------------------------------------------------------------------------------------------------------------
 // WebKit content: a DOM walk in an isolated content world (page scripts cannot see or break it; CSP does not apply),
-// returning the visible meaningful elements with CSS-pixel rects; converted to screen points through the web view's
+// in every frame of the page (iframes too, same-origin or not: WKWebView's frame tree, one evaluation per frame),
+// returning the visible meaningful elements with CSS-pixel rects. A child frame's rects are moved by its <iframe>'s
+// content box in the parent and clipped to it; the main frame's are converted to screen points through the web view's
 // scroll view (content coordinates = page coordinates * zoomScale).
+//
+// Keys: each element gets a number the first time a walk sees it, kept in a WeakMap of the isolated world (the same DOM
+// node keeps its number for the life of the document, wherever it scrolls), prefixed by a random tag of that world (a
+// new document, a new tag): "dom:<tag>.<n>". The host keeps refs on it, so repeated text ("by", "|") never trades refs.
 static NSString* const kDomWalker = @
 	"(() => {"
-	"const out = []; const vw = innerWidth, vh = innerHeight; const all = %@;"
+	"const out = []; const frames = []; const vw = innerWidth, vh = innerHeight; const all = %@;"
+	"if (!window.__simax) window.__simax = { tag: Math.random().toString(36).slice(2, 8), ids: new WeakMap(), n: 0 };"
+	"const S = window.__simax; const key = el => { let k = S.ids.get(el); if (k === undefined) { k = ++S.n; S.ids.set(el, k); } return 'dom:' + S.tag + '.' + k; };"
 	"const role = el => { const r = el.getAttribute('role'); if (r) return r; const t = el.tagName.toLowerCase();"
 	"  if (t === 'a' && el.hasAttribute('href')) return 'link'; if (t === 'button' || t === 'summary') return 'button';"
 	"  if (t === 'input') { const ty = (el.type || 'text').toLowerCase();"
@@ -323,81 +369,195 @@ static NSString* const kDomWalker = @
 	"    return ty === 'search' ? 'searchfield' : 'textfield'; }"
 	"  if (t === 'textarea' || el.isContentEditable) return 'textfield'; if (t === 'select') return 'popup';"
 	"  if (/^h[1-6]$/.test(t)) return 'heading'; if (t === 'img') return el.alt ? 'image' : null; return null; };"
+	"const shown = el => { const s = getComputedStyle(el); return s.visibility !== 'hidden' && s.display !== 'none' && +s.opacity > 0.01; };"
 	"const visible = (el, r) => { if (r.width < 1 || r.height < 1) return false;"
-	"  if (!all && (r.bottom < 0 || r.right < 0 || r.top > vh || r.left > vw)) return false;"
-	"  const s = getComputedStyle(el); return s.visibility !== 'hidden' && s.display !== 'none' && +s.opacity > 0.01; };"
+	"  if (!all && (r.bottom < 0 || r.right < 0 || r.top > vh || r.left > vw)) return false; return shown(el); };"
 	"const name = el => { const l = el.getAttribute('aria-label'); if (l) return l;"
 	"  const lb = el.getAttribute('aria-labelledby'); if (lb) { const n = document.getElementById(lb); if (n) return n.innerText; }"
 	"  if (el.labels && el.labels.length) return el.labels[0].innerText;"
 	"  if (el.tagName === 'IMG') return el.alt; if (el.tagName === 'INPUT' && ['button','submit','reset'].includes(el.type)) return el.value;"
 	"  if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') return el.placeholder || el.name || '';"
 	"  return (el.innerText || el.textContent || '').trim(); };"
+	// an <iframe>: where its document's viewport sits (its content box), for the frame's own walk
+	"const frame = el => { const r = el.getBoundingClientRect(); const s = getComputedStyle(el);"
+	"  const pl = parseFloat(s.paddingLeft) || 0, pt = parseFloat(s.paddingTop) || 0, pr = parseFloat(s.paddingRight) || 0, pb = parseFloat(s.paddingBottom) || 0;"
+	"  let src = ''; try { src = el.hasAttribute('srcdoc') ? 'about:srcdoc' : (el.src || 'about:blank'); } catch (e) {}"
+	"  frames.push({ src, name: el.name || '', x: r.left + el.clientLeft + pl, y: r.top + el.clientTop + pt, w: Math.max(0, el.clientWidth - pl - pr),"
+	"    h: Math.max(0, el.clientHeight - pt - pb), shown: r.width >= 1 && r.height >= 1 && shown(el) }); };"
 	"const walk = (root) => { const it = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT); let el = it.currentNode;"
-	"  while (el && out.length < 600) { let skip = false; const r0 = role(el);"
-	"    if (r0 !== null || (el.childElementCount === 0 || [...el.childNodes].some(n => n.nodeType === 3 && n.textContent.trim().length > 1))) {"
+	"  while (el && out.length < 600) { let skip = false;"
+	"    if (el.tagName === 'IFRAME' || el.tagName === 'FRAME') { frame(el); skip = true; }"
+	"    const r0 = skip ? null : role(el);"
+	"    if (!skip && (r0 !== null || (el.childElementCount === 0 || [...el.childNodes].some(n => n.nodeType === 3 && n.textContent.trim().length > 1)))) {"
 	"      const r = el.getBoundingClientRect();"
 	"      if (visible(el, r)) {"
 	"        let rl = r0; let label = name(el);"
 	"        if (!rl) { const own = [...el.childNodes].filter(n => n.nodeType === 3).map(n => n.textContent).join(' ').replace(/\\s+/g, ' ').trim();"
 	"          if (own.length > 1) { rl = 'text'; label = own; } }"
-	"        if (rl) { const e = { role: rl, label: (label || '').replace(/\\s+/g, ' ').trim().slice(0, 300), x: r.left, y: r.top, w: r.width, h: r.height };"
+	"        if (rl) { const e = { role: rl, label: (label || '').replace(/\\s+/g, ' ').trim().slice(0, 300), x: r.left, y: r.top, w: r.width, h: r.height, key: key(el) };"
 	"          if (el.id) e.id = el.id; if ('value' in el && rl !== 'button' && el.value !== undefined && el.value !== '') e.value = String(el.value).slice(0, 300);"
 	"          if (el.disabled) e.enabled = false; if (el.checked) e.selected = true; if (document.activeElement === el) e.focused = true;"
 	"          if (rl === 'link') e.href = el.href; out.push(e);"
 	"          if (r0 && rl !== 'text' && rl !== 'heading') skip = true; }"
-	"      } else if (r.width >= 1 && !all && (r.bottom < -vh || r.top > 2 * vh)) skip = false; }"
+	"      } }"
 	"    if (skip) { let n = it.nextSibling(); while (!n && it.parentNode()) n = it.nextSibling(); el = n; } else el = it.nextNode(); } };"
 	"walk(document.body || document.documentElement);"
-	"return JSON.stringify({ url: location.href, title: document.title, sx: scrollX, sy: scrollY, items: out });"
+	"return JSON.stringify({ url: location.href, title: document.title, sx: scrollX, sy: scrollY, vw, vh, items: out, frames });"
 	"})()";
 
-static void walk_web(Walk* w, NSDictionary* wv, NSMutableArray* out, dispatch_group_t g) {
-	WKWebView* v = wv[@"view"];
-	NSString* js = [NSString stringWithFormat:kDomWalker, w->all ? @"true" : @"false"];
+// The frames of a web view, parents before children: [{info: WKFrameInfo, parent: index or -1}]
+static void flatten_frames(id node, int parent, NSMutableArray* out) {
+	if (!node || out.count > 40) return;
+	id info = [node isKindOfClass:[WKFrameInfo class]] ? node : ([node respondsToSelector:@selector(info)] ? [node valueForKey:@"info"] : nil);
+	int me = (int)out.count;
+	[out addObject:@{ @"info": info ?: [NSNull null], @"parent": @(parent) }];
+	id kids = [node respondsToSelector:NSSelectorFromString(@"childFrames")] ? [node valueForKey:@"childFrames"] : nil;
+	for (id c in kids) flatten_frames(c, me, out);
+}
+
+static NSString* frame_url(id info) {
+	if (![info isKindOfClass:[WKFrameInfo class]]) return @"";
+	return ((WKFrameInfo*)info).request.URL.absoluteString ?: @"";
+}
+
+// Places every frame's items in the main frame's client coordinates and converts them to screen points.
+static NSArray* web_compose(WKWebView* v, NSArray* nodes, NSArray* results, BOOL all, NSDictionary* wv) {
+	NSMutableArray* out = [NSMutableArray array];
+	if (!results.count || ![results[0] isKindOfClass:[NSDictionary class]]) return out;
+	NSDictionary* page = results[0];
 	UIScrollView* sv = v.scrollView;
 	CGFloat zoom = sv.zoomScale > 0 ? sv.zoomScale : 1;
-	CGPoint off = [wv[@"off"] CGPointValue];
-	CGRect vis = CGRectIntersection(CGRectOffset(to_screen(v, v.bounds), off.x, off.y), [wv[@"clip"] CGRectValue]);
+	// the window's origin on the display (an iPad windowed app) and its part of the screen
+	CGPoint woff = [wv[@"off"] CGPointValue];
+	CGRect vis = CGRectIntersection(CGRectOffset(to_screen(v, v.bounds), woff.x, woff.y), [wv[@"clip"] CGRectValue]);
 	int win = [wv[@"win"] intValue], depth = [wv[@"depth"] intValue];
-	dispatch_group_enter(g);
-	void (^done)(id, NSError*) = ^(id res, NSError* err) {
-		if (err || ![res isKindOfClass:[NSString class]]) {
-			alog("web: %s", err.description.UTF8String ?: "no result");
-			dispatch_group_leave(g);
-			return;
+	double sx = [page[@"sx"] doubleValue], sy = [page[@"sy"] doubleValue];
+	NSUInteger n = nodes.count;
+	CGPoint* off = calloc(n, sizeof(CGPoint));
+	CGRect* clip = calloc(n, sizeof(CGRect));
+	BOOL* placed = calloc(n, sizeof(BOOL));
+	NSMutableArray* used = [NSMutableArray array];   // per frame: its <iframe> entries taken by a child
+	for (NSUInteger i = 0; i < n; i++) [used addObject:[NSMutableIndexSet indexSet]];
+	off[0] = CGPointZero;
+	clip[0] = all ? CGRectInfinite : CGRectMake(0, 0, [page[@"vw"] doubleValue], [page[@"vh"] doubleValue]);
+	placed[0] = YES;
+	int count = 0;
+	for (NSUInteger i = 0; i < n; i++) {
+		NSDictionary* res = [results[i] isKindOfClass:[NSDictionary class]] ? results[i] : nil;
+		int p = [nodes[i][@"parent"] intValue];
+		if (i > 0) {
+			// a child frame: its <iframe> in the parent, by URL, else the parent's next unclaimed one (document order)
+			NSDictionary* pres = (p >= 0 && placed[p] && [results[p] isKindOfClass:[NSDictionary class]]) ? results[p] : nil;
+			NSArray* fr = pres[@"frames"];
+			NSString* u1 = res[@"url"] ?: @"", *u2 = frame_url(nodes[i][@"info"]);
+			NSInteger hit = NSNotFound;
+			for (NSUInteger k = 0; k < fr.count && hit == NSNotFound; k++)
+				if (![used[p] containsIndex:k] && ([fr[k][@"src"] isEqual:u1] || [fr[k][@"src"] isEqual:u2])) hit = k;
+			for (NSUInteger k = 0; k < fr.count && hit == NSNotFound; k++)
+				if (![used[p] containsIndex:k]) hit = k;
+			if (hit == NSNotFound || ![fr[hit][@"shown"] boolValue]) {
+				if (hit != NSNotFound) [used[p] addIndex:hit];
+				alog("web: frame %lu (%s) not placed", (unsigned long)i, u1.UTF8String);
+				continue;
+			}
+			[used[p] addIndex:hit];
+			NSDictionary* f = fr[hit];
+			off[i] = CGPointMake(off[p].x + [f[@"x"] doubleValue], off[p].y + [f[@"y"] doubleValue]);
+			CGRect box = CGRectMake(off[i].x, off[i].y, [f[@"w"] doubleValue], [f[@"h"] doubleValue]);
+			clip[i] = CGRectIntersection(clip[p], box);
+			placed[i] = YES;
 		}
-		NSDictionary* page = [NSJSONSerialization JSONObjectWithData:[res dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil];
-		double sx = [page[@"sx"] doubleValue], sy = [page[@"sy"] doubleValue];
-		int i = 0;
-		for (NSDictionary* it in page[@"items"]) {
+		if (!res) continue;
+		for (NSDictionary* it in res[@"items"]) {
+			CGRect c = CGRectMake([it[@"x"] doubleValue] + off[i].x, [it[@"y"] doubleValue] + off[i].y, [it[@"w"] doubleValue], [it[@"h"] doubleValue]);
+			// an item a frame's box cuts off: not visible (its part inside is what shows)
+			BOOL inside = CGRectIntersectsRect(c, clip[i]);
+			if (!inside && (i > 0 || !all)) continue;
+			if (i > 0) c = CGRectIntersection(c, clip[i]);
 			// client rect -> page coordinates -> the scroll view's content coordinates -> screen
-			CGPoint p = CGPointMake(([it[@"x"] doubleValue] + sx) * zoom, ([it[@"y"] doubleValue] + sy) * zoom);
-			CGPoint s = to_screen(sv, CGRectMake(p.x, p.y, 0, 0)).origin;
-			s.x += off.x, s.y += off.y;
-			CGRect f = CGRectMake(s.x, s.y, [it[@"w"] doubleValue] * zoom, [it[@"h"] doubleValue] * zoom);
+			CGPoint pc = CGPointMake((c.origin.x + sx) * zoom, (c.origin.y + sy) * zoom);
+			CGPoint s = to_screen(sv, CGRectMake(pc.x, pc.y, 0, 0)).origin;
+			s.x += woff.x, s.y += woff.y;
+			CGRect f = CGRectMake(s.x, s.y, c.size.width * zoom, c.size.height * zoom);
 			BOOL on = CGRectIntersectsRect(f, vis);
-			if (!on && !w->all) continue;
+			if (!on && !all) continue;
 			NSMutableDictionary* d = [NSMutableDictionary dictionary];
-			for (NSString* k in @[ @"role", @"label", @"value", @"id", @"enabled", @"selected", @"focused", @"href" ])
+			for (NSString* k in @[ @"role", @"label", @"value", @"id", @"enabled", @"selected", @"focused", @"href", @"key" ])
 				if (it[k]) d[k] = it[k];
-			d[@"oid"] = [NSString stringWithFormat:@"%@#%d", hex(v), i++];
+			d[@"oid"] = [NSString stringWithFormat:@"%@#%@", hex(v), it[@"key"] ?: @(count)];
+			count++;
 			d[@"frame"] = @[ @(round(f.origin.x * 10) / 10), @(round(f.origin.y * 10) / 10), @(round(f.size.width * 10) / 10),
 				@(round(f.size.height * 10) / 10) ];
 			d[@"win"] = @(win);
 			d[@"depth"] = @(depth + 1);
 			d[@"web"] = @YES;
+			if (i > 0) d[@"frame_url"] = res[@"url"] ?: @"";
 			if (!on) d[@"offscreen"] = @YES;
 			[out addObject:d];
 		}
-		[out addObject:@{ @"role": @"webview", @"oid": hex(v), @"label": page[@"title"] ?: @"", @"value": page[@"url"] ?: @"",
-			@"frame": @[ @(vis.origin.x), @(vis.origin.y), @(vis.size.width), @(vis.size.height) ], @"win": @(win), @"depth": @(depth),
-			@"web": @YES, @"meta": @YES }];
-		dispatch_group_leave(g);
+	}
+	free(off);
+	free(clip);
+	free(placed);
+	[out addObject:@{ @"role": @"webview", @"oid": hex(v), @"label": page[@"title"] ?: @"", @"value": page[@"url"] ?: @"",
+		@"frame": @[ @(vis.origin.x), @(vis.origin.y), @(vis.size.width), @(vis.size.height) ], @"win": @(win), @"depth": @(depth),
+		@"web": @YES, @"meta": @YES }];
+	return out;
+}
+
+// Reads one web view: every frame's DOM, then done(items, pending) exactly once, on the main queue: when every frame
+// answered, or at `deadline` seconds with the frames that did (pending: how many did not; a busy WebContent process
+// must not cost the whole snapshot)
+static void walk_web(NSDictionary* wv, BOOL all, double deadline, void (^done)(NSArray* items, int pending)) {
+	WKWebView* v = wv[@"view"];
+	NSString* js = [NSString stringWithFormat:kDomWalker, all ? @"true" : @"false"];
+	__block BOOL finished = NO;
+	__block NSArray* nodes = @[ @{ @"info": [NSNull null], @"parent": @(-1) } ];
+	NSMutableArray* results = [NSMutableArray arrayWithObject:[NSNull null]];
+	__block int waiting = 1;
+	void (^finish)(void) = ^{
+		if (finished) return;
+		finished = YES;
+		done(web_compose(v, nodes, results, all, wv), waiting);
 	};
-	if (@available(iOS 14.0, *))
-		[v evaluateJavaScript:js inFrame:nil inContentWorld:[WKContentWorld defaultClientWorld] completionHandler:done];
-	else
-		[v evaluateJavaScript:js completionHandler:done];
+	void (^eval)(id, NSUInteger) = ^(id info, NSUInteger i) {
+		void (^got)(id, NSError*) = ^(id res, NSError* err) {
+			if (finished) return;
+			if (!err && [res isKindOfClass:[NSString class]]) {
+				id page = [NSJSONSerialization JSONObjectWithData:[res dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil];
+				if ([page isKindOfClass:[NSDictionary class]]) results[i] = page;
+			} else {
+				alog("web frame %lu: %s", (unsigned long)i, err.description.UTF8String ?: "no result");
+			}
+			if (--waiting == 0) finish();
+		};
+		if (@available(iOS 14.0, *))
+			[v evaluateJavaScript:js inFrame:[info isKindOfClass:[WKFrameInfo class]] ? info : nil inContentWorld:[WKContentWorld defaultClientWorld]
+				completionHandler:got];
+		else
+			[v evaluateJavaScript:js completionHandler:got];
+	};
+	dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(deadline * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ finish(); });
+	// WebKit's frame tree (SPI, iOS 15+): every frame, iframes of other origins included
+	SEL fs = NSSelectorFromString(@"_frames:");
+	if (![v respondsToSelector:fs]) {
+		eval(nil, 0);
+		return;
+	}
+	((void (*)(id, SEL, id))objc_msgSend)(v, fs, ^(id root) {
+		if (finished) return;
+		NSMutableArray* fl = [NSMutableArray array];
+		flatten_frames(root, -1, fl);
+		if (fl.count < 2) {
+			eval(nil, 0);
+			return;
+		}
+		nodes = fl;
+		while (results.count < fl.count) [results addObject:[NSNull null]];
+		waiting = (int)fl.count;
+		// the main frame through nil (its WKFrameInfo is the same frame)
+		for (NSUInteger i = 0; i < fl.count; i++) eval(i == 0 ? nil : fl[i][@"info"], i);
+	});
 }
 
 #endif
@@ -486,11 +646,17 @@ static NSArray<UIWindow*>* visible_windows(void) {
 
 // A one-shot Core Animation animation still running in the window (a push, a sheet, an alert coming up): the host
 // waits for it before it reports "the screen after" an action. Looping ones (spinners, the caret) do not count.
+static NSString* g_anim_what;   // the animation animating_layer found (for X86SIM_AX_LOG and the answer)
 static BOOL animating_layer(CALayer* l, int* budget) {
 	if (--*budget < 0 || l.hidden) return NO;
 	for (NSString* k in l.animationKeys) {
 		CAAnimation* a = [l animationForKey:k];
 		if (a.repeatCount > 1 || a.repeatDuration > 0 || a.duration > 3 || a.autoreverses) continue;
+		// one that has run its course but stays (removedOnCompletion = NO, a fill mode keeping its end state): done
+		CFTimeInterval now = [l convertTime:CACurrentMediaTime() fromLayer:nil];
+		if (!a.removedOnCompletion && a.beginTime > 0 && now > a.beginTime + a.duration * MAX(1.0f, a.repeatCount) + 0.1) continue;
+		g_anim_what = [NSString stringWithFormat:@"%@ %@ %@ %.2fs%@", NSStringFromClass([l.delegate class] ?: [l class]), k,
+			NSStringFromClass([a class]), a.duration, a.removedOnCompletion ? @"" : @" (kept)"];
 		return YES;
 	}
 	for (CALayer* c in l.sublayers)
@@ -539,9 +705,12 @@ static CGPoint window_origin(UIWindow* w) {
 	// a rotated interface: the scene's frame is in the display's own (portrait) coordinates; the window's origin is
 	// the corner that is its top left in the interface's orientation
 	if (fabs(r.size.width - sz.height) < 1 && fabs(r.size.height - sz.width) < 1) {
-		CGRect d = ((CGRect(*)(id, SEL))objc_msgSend)(((id(*)(id, SEL))objc_msgSend)(NSClassFromString(@"UIScreen"),
-			NSSelectorFromString(@"mainScreen")), NSSelectorFromString(@"nativeBounds"));
-		double scale = screen_scale();
+		// the window's own screen (a two-screen phone's inner one), else the main screen
+		id scr = w.windowScene ? [w.windowScene valueForKey:@"screen"] : nil;
+		if (!scr) scr = ((id(*)(id, SEL))objc_msgSend)(NSClassFromString(@"UIScreen"), NSSelectorFromString(@"mainScreen"));
+		CGRect d = ((CGRect(*)(id, SEL))objc_msgSend)(scr, NSSelectorFromString(@"nativeBounds"));
+		double scale = ((CGFloat(*)(id, SEL))objc_msgSend)(scr, NSSelectorFromString(@"scale"));
+		if (scale <= 0) scale = screen_scale();
 		double W = d.size.width / scale, H = d.size.height / scale;   // the display, portrait, points
 		if (io == 4)   // UIInterfaceOrientationLandscapeLeft: home button on the left; interface x = H - (y + h)
 			return CGPointMake(H - (r.origin.y + r.size.height), r.origin.x);
@@ -585,6 +754,37 @@ static NSString* app_state(void) {
 	return best;
 }
 
+// The bounds of the screen a window is on (its coordinates are that screen's: UIAccessibilityConvertFrameToScreenCoordinates)
+static CGRect window_screen(UIWindow* w) {
+	id scr = w.windowScene ? [w.windowScene valueForKey:@"screen"] : nil;
+	if (scr) return ((CGRect(*)(id, SEL))objc_msgSend)(scr, @selector(bounds));
+	return screen_bounds();
+}
+
+// A screen's display (simfb names them x86Sim-main-display, x86Sim-display-<id>) and how its coordinate space (which
+// turns with the interface) sits in its fixed one (the screen's own, whatever the interface does): where the unit x
+// vector goes, and the fixed bounds. The host turns touches by that, so it needs no table of orientation names.
+static void screen_geometry(id scr, NSMutableDictionary* d) {
+	if (!scr) return;
+	@try { id did = [scr valueForKey:@"_displayID"]; if (did) d[@"display"] = [did description]; } @catch (id ex) {}
+	@try {
+		id cs = [scr valueForKey:@"coordinateSpace"], fs = [scr valueForKey:@"fixedCoordinateSpace"];
+		if (cs && fs) {
+			SEL conv = NSSelectorFromString(@"convertPoint:toCoordinateSpace:");
+			CGPoint o = ((CGPoint(*)(id, SEL, CGPoint, id))objc_msgSend)(cs, conv, CGPointMake(0, 0), fs);
+			CGPoint x = ((CGPoint(*)(id, SEL, CGPoint, id))objc_msgSend)(cs, conv, CGPointMake(100, 0), fs);
+			CGRect fb = ((CGRect(*)(id, SEL))objc_msgSend)(fs, @selector(bounds));
+			d[@"fixed"] = @[ @(round((x.x - o.x) / 100)), @(round((x.y - o.y) / 100)) ];
+			d[@"fixed_size"] = @[ @(fb.size.width), @(fb.size.height) ];
+		}
+	} @catch (id ex) {}
+}
+
+// UIWindowScene.interfaceOrientation (by name: tvOS / watchOS headers mark it unavailable)
+static NSNumber* orient_of(UIWindowScene* sc) {
+	@try { id o = [sc valueForKey:@"interfaceOrientation"]; return [o isKindOfClass:[NSNumber class]] ? o : @0; } @catch (id ex) { return @0; }
+}
+
 static NSMutableDictionary* info(void) {
 	UIApplication* app = UIApplication.sharedApplication;
 	NSMutableDictionary* d = [NSMutableDictionary dictionary];
@@ -599,7 +799,9 @@ static NSMutableDictionary* info(void) {
 	CGRect b = screen_bounds();
 	d[@"screen"] = @[ @(b.size.width), @(b.size.height), @(screen_scale()) ];
 	NSMutableArray* ws = [NSMutableArray array];
-	for (UIWindow* w in visible_windows()) {
+	NSArray* vw = visible_windows();
+	UIWindow* primary = nil;
+	for (UIWindow* w in vw) {
 		CGRect f = to_screen(w, w.bounds);
 		CGPoint wo = window_origin(w);
 		f = CGRectOffset(f, wo.x, wo.y);
@@ -609,9 +811,34 @@ static NSMutableDictionary* info(void) {
 		CGRect sf = scene_frame(w, &io);
 		if (!CGRectIsNull(sf)) wd[@"scene"] = @[ @(sf.origin.x), @(sf.origin.y), @(sf.size.width), @(sf.size.height), @(io) ];
 		if (wo.x || wo.y) wd[@"origin"] = @[ @(wo.x), @(wo.y) ];
+		UIWindowScene* sc = w.windowScene;
+		if (sc) wd[@"orient"] = orient_of(sc);
+		id scr = sc ? [sc valueForKey:@"screen"] : nil;
+		if (scr) {
+			CGRect sb = ((CGRect(*)(id, SEL))objc_msgSend)(scr, @selector(bounds));
+			wd[@"screen"] = @[ @(sb.size.width), @(sb.size.height) ];
+			screen_geometry(scr, wd);
+		}
 		[ws addObject:wd];
+		// the window that says how this process sees the screen: its key window, else its largest
+		CGFloat area = w.bounds.size.width * w.bounds.size.height, parea = primary.bounds.size.width * primary.bounds.size.height;
+		if (!primary || (w.isKeyWindow && !primary.isKeyWindow) || (!primary.isKeyWindow && area > parea)) primary = w;
 	}
 	d[@"windows"] = ws;
+	// the interface orientation (UIInterfaceOrientation: 1 portrait, 2 upside down, 3 landscape left, 4 landscape right)
+	// and the screen of the primary window: frames are in that screen's coordinate space, which turns with the interface
+	// (a portrait-only app on a phone held landscape stays portrait); on a two-screen phone, the screen it is on
+	if (primary.windowScene) {
+		d[@"orient"] = orient_of(primary.windowScene);
+		id scr = [primary.windowScene valueForKey:@"screen"];
+		if (scr) {
+			CGRect sb = ((CGRect(*)(id, SEL))objc_msgSend)(scr, @selector(bounds));
+			d[@"screen"] = @[ @(sb.size.width), @(sb.size.height), @(((CGFloat(*)(id, SEL))objc_msgSend)(scr, NSSelectorFromString(@"scale"))) ];
+			id main = ((id(*)(id, SEL))objc_msgSend)(NSClassFromString(@"UIScreen"), NSSelectorFromString(@"mainScreen"));
+			d[@"main_screen"] = @(scr == main);
+			screen_geometry(scr, d);
+		}
+	}
 	d[@"ax"] = @(atomic_load(&g_ax_loaded));
 	return d;
 }
@@ -654,6 +881,7 @@ static void tree(NSDictionary* req, void (^reply)(NSDictionary*)) {
 	w.out = [NSMutableArray array];
 	w.webviews = [NSMutableArray array];
 	w.seen = [NSMutableSet set];
+	w.nth = [NSMutableDictionary dictionary];
 	w.screen = screen_bounds();
 	w.all = [req[@"all"] boolValue];
 	w.focus = first_responder();
@@ -665,6 +893,7 @@ static void tree(NSDictionary* req, void (^reply)(NSDictionary*)) {
 	// on screen; the host decides (it knows every process's windows)
 	for (int i = 0; i < (int)wins.count; i++) {
 		w.win = i;
+		w.screen = window_screen(wins[i]);
 		w.off = window_origin(wins[i]);
 		w.rot = window_rot(wins[i], w.screen.size, &w.portrait);
 		w.clip = CGRectIntersection(w.screen, place(&w, to_screen(wins[i], [wins[i] bounds])));
@@ -682,25 +911,36 @@ static void tree(NSDictionary* req, void (^reply)(NSDictionary*)) {
 	}
 	int budget = 5000;
 	for (UIWindow* win in wins)
-		if (animating_layer(win.layer, &budget)) { d[@"animating"] = @YES; break; }
+		if (animating_layer(win.layer, &budget)) {
+			d[@"animating"] = @YES;
+			if (g_anim_what) d[@"animating_what"] = g_anim_what;
+			break;
+		}
 	if (!w.webviews.count) {
 		d[@"elements"] = w.out;
 		reply(d);
 		return;
 	}
-	dispatch_group_t g = dispatch_group_create();
-	NSMutableArray* web = [NSMutableArray array];
 #if SIMAX_WEB
-	Walk* wp = &w;
-	for (NSDictionary* wv in w.webviews) walk_web(wp, wv, web, g);
-#endif
+	// the JS answers arrive on the main queue: wait for them there, not by blocking it. Web content gets most of the
+	// request's time; what a busy WebContent process did not answer by then is left out and said (web_pending)
 	NSMutableArray* out = w.out;
-	// the JS answers arrive on the main queue: wait for them there, not by blocking it
-	dispatch_group_notify(g, dispatch_get_main_queue(), ^{
-		[out addObjectsFromArray:web];
-		d[@"elements"] = out;
-		reply(d);
-	});
+	__block int left = (int)w.webviews.count, pending = 0;
+	double t = req[@"timeout"] ? [req[@"timeout"] doubleValue] : 5.0;
+	double deadline = MIN(3.0, MAX(0.3, t * 0.8 - 0.2));
+	for (NSDictionary* wv in w.webviews)
+		walk_web(wv, w.all, deadline, ^(NSArray* items, int pend) {
+			[out addObjectsFromArray:items];
+			pending += pend;
+			if (--left) return;
+			d[@"elements"] = out;
+			if (pending) d[@"web_pending"] = @(pending);
+			reply(d);
+		});
+#else
+	d[@"elements"] = w.out;
+	reply(d);
+#endif
 }
 
 static id find_oid(NSString* oid) {
@@ -709,11 +949,13 @@ static id find_oid(NSString* oid) {
 	w.out = [NSMutableArray array];
 	w.webviews = [NSMutableArray array];
 	w.seen = [NSMutableSet set];
+	w.nth = [NSMutableDictionary dictionary];
 	w.screen = screen_bounds();
 	w.all = YES;
 	w.budget = 20000;
 	NSArray* wins = visible_windows();
 	for (int i = 0; i < (int)wins.count; i++) {
+		w.screen = window_screen(wins[i]);
 		w.off = window_origin(wins[i]);
 		w.rot = window_rot(wins[i], w.screen.size, &w.portrait);
 		w.clip = w.screen;

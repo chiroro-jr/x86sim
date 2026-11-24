@@ -83,7 +83,14 @@ x86sim --phone qa wait-for "Done" --timeout 20        # --gone: until it disappe
   that answer instead of taking a new snapshot. `--after diff` gives only the changes (`+` new, `-` gone, `~`
   changed), `--after none` nothing. `snapshot --diff` diffs against the last snapshot.
 - **Refs are stable**: an element keeps its ref while it stays on screen, across snapshots and separate commands, so
-  a ref seen a few steps back still works. They reset when the phone reboots.
+  a ref seen a few steps back still works. They follow the row in a scrolled table or list (cells are recycled) and
+  the DOM node on a web page (repeated text such as "by" or "|" on every row keeps its own ref after a scroll). They
+  reset when the phone reboots.
+- Web pages are read in every frame, iframes of other sites too (`frame_url` in `--json`).
+- Points follow the interface: a portrait-only app on a phone held sideways keeps portrait coordinates, landscape
+  apps get landscape ones (the first line says `· landscape`). An iPhone Duo's snapshot names the screen in use
+  (`· inner screen` unfolded, `· outer screen`); taps go to that screen.
+- A process that does not answer in time is named in a `busy (no answer): <bundle> (pid N: ...)` line.
 - An element the app has loaded but scrolled out of view is scrolled in before a tap. `snapshot --all` lists those.
 - Prefer `id:` targets for your own app (set `accessibilityIdentifier`), labels for system UI.
 - `type` inserts text as the software keyboard does (any characters, no layout issues). `--keys` sends hardware key
