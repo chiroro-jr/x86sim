@@ -136,6 +136,24 @@ x86sim dev run HelloApp --phone qa --start    # build for the phone's platform, 
 x86sim dev test HelloApp --phone qa --shot out.png    # run, wait, fail if it died, screenshot
 ```
 
+### Unit and UI tests (XCTest, XCUITest)
+
+```sh
+x86sim test qa --xctestrun Products/MyApp_iphonesimulator27.2-arm64.xctestrun   # from xcodebuild build-for-testing
+x86sim test qa --xctestrun F.xctestrun --only-testing MyAppTests/LoginTests/testBadPassword   # Target/Class/test
+x86sim test qa --app MyApp.app                # unit tests in MyApp.app/PlugIns; --test-bundle B.xctest: logic tests
+x86sim test qa --ui-test-runner MyAppUITests-Runner.app --app MyApp.app
+x86sim dev test --xctest MyPackage --phone qa # a Swift package's tests, built on Linux, then run
+```
+
+Prints XCTest's log, then the failing tests with `file:line` and `** TEST SUCCEEDED / FAILED **`; exit 0 / 1.
+`results.json` (per test: result, duration, failures) and `junit.xml` go to the dir it names (`--out`, `--json -`
+for JSON only). MCP: `xctest_run`. App test targets and UI test runners come from a Mac's `xcodebuild
+build-for-testing` (copy the whole `Build/Products` dir with the `.xctestrun`). XCTest's frameworks come from Xcode:
+if it says "no XCTest frameworks", run `x86sim test fetch-platform` (needs `X86SIM_MAC`) or `x86sim dev setup sdk
+--xip`. UI tests need the phone's `xctest` feature (on by default; `x86sim-aot --device qa features set xctest on`
+and a restart if someone turned it off). A run takes seconds for unit tests, ~5-10 s per UI test.
+
 ## 8. Show a phone to a human
 
 ```sh
@@ -170,7 +188,7 @@ link: use them only when asked.
 ## MCP
 
 The same features are MCP tools (`x86sim-mcp`, stdio): `snapshot`, `tap`, `type`, `wait_for`, `screenshot`,
-`app_install`, `app_launch`, `phone_take`, `share_start`, `sim_ui`, `app_logs`, `dev_run` and the rest (70 tools;
+`app_install`, `app_launch`, `xctest_run`, `phone_take`, `share_start`, `sim_ui`, `app_logs`, `dev_run` and the rest (71 tools;
 README.md lists them by group). Every tool takes `phone`.
 
 ```sh

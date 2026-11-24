@@ -326,6 +326,10 @@ def main():
             continue
         src, dst = os.path.join(RUNTIME, "System/Library/LaunchDaemons", job + ".plist"), daemons
         if not os.path.exists(src):
+            # x86Sim: the runtime's developer jobs (testmanagerd for XCTest / XCUITest, the xctest feature), which
+            # CoreSimulator loads from <runtime>/Developer/Library/LaunchDaemons on a Mac
+            src = os.path.join(RUNTIME, "Developer/Library/LaunchDaemons", job + ".plist")
+        if not os.path.exists(src):
             src, dst = os.path.join(RUNTIME, "System/Library/LaunchAngels", job + ".plist"), angels
         with open(src, "rb") as f:
             plist = plistlib.load(f)

@@ -534,7 +534,8 @@ if [ "$A64_PLATFORM" != ios ]; then
 	left=
 	for j in $JOBS; do
 		case $j in *=*) continue ;; esac
-		[ -f "$X86SIM_RUNTIME/System/Library/LaunchDaemons/$j.plist" ] || [ -f "$X86SIM_RUNTIME/System/Library/LaunchAngels/$j.plist" ] && continue
+		[ -f "$X86SIM_RUNTIME/System/Library/LaunchDaemons/$j.plist" ] || [ -f "$X86SIM_RUNTIME/System/Library/LaunchAngels/$j.plist" ] ||
+			[ -f "$X86SIM_RUNTIME/Developer/Library/LaunchDaemons/$j.plist" ] && continue
 		drop_job "$j"; left="$left $j"
 	done
 	[ -n "$left" ] && echo "  not in this $A64_PLATFORM runtime:$left"

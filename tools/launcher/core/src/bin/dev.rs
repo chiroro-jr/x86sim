@@ -27,6 +27,10 @@ Projects (DIR defaults to the current directory)
                        build for the phone's platform, install and launch it (--start: boot the phone if off)
   test [DIR] [--phone P] [--start] [--secs N] [--shot OUT.png]
                        run, wait N s (default 10), check it still runs, take a screenshot; exit 1 if it died
+  test --xctest [DIR] [--phone P] [-- x86sim test OPTIONS]
+                       the package's XCTest / Swift Testing tests: swift build --build-tests for the phone's
+                       simulator, run in the phone by `x86sim test --spm` (per-test results, junit.xml; exit 1 if one
+                       failed). App-hosted and UI test bundles come from Xcode: see README (Tests)
 
 Real devices and publishing (pass-throughs to omarchy-apple-dev, run in DIR)
   device [DIR] [ARGS]  device-run.sh: build, install and launch on a USB / tailnet iPhone (--lldb, --console, ...)
@@ -239,6 +243,17 @@ fn run(cmd: &str, mut args: Vec<String>) -> anyhow::Result<ExitCode> {
             let app = dev::build(&dir, &dev::BuildOpts { platform, release }, &mut |l| eprintln!("{l}"))?;
             println!("{}", app.display());
             ExitCode::SUCCESS
+        }
+        "test" if take_flag(&mut args, "--xctest") => {
+            // XCTest bundles of a Swift package, run by cli/libexec/xctest.py (x86sim test --spm)
+            let phone = take_opt(&mut args, "--phone");
+            let dir = take_dir(&mut args);
+            anyhow::ensure!(args.is_empty(), "unexpected arguments: {} (x86sim test options go after --)", args.join(" "));
+            let inst = dev::pick_phone(phone.as_deref())?;
+            let dir = dir.canonicalize().unwrap_or(dir);
+            let mut c = dev::command(x86sim_core::aot::repo_root().join("cli/x86sim"));
+            c.arg("--phone").arg(&inst.dir).arg("test").arg("--spm").arg(&dir).args(&app_args);
+            exec(c)
         }
         "run" | "test" => {
             let phone = take_opt(&mut args, "--phone");

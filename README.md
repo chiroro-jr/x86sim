@@ -57,6 +57,8 @@ loop (copy it to `.claude/skills/x86sim/` or your agent's equivalent). Agents th
 - Install, launch, terminate and uninstall your own apps: arm64 iOS-simulator builds, the kind Xcode produces for
   the simulator, and device builds: an `.ipa`, an `.xcarchive` or a device `.app` is converted on install (see
   [Device builds](#device-builds)). In the launcher, drop one on a device's window.
+- Run XCTest unit tests and XCUITest UI tests from an `.xctestrun` or test bundles, with per-test results, JUnit XML
+  and an exit status for CI (see [Tests](#tests-xctest-xcuitest)).
 - A pool of devices kept booted for agents and CI, taken and given back with leases (see [Device pool](#device-pool)).
 - Launch with arguments and environment variables, stream an app's stdout, stderr or `os_log`, or have it wait for a
   debugger.
@@ -279,6 +281,40 @@ without an arm64 slice (armv7, arm64e only, x86_64) are refused too. `x86sim-dev
 bundle holds; `tests/apps/build-ipa.sh` builds a small device `.ipa` (an embedded fat framework, entitlements) on a
 Mac as a fixture.
 
+### Tests (XCTest, XCUITest)
+
+`x86sim test` runs test bundles on a phone as `xcodebuild test-without-building` does in Apple's simulator, and the
+MCP tool `xctest_run` does the same for agents:
+
+```sh
+x86sim test qa --xctestrun Products/MyApp_iphonesimulator27.2-arm64.xctestrun   # what build-for-testing wrote
+x86sim test qa --xctestrun F.xctestrun --only-testing MyAppTests/LoginTests/testBadPassword --junit junit.xml
+x86sim test qa --app MyApp.app                          # unit tests hosted in the app (its PlugIns/*.xctest)
+x86sim test qa --test-bundle MyLogicTests.xctest        # logic tests (no host app)
+x86sim test qa --ui-test-runner MyAppUITests-Runner.app --app MyApp.app        # XCUITest
+x86sim test qa --spm MyPackage                          # a Swift package's tests, built here (x86sim dev test --xctest)
+```
+
+- **Unit tests hosted in an app**: the app is installed and launched with `libXCTestBundleInject.dylib`, which loads
+  the bundle into it, as Xcode does. **Logic tests** run in the `xctest` tool. **UI tests**: the runner and the app
+  under test are installed and the runner's `XCUIApplication` launches, queries and taps the app through the
+  runtime's `testmanagerd` (the phone's `xctest` feature, on by default, started only when a UI test runs; ~440 MB
+  while it runs).
+- Each test process gets the `.xctestconfiguration` Xcode would write (selection, target app, environment from the
+  `.xctestrun`), without an IDE session. Results: XCTest's log as it runs (Swift Testing's too), a summary with each
+  failure's `file:line` and message, `junit.xml` and `results.json` (per test: passed / failed / skipped, duration,
+  failures) in `$X86SIM_SCRATCH/xctest/<phone>-<time>/`; exit status 0 when nothing failed, 1 otherwise.
+- **Where the bundles come from**: `xcodebuild build-for-testing` on a Mac (copy its `Build/Products` dir, with the
+  `.xctestrun`; `tests/apps/XCTestDemo/build.sh` does this over ssh), or for a Swift package `x86sim dev test --xctest`
+  / `x86sim test --spm`, which builds its tests on Linux with the `x86sim dev` toolchain. Test bundles inside an Xcode
+  project (an app's unit tests, UI test runners) need Xcode's build system.
+- **XCTest's frameworks** (`XCTest.framework`, `XCTestCore`, `XCUIAutomation`, `libXCTestBundleInject.dylib`) are
+  Xcode's, not the runtime's: `x86sim test` takes them from `sdks/<Platform>.platform` (`x86sim test fetch-platform`
+  copies them from `$X86SIM_MAC`), `--platform DIR`, or the SDK `x86sim dev setup sdk --xip` installed.
+
+`tests/apps/XCTestDemo/run.sh <phone>` runs the fixture (hosted unit tests, logic tests, UI tests, each with a
+deliberate failure) and checks every result against Apple's simulator.
+
 ### Device pool
 
 For agents and CI, a pool keeps devices booted at their home screen; a caller takes one, uses it and gives it back.
@@ -378,6 +414,7 @@ else the configured one. Erase, clone and keychain reset need it.
 | Devices | `phones_list` (`sim_status` is the same), `sim_devices`, `sim_add_device`, `sim_start`, `sim_stop`, `sim_restart`, `runtime_delete`, `aot_status` |
 | Feature sets | `features_list`, `feature_get`, `feature_set`, `features_preset` |
 | Apps | `app_install` (simulator or device builds), `app_uninstall`, `app_launch`, `app_terminate`, `app_list`, `app_logs` |
+| Tests | `xctest_run` (XCTest / XCUITest: an `.xctestrun` or bundles; per-test results, see [Tests](#tests-xctest-xcuitest)) |
 | Screen as text and actions | `snapshot`, `tap`, `long_press`, `type`, `key`, `scroll`, `scroll_to`, `swipe`, `wait_for`, `press`, `open_url`, `screenshot` |
 | Hardware | `sim_button`, `sim_crown`, `sim_fold`, `sim_shake`, `sim_orientation`, `sim_biometric`, `sim_gamepad`, `sim_pointer`, `sim_system`, `sim_memory_warning` |
 | Settings (as simctl) | `sim_ui`, `sim_status_bar`, `sim_pasteboard`, `sim_keychain_reset`, `sim_locale`, `sim_timezone`, `sim_fidelity`, `sim_erase`, `sim_clone` |
@@ -494,8 +531,9 @@ above work. These are the known gaps:
 
 - **Apps** need arm64 code: simulator builds, or device builds that are converted on install. FairPlay-encrypted App
   Store downloads do not run.
-- **Debugging and testing**: no debugger attaches to a simulator app, and XCTest / XCUITest bundles are not run; there
-  is no Web Inspector or Instruments.
+- **Debugging**: no debugger attaches to a simulator app; there is no Web Inspector or Instruments. XCTest and
+  XCUITest bundles run (`x86sim test`), but an app's own test targets are built on a Mac (`xcodebuild
+  build-for-testing`); only Swift package tests build on Linux.
 - **Maps** shows no map tiles: the map data comes from a Mac and is not part of a release.
 - **Audio** is silent unless `X86SIM_AUDIO=1` sends it to PipeWire; apps always see audio devices.
 - **Sensors and accessories**: no accelerometer, Apple Pencil, external displays or CarPlay.
