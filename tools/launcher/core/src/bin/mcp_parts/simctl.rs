@@ -69,6 +69,10 @@ pub fn call(name: &str, a: &Value, phone: &dyn Fn() -> anyhow::Result<instance::
             let freed = rtdelete::delete(&plan, all)?;
             Ok(json!({"deleted": plan.dir, "label": plan.label, "all": all, "freed_bytes": freed, "phones_on_it": plan.devices}))
         })(),
+        // destructive: only on a phone the caller named, never the "only running phone" / configured default
+        "sim_erase" | "sim_clone" | "sim_keychain_reset" if a["phone"].as_str().or(a["device"].as_str()).is_none_or(|s| s.is_empty()) => {
+            Err(anyhow::anyhow!("{name} needs phone: name the phone it acts on (phones_list)"))
+        }
         _ => {
             let inst = match phone() {
                 Ok(i) => i,
