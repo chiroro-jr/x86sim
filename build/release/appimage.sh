@@ -46,7 +46,7 @@ rm -rf "$P/linux/mtlvk/src" "$P/tests/metal/shaders"
 # build outputs at the paths the scripts and the launcher expect (repo-relative)
 mkdir -p "$P/linux/mtlvk/target/release" "$P/tools/launcher/target/release"
 cp "$OUT/cargo-mtlvk/release/mtlvk" "$P/linux/mtlvk/target/release/"
-for b in x86sim-launcher x86sim-aot x86sim-mcp; do cp "$OUT/cargo-launcher/release/$b" "$P/tools/launcher/target/release/"; done
+for b in x86sim-launcher x86sim-aot x86sim-mcp x86sim-serve; do cp "$OUT/cargo-launcher/release/$b" "$P/tools/launcher/target/release/"; done
 strip --strip-debug "$P/linux/mtlvk/target/release/mtlvk" "$P/tools/launcher/target/release/"*
 echo "$VERSION" > "$S/VERSION"
 

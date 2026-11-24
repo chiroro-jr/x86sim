@@ -9,7 +9,7 @@ use x86sim_core::{aot, apps, features, instance, sim};
 
 fn tools() -> Value {
     let phone = json!({"type": "string", "description": "the phone: its name (as in the hub, e.g. \"QA\"), folder (device-a64-qa) or path. Default: the only running phone, else the configured one"});
-    json!([
+    let mut t = json!([
         {"name": "phones_list", "description": "Every phone, as the hub shows it: name, model, iOS version and whether it is installed, state (off / starting / running / stopping), home screen reached, memory (MB), CPU %, processes, uptime.",
          "inputSchema": {"type": "object", "properties": {}}},
         {"name": "sim_status", "description": "Same as phones_list (kept for older clients).",
@@ -57,7 +57,13 @@ fn tools() -> Value {
         {"name": "app_list", "description": "Installed apps on a running phone (simctl listapps).", "inputSchema": {"type": "object", "properties": {"phone": phone}}},
         {"name": "aot_status", "description": "Pre-translated code of a phone's iOS version: parts up to date / stale (with reasons) / missing, and the translator's codegen version.",
          "inputSchema": {"type": "object", "properties": {"phone": phone}}}
-    ])
+    ]);
+    // ---- Share (browser streaming): share_start / share_stop / share_status / share_link, x86sim_core::share ----
+    if let Value::Array(v) = &mut t {
+        v.extend(x86sim_core::share::mcp_tools());
+    }
+    // ---- end Share ----
+    t
 }
 
 /// The phone a call is about: phone / device argument, else the only running phone, else the configured one.
@@ -77,6 +83,11 @@ fn phone_of(a: &Value, cfg: &aot::Config) -> anyhow::Result<instance::Instance> 
 }
 
 fn call(name: &str, a: &Value) -> anyhow::Result<Value> {
+    // ---- Share (browser streaming) ----
+    if let Some(r) = x86sim_core::share::mcp_call(name, a) {
+        return r;
+    }
+    // ---- end Share ----
     let cfg = aot::Paths::new(&aot::Paths::default_jc()).load_config();
     if matches!(name, "phones_list" | "sim_status") {
         return Ok(json!({"phones": instance::summaries(1000)}));

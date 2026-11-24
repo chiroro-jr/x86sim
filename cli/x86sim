@@ -49,6 +49,11 @@ Display and input
                        input through the SimulatorHID stand-in (simtouch.py; device pixels). Apple TV: the arrow keys,
                        return (select) and escape (back) are the remote
   fps [secs]           delivered frames per second (fpsmeter.py)
+  serve [--bg] [--listen ADDR] [--tailscale|--funnel] [--cloudflared] [--ttl 2h] [--open]
+                       every phone in a browser: dashboard, live screen (H.264 / JPEG), touch, keys, paste, buttons;
+                       --tailscale: HTTPS on your tailnet, --funnel / --cloudflared: a public HTTPS URL (token links)
+  serve status | stop [TUNNEL] | link [--phone NAME] [--control] [--ttl 1h]
+                       the running server's URLs (and a QR code), stop it or one tunnel, a new expiring link
 
 Apps (as xcrun simctl install/uninstall/launch)
   install PATH.app     install an iOS-simulator app (arm64) through installd; it gets a container and an icon
@@ -130,6 +135,10 @@ case $c in
 		exec python3 "$L/simtouch.py" "$c" "$@" ;;
 	type|text) exec python3 "$L/simtouch.py" text "$*" ;;
 	fps) exec python3 "$L/fpsmeter.py" "${1:-10}" ;;
+	serve|share)
+		b=${X86SIM_SERVE:-$X/tools/launcher/target/release/x86sim-serve}
+		[ -x "$b" ] || { echo "x86sim: $b is not built (cd tools/launcher && cargo build --release)" >&2; exit 1; }
+		exec "$b" "$@" ;;
 	install|uninstall) exec "$L/appinstall.sh" "$c" "$@" ;;
 	launch|terminate|get_app_container|listapps|push|location|privacy|addmedia|log|io|pidof|spawn)
 		# simctl-style leading <device> (x86sim launch apps com.foo): a phone's name/folder/dir

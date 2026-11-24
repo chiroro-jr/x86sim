@@ -17,6 +17,10 @@ path = "src/bin/aot.rs"
 name = "x86sim-mcp"
 path = "src/bin/mcp.rs"
 
+[[bin]]
+name = "x86sim-serve"
+path = "src/bin/serve.rs"
+
 [dependencies]
 anyhow = "1"
 memmap2 = "0.9"
@@ -24,3 +28,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 libc = "0.2"
 png = "0.18"
+# Share: the browser stream (x86sim serve): H.264 built from source (no ffmpeg in the AppImage), JPEG fallback,
+# QR codes for the share URL, SHA-1 for the WebSocket handshake
+openh264 = "0.9"
+jpeg-encoder = "0.7"
+qrcode = { version = "0.14", default-features = false }
+sha1_smol = "1"

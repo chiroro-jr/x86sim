@@ -207,11 +207,46 @@ x86sim io recordVideo --secs 10 out.mp4
 `x86sim help` lists every command. A second tool, `x86sim-aot` (`./x86sim-*.AppImage aot`), starts and stops
 devices, edits feature sets and builds the pre-translated image from a terminal.
 
+### In a browser (local or remote)
+
+`x86sim serve` puts every device in a browser tab: a dashboard with live thumbnails (start, stop, share), and a
+device's live screen with its controls. The screen streams as H.264 decoded by WebCodecs (JPEG where the browser
+lacks it, e.g. plain HTTP on the LAN); quality, size and frame rate are picked on the page.
+
+- **Input**: click or drag to touch (edge swipes become Home, Control Center and Notification Center as on a
+  device), real multi-touch from a touchscreen, Alt + drag to pinch or rotate, Shift + drag for a two-finger pan, the
+  wheel scrolls (the Digital Crown on a watch, the remote's swipes on a TV), the hardware keyboard (Ctrl / Cmd is
+  Command), Ctrl+V types the clipboard into the device, F1 to F4 Home, Lock and volume.
+- **Controls per platform**: iPhone / iPad buttons (Home, Lock, volume, Siri, Action, App Switcher), rotate, shake,
+  the iPhone Duo's fold poses; an Apple TV's Siri Remote; an Apple Watch's crown, side button and hand gestures.
+- **Capture**: a full-size PNG screenshot, and recording the stream to a video file.
+- **Links**: a control link (watch and drive) and a view-only link; more links with their own expiry, limited to
+  one device or not, from the Share dialog (with a QR code) or `x86sim serve link`; revoke them there.
+
+```sh
+x86sim serve --open                 # http://127.0.0.1:7380, opened in the browser
+x86sim serve --bg --tailscale       # also https://<machine>.<tailnet>.ts.net, tailnet only (tailscale serve)
+x86sim serve --bg --funnel          # the same address, public (tailscale funnel)
+x86sim serve --bg --cloudflared     # a public https://*.trycloudflare.com quick tunnel
+x86sim serve --cloudflared --cf-tunnel NAME --cf-host phones.example.com   # a named tunnel you set up
+x86sim serve --listen 0.0.0.0:7380  # the LAN, plain HTTP
+x86sim serve status | stop | stop cloudflared
+x86sim serve link --phone work --ttl 2h          # a view-only link; --control to drive
+```
+
+It listens on loopback unless told otherwise and has no TLS of its own: remote access goes through Tailscale or
+cloudflared, which bring HTTPS. Only a browser on this machine gets in without a token; everything else, tunnels
+included, needs the token in the link. `--ttl` makes the printed links expire. In the launcher, the globe button
+beside a device's screen opens it in the browser, and its Share section turns tunnels on and off, copies links and
+stops sharing. Tailscale must be logged in, with Serve (and Funnel) enabled for the tailnet; `x86sim serve` shows
+the admin link when they are not.
+
 ### MCP server
 
 `x86sim-mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server over stdio for AI agents and
 other MCP clients. Its tools list, create, start, stop and restart devices, fold the iPhone Duo, read and change
-feature sets, install, launch, list and uninstall apps, and report the state of the pre-translated image.
+feature sets, install, launch, list and uninstall apps, report the state of the pre-translated image, and share
+devices in a browser (`share_start`, `share_stop`, `share_status`, `share_link`: they return the URLs).
 
 ```sh
 claude mcp add x86sim -- /path/to/x86sim.AppImage mcp      # AppImage
