@@ -388,6 +388,7 @@ static void h_helper_vlog(GuestThread &t, u32) {
 static u64 g_all_image_infos[512];
 static u64 g_main_mh;
 static u64 g_dyld_mh;
+static std::string g_dyld_path;  // dyld_sim's file (x86sim profile: not in its own image list)
 // dyld_all_image_infos.notification for lldb (it breaks there to learn of image list changes, and only at an address
 // inside a module it knows): a "ret" in dyld_sim's header padding, supplied by the code fetch (gdbstub.cpp), never in
 // memory. h_helper_image_list_changes calls it as dyld calls notification(mode, count, dyld_image_info[]).
@@ -435,6 +436,7 @@ void a64_image_list(std::vector<std::pair<u64, std::string>> &out) {
         return process_vm_readv(getpid(), &l, 1, &r, 1, 0) == (ssize_t)n;
     };
     if (g_main_mh) out.push_back({g_main_mh, g_main_path});
+    if (g_dyld_mh && !g_dyld_path.empty()) out.push_back({g_dyld_mh, g_dyld_path});
     const uint32_t n = (uint32_t)(g_all_image_infos[0] >> 32);
     const u64 arr = g_all_image_infos[1];
     for (uint32_t i = 0; arr && i < n && i < 65536; i++) {
@@ -1581,6 +1583,7 @@ extern "C" __attribute__((visibility("default"))) int a64_host_main(int argc, ch
     map_commpage();
     Mapped main_exe = map_macho(exe, false);
     Mapped dyld = map_macho(root + "/usr/lib/dyld_sim", true);
+    g_dyld_path = root + "/usr/lib/dyld_sim";
     dyld_sim_patches(dyld.slide);
     if (!dyld.entry) die("dyld_sim has no entry point");
     u64 helpers = build_syscall_helpers();
