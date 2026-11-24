@@ -204,8 +204,11 @@ cmd_logs() {
 	if [ $# -ge 2 ] && pick_device "$1"; then shift; use_device; fi
 	local d=$X86SIM_DEVICE/data/var/log
 	if [ $# = 0 ]; then ls -t "$d"; return; fi
-	# an app (bundle id): its os_log and its last crash (devctl.py applog); else a job's log
+	# --app BUNDLEID: always the app's log (the MCP server's app_logs: never a job log that `tail -F` follows forever)
+	if [ "$1" = --app ]; then shift; exec python3 "$L/devctl.py" applog "$@"; fi
+	# an app (bundle id): its os_log and its last crash (devctl.py applog); else a job's log (a name in var/log, no path)
 	if [ ! -e "$d/$1.log" ] && case $1 in *.*) true ;; *) false ;; esac; then exec python3 "$L/devctl.py" applog "$@"; fi
+	case $1 in */*|..*|-*) echo "x86sim logs: $1 is not a job or app name" >&2; exit 2 ;; esac
 	exec tail -n "${LINES:-50}" -F "$d/$1.log"
 }
 

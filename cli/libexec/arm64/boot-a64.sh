@@ -19,6 +19,11 @@ export X86SIM_ARCH=arm64
 # aborted launchd_sim ("missing or invalid configuration plist", brk in launchd_sim) at every boot.
 A64_DEVICE=$(realpath -m "${A64_DEVICE:-$X86SIM_ROOT/var/device-a64}")
 export A64_DEVICE X86SIM_DEVICE=$A64_DEVICE
+# erase / clone (devctl.py) hold <phone>/.lifecycle.lock while they work: no boot of a phone being erased. Checked after
+# this process exists with A64_DEVICE, as they look for it after taking the lock (whichever comes second sees the other).
+if [ -d "$A64_DEVICE" ] && ! flock -n "$A64_DEVICE/.lifecycle.lock" true 2>/dev/null; then
+	echo "boot-a64: $A64_DEVICE is being erased or cloned" >&2; exit 1
+fi
 # Speed 24: a device's iOS version is its <device>/runtime (a runtimes/ dir name, device-a64.py create --ios); A64_RUNTIME
 # overrides. Each runtime has its own JIT/AOT cache dir ($X86SIM_SCRATCH/jc-<build>; 27.0: jitcache) and placement table.
 A64_RT_DIR=$(cat "$X86SIM_DEVICE/runtime" 2>/dev/null)

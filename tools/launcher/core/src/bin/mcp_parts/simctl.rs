@@ -40,12 +40,78 @@ pub fn tools(phone: &Value) -> Vec<Value> {
     ]
 }
 
+/// cli/x86sim CMD DEV ARGS, bounded: a command that hangs (a follow that never ends) can't hold the MCP server forever
 fn x86sim(dev: &std::path::Path, cmd: &str, args: &[String]) -> anyhow::Result<String> {
-    let out = Command::new(repo_root().join("cli/x86sim")).arg(cmd).arg(dev).args(args).current_dir(repo_root()).stdin(std::process::Stdio::null()).output()?;
+    let child = Command::new(repo_root().join("cli/x86sim"))
+        .arg(cmd)
+        .arg(dev)
+        .args(args)
+        .current_dir(repo_root())
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+    let out = wait_bounded(child, std::time::Duration::from_secs(420)).map_err(|e| anyhow::anyhow!("x86sim {cmd}: {e}"))?;
     let text = String::from_utf8_lossy(&out.stdout).trim_end().to_string();
     let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
     anyhow::ensure!(out.status.success(), "{}", if err.is_empty() { text } else { err });
     Ok(text)
+}
+
+/// Waits for a child, reading its output; past `limit` it is killed (by its own pid) and an error returned
+pub fn wait_bounded(mut c: std::process::Child, limit: std::time::Duration) -> anyhow::Result<std::process::Output> {
+    use std::io::Read;
+    let (mut so, mut se) = (c.stdout.take(), c.stderr.take());
+    let t1 = std::thread::spawn(move || {
+        let mut b = vec![];
+        if let Some(s) = so.as_mut() {
+            let _ = s.read_to_end(&mut b);
+        }
+        b
+    });
+    let t2 = std::thread::spawn(move || {
+        let mut b = vec![];
+        if let Some(s) = se.as_mut() {
+            let _ = s.read_to_end(&mut b);
+        }
+        b
+    });
+    let end = std::time::Instant::now() + limit;
+    let status = loop {
+        if let Some(st) = c.try_wait()? {
+            break st;
+        }
+        if std::time::Instant::now() >= end {
+            let _ = c.kill();
+            let _ = c.wait();
+            anyhow::bail!("timed out after {} s", limit.as_secs());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    };
+    // a grandchild that kept the pipes open must not hang us here either: the readers are left to finish on their own
+    let join = |t: std::thread::JoinHandle<Vec<u8>>| {
+        let end = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !t.is_finished() && std::time::Instant::now() < end {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        if t.is_finished() {
+            t.join().unwrap_or_default()
+        } else {
+            vec![]
+        }
+    };
+    Ok(std::process::Output { status, stdout: join(t1), stderr: join(t2) })
+}
+
+/// A value that becomes a positional argument of cli/x86sim: one starting with '-' would be read as an option
+fn positional(what: &str, v: String) -> anyhow::Result<String> {
+    anyhow::ensure!(!v.starts_with('-'), "{what} {v:?}: can't start with '-'");
+    Ok(v)
+}
+
+/// A bundle id as `x86sim logs` takes it (letters, digits, '.', '-', '_'; at least one '.'): never a path
+pub fn valid_bundle_id(b: &str) -> bool {
+    !b.is_empty() && !b.starts_with(['-', '.']) && b.contains('.') && !b.contains("..") && b.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
 }
 
 fn s(a: &Value, k: &str) -> Option<String> {
@@ -93,8 +159,8 @@ pub fn call(name: &str, a: &Value, phone: &dyn Fn() -> anyhow::Result<instance::
                     let mut v = vec![opt("action").unwrap_or_default()];
                     for k in ["time", "dataNetwork", "wifiMode", "wifiBars", "cellularMode", "cellularBars", "operatorName", "batteryState", "batteryLevel"] {
                         if let Some(x) = opt(k) {
-                            v.push(format!("--{k}"));
-                            v.push(x);
+                            // one argument (--k=v): a value starting with '-' stays a value
+                            v.push(format!("--{k}={x}"));
                         }
                     }
                     x86sim(&d, "status_bar", &v).map(|t| json!({"phone": inst.name, "overrides": t}))
@@ -103,14 +169,18 @@ pub fn call(name: &str, a: &Value, phone: &dyn Fn() -> anyhow::Result<instance::
                     "get" => x86sim(&d, "pbpaste", &[]).map(|t| json!({"phone": inst.name, "text": t})),
                     "to_host" => x86sim(&d, "pbpaste", &["--host".into()]).map(|t| json!({"phone": inst.name, "text": t, "host": true})),
                     "from_host" => x86sim(&d, "pbcopy", &["--host".into()]).map(|_| json!({"phone": inst.name, "from_host": true})),
-                    "set" => x86sim(&d, "pbcopy", &[opt("text").unwrap_or_default()]).map(|_| json!({"phone": inst.name, "set": true})),
+                    "set" => x86sim(&d, "pbcopy", &["--".into(), opt("text").unwrap_or_default()]).map(|_| json!({"phone": inst.name, "set": true})),
                     o => Err(anyhow::anyhow!("action {o:?}: get, set, from_host or to_host")),
                 },
                 "sim_erase" => x86sim(&d, "erase", &[]).map(|t| json!({"phone": inst.name, "erased": t})),
-                "sim_clone" => x86sim(&d, "clone", &[opt("name").unwrap_or_default()]).map(|t| json!({"phone": inst.name, "clone": t, "name": opt("name")})),
+                "sim_clone" => positional("name", opt("name").unwrap_or_default()).and_then(|n| x86sim(&d, "clone", &["--".into(), n])).map(|t| json!({"phone": inst.name, "clone": t, "name": opt("name")})),
                 "app_logs" => {
                     let bid = opt("bundle_id").unwrap_or_default();
-                    let mut v = vec![bid, "--lines".into(), a["lines"].as_u64().unwrap_or(60).to_string()];
+                    if !valid_bundle_id(&bid) {
+                        return Some(Err(anyhow::anyhow!("bundle_id {bid:?} is not a bundle id (com.example.App)")));
+                    }
+                    // --app: always the app's log (never a job log of the same name, which `logs` would follow forever)
+                    let mut v = vec!["--app".into(), bid, "--lines".into(), a["lines"].as_u64().unwrap_or(60).min(5000).to_string()];
                     if a["relaunch"].as_bool().unwrap_or(false) {
                         // devctl follows after a relaunch: let it run for `secs`, then stop it (SIGINT ends the follow)
                         v.push("--relaunch".into());
@@ -126,11 +196,16 @@ pub fn call(name: &str, a: &Value, phone: &dyn Fn() -> anyhow::Result<instance::
                             .spawn();
                         return Some(child.map_err(anyhow::Error::from).and_then(|c| {
                             let pid = c.id() as i32;
-                            std::thread::sleep(std::time::Duration::from_secs_f64(secs));
-                            unsafe {
-                                libc::kill(pid, libc::SIGINT);
-                            }
-                            let o = c.wait_with_output()?;
+                            let killer = std::thread::spawn(move || {
+                                std::thread::sleep(std::time::Duration::from_secs_f64(secs));
+                                unsafe {
+                                    libc::kill(pid, libc::SIGINT);
+                                }
+                            });
+                            // SIGINT ends the follow; if it doesn't, the bound kills it
+                            let o = wait_bounded(c, std::time::Duration::from_secs_f64(secs + 60.0));
+                            let _ = killer.join();
+                            let o = o?;
                             Ok(json!({"phone": inst.name, "log": String::from_utf8_lossy(&o.stdout), "stderr": String::from_utf8_lossy(&o.stderr)}))
                         }));
                     }
@@ -149,12 +224,15 @@ pub fn call(name: &str, a: &Value, phone: &dyn Fn() -> anyhow::Result<instance::
                     }
                     x86sim(&d, "locale", &v).map(|t| json!({"phone": inst.name, "locale": t}))
                 }
-                "sim_timezone" => x86sim(&d, "timezone", &opt("zone").into_iter().collect::<Vec<_>>()).map(|t| json!({"phone": inst.name, "timezone": t})),
-                "sim_fidelity" => x86sim(&d, "fidelity", &opt("preset").into_iter().collect::<Vec<_>>()).map(|t| json!({"phone": inst.name, "fidelity": t})),
+                "sim_timezone" => opt("zone").map(|z| positional("zone", z)).transpose().and_then(|z| x86sim(&d, "timezone", &z.into_iter().collect::<Vec<_>>())).map(|t| json!({"phone": inst.name, "timezone": t})),
+                "sim_fidelity" => opt("preset").map(|z| positional("preset", z)).transpose().and_then(|z| x86sim(&d, "fidelity", &z.into_iter().collect::<Vec<_>>())).map(|t| json!({"phone": inst.name, "fidelity": t})),
                 "sim_record_video" => {
                     let path = opt("path").unwrap_or_default();
                     let secs = a["secs"].as_f64().unwrap_or(5.0).clamp(0.5, 300.0);
                     let v = vec!["recordVideo".into(), "--codec".into(), opt("codec").unwrap_or_else(|| "h264".into()), "--secs".into(), secs.to_string(), path.clone()];
+                    if let Err(e) = positional("path", path.clone()) {
+                        return Some(Err(e));
+                    }
                     x86sim(&d, "io", &v).and_then(|_| {
                         let len = std::fs::metadata(&path)?.len();
                         Ok(json!({"phone": inst.name, "path": path, "bytes": len, "secs": secs}))
@@ -162,6 +240,9 @@ pub fn call(name: &str, a: &Value, phone: &dyn Fn() -> anyhow::Result<instance::
                 }
                 "sim_screenshot" => {
                     let path = opt("path").unwrap_or_default();
+                    if let Err(e) = positional("path", path.clone()) {
+                        return Some(Err(e));
+                    }
                     x86sim(&d, "io", &["screenshot".into(), path.clone()]).map(|_| json!({"phone": inst.name, "path": path}))
                 }
                 _ => return None,
@@ -182,4 +263,31 @@ fn is_ours(name: &str) -> bool {
         name,
         "sim_ui" | "sim_status_bar" | "sim_pasteboard" | "sim_erase" | "sim_clone" | "app_logs" | "sim_keychain_reset" | "sim_locale" | "sim_timezone" | "sim_fidelity" | "sim_record_video" | "sim_screenshot"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn values_never_become_options() {
+        assert!(positional("name", "--host".into()).is_err());
+        assert!(positional("name", "My Phone".into()).is_ok());
+        assert!(valid_bundle_id("com.example.App"));
+        assert!(valid_bundle_id("com.apple.mobilesafari"));
+        assert!(!valid_bundle_id("--follow"));
+        assert!(!valid_bundle_id("../../etc/passwd"));
+        assert!(!valid_bundle_id("a/b.c"));
+        assert!(!valid_bundle_id("syslog"));
+    }
+
+    #[test]
+    fn a_hanging_command_is_bounded() {
+        let c = Command::new("sleep").arg("30").stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).spawn().unwrap();
+        let t = std::time::Instant::now();
+        assert!(wait_bounded(c, std::time::Duration::from_millis(300)).is_err());
+        assert!(t.elapsed() < std::time::Duration::from_secs(5));
+        let c = Command::new("echo").arg("hi").stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).spawn().unwrap();
+        assert_eq!(wait_bounded(c, std::time::Duration::from_secs(5)).unwrap().stdout, b"hi\n");
+    }
 }
