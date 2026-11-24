@@ -324,6 +324,34 @@ static IOHIDEventRef hinge_event(void) {
 	}
 	return e;
 }
+// Models 2: a hinge sensor reports all the time (the SPU at 100 Hz), not only while the hinge moves: SpringBoard
+// keeps a partly open phone's fold state (the outer screen's glass blur while it is open part way) only while
+// reports arrive, and dropped it about a second after the last one (holding the launcher's slider still at 30
+// degrees cleared the blur; re-sending the same angle every 50 ms kept it). So between moves the angle is reported
+// again every 100 ms while the phone is part open (closed or flat it rests: nothing depends on it there). Measured
+// at 30 degrees: every 100 ms (and 50) keeps the blur, every 150 ms or slower loses it; backboardd then spends
+// ~70% of a core and SpringBoard ~20% drawing the live blur, the same at 50 and 100 ms (the reports themselves cost
+// nothing measurable: 1-5% at 150-800 ms, where the blur is gone).
+static volatile int hinge_moving;
+static volatile int hinge_stream_ms = 100;   // "hingestream <ms>": the interval (0: off)
+static void avp_send_angle(double deg);
+static IOHIDEventRef hinge_event(void);
+static pthread_mutex_t cmd_mu;
+static void* hinge_stream_thread(void* arg) {
+	for (;;) {
+		int ms = hinge_stream_ms;
+		usleep((ms > 0 ? ms : 250) * 1000);
+		pthread_mutex_lock(&cmd_mu);
+		if (ms > 0 && hinge_svc.service && !hinge_moving && hinge_deg > 0.5 && hinge_deg < 179.5) {
+			hinge_vel = 0;
+			hinge_phase = 2;
+			dispatch_event(&hinge_svc, hinge_event());
+			avp_send_angle(hinge_deg);
+		}
+		pthread_mutex_unlock(&cmd_mu);
+	}
+	return NULL;
+}
 // Models 2: the hinge as Apple's Simulator gives it. The Duo's runtime (24B91016s) has locationd's
 // CMDeviceStateRelayManager: its CLAVPMonitor matches a service {0xff61, 0x5b} and takes vendor-defined events from it
 // whose data is an IOCFSerialize'd dictionary (at most 256 bytes) {source, type, value}: "hinge-slider-control" /
@@ -827,6 +855,8 @@ static bool handle_inputs2(char* line) {
 		set_orientation(a, 0);
 		return true;
 	}
+	int hs;
+	if (sscanf(line, "hingestream %d", &hs) == 1) { hinge_stream_ms = hs < 0 ? 0 : hs; slog("hinge stream every %d ms", hinge_stream_ms); return true; }
 	if (sscanf(line, "biometric %31s %31s", a, b) >= 1) {
 		biometric(a, *b ? b : NULL);
 		return true;
@@ -863,6 +893,7 @@ static void handle_line(char* line, Client* cl) {
 		useconds_t step_us = steps > 0 ? (useconds_t)(ms * 1000 / steps) : 0;
 		slog("hinge %.1f -> %.1f in %d ms", from, to, ms);
 		avp_send_pose();   // the relay's other inputs (it may have started after the last command)
+		hinge_moving = 1;
 		for (int i = 1; i <= steps; i++) {
 			hinge_deg = from + (to - from) * i / steps;
 			hinge_vel = ms > 0 ? (to - from) * 1000.0 / ms : 0;
@@ -874,6 +905,7 @@ static void handle_line(char* line, Client* cl) {
 			usleep(step_us);
 			pthread_mutex_lock(&cmd_mu);
 		}
+		hinge_moving = 0;
 		hinge_deg = to; hinge_vel = 0; hinge_phase = 4;
 		dispatch_event(&hinge_svc, hinge_event());
 		avp_send_angle(to);
@@ -1368,6 +1400,11 @@ static void* listen_thread(void* arg) {
 	pthread_t t;
 	pthread_create(&t, NULL, listen_thread, NULL);
 	pthread_detach(t);
+	if (hinge_svc.service) {
+		pthread_t ht;
+		pthread_create(&ht, NULL, hinge_stream_thread, NULL);
+		pthread_detach(ht);
+	}
 	slog("SimHIDSystem ready");
 	return self;
 }
