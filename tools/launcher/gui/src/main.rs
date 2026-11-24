@@ -10,6 +10,7 @@ mod omarchy;
 mod phone;
 mod remote;
 mod setup;
+mod share;
 mod theme;
 mod updater;
 mod viewer;
@@ -211,7 +212,7 @@ impl App {
         };
         let mut open = HashSet::new();
         for k in std::env::var("X86SIM_LAUNCHER_OPEN").unwrap_or_default().split(',') {
-            for key in ["features", "logs", "perf", "adv"] {
+            for key in ["features", "logs", "perf", "adv", "share"] {
                 if k == key {
                     open.insert(key);
                 }
@@ -652,6 +653,8 @@ impl App {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Share: a finished share operation's message (share.rs)
+        self.share_note();
         // self-update: at start and every 6 hours (cheap when not due)
         if self.hub.check_updates {
             self.updater.check(ctx, false, &self.hub.channel);

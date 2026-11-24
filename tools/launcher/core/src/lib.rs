@@ -18,5 +18,7 @@ pub mod logs;
 pub mod macho;
 pub mod ring;
 pub mod setup;
+/// Share: phones in a browser (x86sim serve)
+pub mod share;
 pub mod sim;
 pub mod update;

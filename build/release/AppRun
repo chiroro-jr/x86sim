@@ -8,7 +8,7 @@
 #     darling-prefix -> /opt/x86sim/darling             (installed by the setup wizard's privileged step)
 #     runtimes/  var/  x86sim.env                        (user data, kept across versions)
 #   $XDG_CACHE_HOME/x86sim (default ~/.cache/x86sim): X86SIM_SCRATCH (AOT images, logs, per-boot Darling prefixes)
-# Usage: x86sim.AppImage [launcher|aot|mcp|dev|x86sim|shell|setup-helper|version] [args]
+# Usage: x86sim.AppImage [launcher|aot|mcp|dev|serve|x86sim|shell|setup-helper|version] [args]
 set -e
 HERE=$(dirname "$(readlink -f "$0")")
 S=$HERE/usr/share/x86sim
@@ -98,6 +98,7 @@ launcher) [ $# -gt 0 ] && shift; exec "$B/x86sim-launcher" "$@" ;;
 aot) shift; exec "$B/x86sim-aot" "$@" ;;
 mcp) shift; exec "$B/x86sim-mcp" "$@" ;;
 dev) shift; exec "$B/x86sim-dev" "$@" ;;
+serve) shift; exec "$B/x86sim-serve" "$@" ;;
 x86sim) shift; exec "$APP/cli/x86sim" "$@" ;;
 shell) shift; cd "$DATA"; exec "${SHELL:-/bin/sh}" "$@" ;;
 version) echo "x86Sim $VER (Darling $X86SIM_DARLING_ID, $mode mode)"; echo "data $DATA"; echo "cache $CACHE" ;;

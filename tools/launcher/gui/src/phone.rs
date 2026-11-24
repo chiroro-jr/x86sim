@@ -250,6 +250,10 @@ impl App {
             }
             ui.close();
         }
+        if menu_row(ui, icon::GLOBE, "Open in browser", "", true, false).on_hover_text("Watch and drive it from a browser tab (x86sim serve)").clicked() {
+            crate::share::open_in_browser(ui.ctx(), Some(inst.id.clone()));
+            ui.close();
+        }
         if menu_row(ui, icon::PENCIL_SIMPLE, "Rename…", "F2", true, false).clicked() {
             self.dialog = Some(crate::Dialog::Rename { id: inst.id.clone(), text: inst.name.clone() });
             ui.close();
@@ -457,6 +461,10 @@ impl App {
                         }
                         // a gap, not a rule, between the device's buttons and the launcher's own tools
                         ui.add_space(S3);
+                    }
+                    // Share: this phone in a browser tab (share.rs)
+                    if let Some(inst) = self.inst(id).cloned() {
+                        self.share_tool(ui, &inst);
                     }
                     if tool(ui, icon::CAMERA, "Save a screenshot to Pictures") {
                         let r = self.viewer(id).map(|v| v.screenshot(&name));
@@ -727,6 +735,13 @@ impl App {
         }
         hline(ui);
 
+        // ---- Share: the phone in a browser, here or elsewhere (share.rs)
+        let sharing = if self.open.contains("share") { String::new() } else { crate::share::summary() };
+        if self.fold_section(ui, "share", "Share", &sharing, "") {
+            self.share_section(ui, inst);
+        }
+        hline(ui);
+
         // ---- Performance
         // no summary: memory and CPU are the tiles at the top
         if self.fold_section(ui, "perf", "Performance", "", "") {
@@ -742,7 +757,7 @@ impl App {
 
     fn fold_section(&mut self, ui: &mut egui::Ui, key: &'static str, title_text: &str, summary: &str, tip: &str) -> bool {
         let open = self.open.contains(key);
-        let hint = match key { "features" => "f", "logs" => "l", "perf" => "p", _ => "a" };
+        let hint = match key { "features" => "f", "logs" => "l", "perf" => "p", "share" => "", _ => "a" };
         if fold(ui, title_text, summary, tip, hint, open) != open {
             if open {
                 self.open.remove(key);
