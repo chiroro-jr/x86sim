@@ -402,33 +402,51 @@ static void walk_web(Walk* w, NSDictionary* wv, NSMutableArray* out, dispatch_gr
 #endif
 
 // ---------------------------------------------------------------------------------------------------------------------
+static NSArray<UIWindow*>* visible_windows(void);
+
 static UIResponder* first_responder(void) {
-	UIApplication* app = UIApplication.sharedApplication;
-	for (UIScene* sc in app.connectedScenes) {
-		if (![sc isKindOfClass:[UIWindowScene class]]) continue;
-		for (UIWindow* win in ((UIWindowScene*)sc).windows) {
-			if (![win respondsToSelector:@selector(firstResponder)]) continue;
-			UIResponder* r = ((id(*)(id, SEL))objc_msgSend)(win, @selector(firstResponder));
-			if (r) return r;
-		}
+	// the scenes' windows, a view service's hosted window (watchOS's text input sheet), front first
+	for (UIWindow* win in [visible_windows() reverseObjectEnumerator]) {
+		if (![win respondsToSelector:@selector(firstResponder)]) continue;
+		UIResponder* r = ((id(*)(id, SEL))objc_msgSend)(win, @selector(firstResponder));
+		if (r) return r;
 	}
 	return nil;
 }
 
 // The focus engine's focused item (UIFocusSystem of a window's scene; tvOS: what the remote acts on). Looked up by
-// name: UIFocusSystem is iOS 15+ / tvOS 15+ API, and UIScreen.focusedItem the tvOS way.
+// name: UIFocusSystem is iOS 15+ / tvOS 15+ API.
 static id focused_item(NSArray* wins) {
 	Class fs = NSClassFromString(@"UIFocusSystem");
 	SEL forEnv = NSSelectorFromString(@"focusSystemForEnvironment:");
-	for (UIWindow* w in [wins reverseObjectEnumerator]) {
-		id sys = fs && [fs respondsToSelector:forEnv] ? ((id(*)(id, SEL, id))objc_msgSend)(fs, forEnv, w) : nil;
-		id it = [sys respondsToSelector:@selector(focusedItem)] ? ((id(*)(id, SEL))objc_msgSend)(sys, @selector(focusedItem)) : nil;
-		if (it) return it;
+	if (!fs || ![fs respondsToSelector:forEnv]) return nil;
+	// (no UIScreen.focusedItem fallback: watchOS throws "Accessing the focus system through UIScreen is no longer
+	// supported", and the whole answer was lost)
+	@try {
+		for (UIWindow* w in [wins reverseObjectEnumerator]) {
+			id sys = ((id(*)(id, SEL, id))objc_msgSend)(fs, forEnv, w);
+			id it = [sys respondsToSelector:@selector(focusedItem)] ? ((id(*)(id, SEL))objc_msgSend)(sys, @selector(focusedItem)) : nil;
+			if (it) return it;
+		}
+	} @catch (id ex) {
 	}
-	id scr = ((id(*)(id, SEL))objc_msgSend)(NSClassFromString(@"UIScreen"), NSSelectorFromString(@"mainScreen"));
-	if (scr && [scr respondsToSelector:NSSelectorFromString(@"focusedItem")])
-		return ((id(*)(id, SEL))objc_msgSend)(scr, NSSelectorFromString(@"focusedItem"));
 	return nil;
+}
+
+static NSArray<UIWindow*>* hosted_windows(void) {
+	NSMutableArray* a = [NSMutableArray array];
+	SEL all = NSSelectorFromString(@"allWindowsIncludingInternalWindows:onlyVisibleWindows:");
+	if (![UIWindow respondsToSelector:all]) return a;
+	NSArray* every = ((NSArray * (*)(id, SEL, BOOL, BOOL)) objc_msgSend)([UIWindow class], all, YES, YES);
+	id scr = ((id(*)(id, SEL))objc_msgSend)(NSClassFromString(@"UIScreen"), NSSelectorFromString(@"mainScreen"));
+	CGRect sb = scr ? ((CGRect(*)(id, SEL))objc_msgSend)(scr, @selector(bounds)) : CGRectNull;
+	for (UIWindow* win in every) {
+		if (![win isKindOfClass:[UIWindow class]] || ![NSStringFromClass([win class]) isEqualToString:@"_UIHostedWindow"]) continue;
+		if (win.hidden || win.alpha < 0.01 || !win.subviews.count || !win.rootViewController) continue;
+		if (CGRectIsNull(sb) || !CGRectEqualToRect(win.bounds, sb)) continue;
+		[a addObject:win];
+	}
+	return a;
 }
 
 static NSArray<UIWindow*>* visible_windows(void) {
@@ -454,6 +472,10 @@ static NSArray<UIWindow*>* visible_windows(void) {
 			[a addObject:win];
 		}
 	}
+	// a view service's content (watchOS's QuickboardViewService: the keyboard / Scribble sheet over an app) is in a
+	// _UIHostedWindow outside the application's scenes; a full-screen one is the screen as it shows
+	for (UIWindow* win in hosted_windows())
+		if (![a containsObject:win]) [a addObject:win];
 	// back to front
 	[a sortWithOptions:NSSortStable usingComparator:^NSComparisonResult(UIWindow* x, UIWindow* y) {
 		return x.windowLevel < y.windowLevel ? NSOrderedAscending : x.windowLevel > y.windowLevel ? NSOrderedDescending : NSOrderedSame;
@@ -546,6 +568,22 @@ static long window_rot(UIWindow* win, CGSize screen, CGSize* portrait) {
 	return 0;
 }
 
+// The process's state on screen: the application's, or a foreground scene's when the application says background (a
+// view service such as watchOS's QuickboardViewService, the keyboard over an app, stays "background" while its
+// hosted scene is up)
+static NSString* app_state(void) {
+	UIApplication* app = UIApplication.sharedApplication;
+	UIApplicationState st = app.applicationState;
+	if (st == UIApplicationStateActive) return @"active";
+	NSString* best = st == UIApplicationStateInactive ? @"inactive" : @"background";
+	if (hosted_windows().count) return @"active";
+	for (UIScene* sc in app.connectedScenes) {
+		if (sc.activationState == UISceneActivationStateForegroundActive) return @"active";
+		if (sc.activationState == UISceneActivationStateForegroundInactive) best = @"inactive";
+	}
+	return best;
+}
+
 static NSMutableDictionary* info(void) {
 	UIApplication* app = UIApplication.sharedApplication;
 	NSMutableDictionary* d = [NSMutableDictionary dictionary];
@@ -556,8 +594,7 @@ static NSMutableDictionary* info(void) {
 		d[@"state"] = @"none";
 		return d;
 	}
-	UIApplicationState st = app.applicationState;
-	d[@"state"] = st == UIApplicationStateActive ? @"active" : st == UIApplicationStateInactive ? @"inactive" : @"background";
+	d[@"state"] = app_state();
 	CGRect b = screen_bounds();
 	d[@"screen"] = @[ @(b.size.width), @(b.size.height), @(screen_scale()) ];
 	NSMutableArray* ws = [NSMutableArray array];
@@ -713,6 +750,20 @@ static void handle(NSDictionary* req, void (^reply)(NSDictionary*)) {
 	NSString* op = req[@"op"];
 	if ([op isEqualToString:@"tree"]) { tree(req, reply); return; }
 	if ([op isEqualToString:@"info"]) { reply(info()); return; }
+	if ([op isEqualToString:@"probe"]) {
+		// debugging: every scene and window of the process, visible or not
+		NSMutableArray* scs = [NSMutableArray array];
+		for (UIScene* sc in UIApplication.sharedApplication.connectedScenes)
+			[scs addObject:@{ @"class": NSStringFromClass([sc class]), @"state": @(sc.activationState), @"id": sc.session.persistentIdentifier ?: @"" }];
+		NSMutableArray* ws = [NSMutableArray array];
+		SEL all = NSSelectorFromString(@"allWindowsIncludingInternalWindows:onlyVisibleWindows:");
+		NSArray* every = [UIWindow respondsToSelector:all] ? ((NSArray * (*)(id, SEL, BOOL, BOOL)) objc_msgSend)([UIWindow class], all, YES, NO) : @[];
+		for (UIWindow* w in every)
+			[ws addObject:@{ @"class": NSStringFromClass([w class]), @"hidden": @(w.hidden), @"alpha": @(w.alpha), @"level": @(w.windowLevel),
+				@"scene": w.windowScene ? NSStringFromClass([w.windowScene class]) : @"", @"frame": NSStringFromCGRect(w.frame) }];
+		reply(@{ @"scenes": scs, @"windows": ws, @"state": app_state() });
+		return;
+	}
 	if ([op isEqualToString:@"ax"]) { load_ax(); reply(@{ @"ax": @YES }); return; }
 	if ([op isEqualToString:@"type"]) { reply(type_text(req)); return; }
 	if ([op isEqualToString:@"scroll"] || [op isEqualToString:@"activate"]) {
@@ -865,12 +916,19 @@ static void start(void) {
 	for (NSString* n in @[ UIApplicationWillEnterForegroundNotification, UIApplicationDidBecomeActiveNotification ])
 		[nc addObserverForName:n object:nil queue:nil usingBlock:^(NSNotification* note) { set_fg(true); }];
 	[nc addObserverForName:UIApplicationDidEnterBackgroundNotification object:nil queue:nil usingBlock:^(NSNotification* note) {
-		set_fg(false);
+		set_fg(![app_state() isEqualToString:@"background"]);
 	}];
+	// a view service's scene / hosted window comes and goes without the application's notifications
+	for (NSString* n in @[ UISceneWillEnterForegroundNotification, UISceneDidActivateNotification, UISceneDidEnterBackgroundNotification,
+		     UISceneDidDisconnectNotification, UIWindowDidBecomeVisibleNotification, UIWindowDidBecomeHiddenNotification ])
+		[nc addObserverForName:n object:nil queue:nil usingBlock:^(NSNotification* note) {
+			// after UIKit updated the scene's state
+			dispatch_async(dispatch_get_main_queue(), ^{ set_fg(![app_state() isEqualToString:@"background"]); });
+		}];
 	[nc addObserverForName:UIApplicationWillTerminateNotification object:nil queue:nil usingBlock:^(NSNotification* note) {
 		cleanup();
 	}];
-	set_fg(UIApplication.sharedApplication.applicationState != UIApplicationStateBackground);
+	set_fg(![app_state() isEqualToString:@"background"]);
 }
 
 __attribute__((constructor)) static void simax_init(void) {

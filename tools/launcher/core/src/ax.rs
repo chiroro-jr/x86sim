@@ -27,10 +27,11 @@ const SPRINGBOARD: &str = "com.apple.springboard";
 /// tvOS's Home Screen is HeadBoard and its status / system UI TVSystemUIService
 const SHELLS: &[&str] = &[SPRINGBOARD, "com.apple.PineBoard", "com.apple.Carousel", "com.apple.SurfBoard"];
 const TV_HOME: &str = "com.apple.HeadBoard";
+const WATCH_FACE: &str = "com.apple.clockface";
 const TV_SYSTEM_UI: &str = "com.apple.TVSystemUIService";
 
 fn is_shell(bundle: &str) -> bool {
-    SHELLS.contains(&bundle) || bundle == TV_HOME || bundle == TV_SYSTEM_UI
+    SHELLS.contains(&bundle) || bundle == TV_HOME || bundle == TV_SYSTEM_UI || bundle == WATCH_FACE
 }
 
 fn is_false(b: &bool) -> bool {
@@ -513,8 +514,13 @@ pub struct SnapOpts {
 }
 
 fn layer_of(bundle: &str, window: &str, class: &str, id: &str) -> &'static str {
-    if class.starts_with("STUIStatusBar") || class.starts_with("UIStatusBar") || window.contains("StatusBar") {
+    // (a watch's time over an app: Carousel's CSLStatusBarContextTimeLabel)
+    if class.starts_with("STUIStatusBar") || class.starts_with("UIStatusBar") || class.contains("StatusBar") || window.contains("StatusBar") {
         return "status";
+    }
+    // watchOS: the watch face (com.apple.clockface) and Carousel's app grid / list (its CSLSecureWindow) are home
+    if bundle == WATCH_FACE || (bundle == "com.apple.Carousel" && window == "CSLSecureWindow") {
+        return "home";
     }
     // tvOS: the Home Screen is its own app; the clock / network / user corner is TVSystemUIService's
     if bundle == TV_HOME {
@@ -718,6 +724,10 @@ fn snapshot_once(inst: &Instance, opt: SnapOpts) -> Result<Snapshot> {
         if !is_shell(&bundle) && has_app_content {
             fronts.push((pid, bundle.clone(), state == "active"));
         }
+    }
+    // watchOS: Carousel's app grid covers the watch face (which stays active under it)
+    if snap.elements.iter().any(|e| e.app == "com.apple.Carousel" && e.layer == "home") {
+        snap.elements.retain(|e| e.app != WATCH_FACE);
     }
     // iPadOS windowed apps: SpringBoard's window chrome is not an overlay, and gives the windows' stacking order
     let z = windows_z(&mut snap);
@@ -1755,6 +1765,18 @@ pub fn keyboard(inst: &Instance, what: &str, how: &str, after: After) -> Result<
                 std::fs::write(inst.sock.with_file_name("hwkeyboard"), if on { "connected\n" } else { "disconnected\n" })?;
             }
             format!("hardware keyboard {}", if on { "connected" } else { "disconnected" })
+        }
+        ("software" | "sw", _) if matches!(inst.platform.as_str(), "tvos" | "watchos") => {
+            // Apple's Toggle Software Keyboard is an iPhone / iPad (and Vision Pro) thing
+            bail!(
+                "no software keyboard to toggle on {}: {}",
+                if inst.platform == "tvos" { "an Apple TV" } else { "an Apple Watch" },
+                if inst.platform == "tvos" {
+                    "tvOS shows its own full-screen keyboard when a text field is selected (type writes into it; tap its keys or Done by moving the focus)"
+                } else {
+                    "a text field opens watchOS's input sheet (keyboard, Scribble, dictation); type writes into the field directly, keys with type keys=true"
+                }
+            )
         }
         ("software" | "sw", "on" | "off" | "toggle" | "show" | "hide") => {
             anyhow::ensure!(simhid_up(inst), "{} is not running", inst.name);
