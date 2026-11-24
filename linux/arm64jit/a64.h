@@ -86,6 +86,11 @@ struct GuestThread final : Dynarmic::A64::UserCallbacks {
     int susp_tries = 0;
     void *susp_timer = nullptr;
     void susp_safe_point();               // parks here if a suspension is pending
+    // x86sim debug (gdbstub.cpp): parked by the debugger, what to do when resumed (continue / step / stay), why it stopped
+    std::atomic<int> dbg_parked{0}, dbg_action{0};
+    int dbg_reason = 0, dbg_sig = 0;
+    u64 dbg_info[3]{};  // Mach exception type, code, subcode
+    bool dbg_reported = false, dbg_step_pending = false;
 
     GuestThread();
     void reset_after_unwind();  // after a longjmp out of call() (pthread_exit)
@@ -163,6 +168,19 @@ constexpr u32 kAgOutSetSvc = 0xfff4, kAgOutGetSvc = 0xfff5;
 constexpr u32 kAgChkSvc = 0xffd0;
 // Platforms 1 debug: X86SIM_A64_BLWATCH sites (jit.cpp), substituted by MemoryReadCode
 constexpr u32 kBlWatchSvc = 0xffcf;
+// "svc #0xffce": a debugger breakpoint (gdbstub.cpp), substituted by MemoryReadCode, never in memory
+constexpr u32 kDbgSvc = 0xffce;
+extern std::atomic<int> g_dbg_on;   // a debugger is attached (or awaited): threads check the safe points
+extern std::atomic<int> g_dbg_nbp;  // breakpoints set: the code fetch looks them up
+std::optional<uint32_t> dbg_read_code(u64 a);
+void dbg_svc(GuestThread &t, u64 addr);
+void dbg_point(GuestThread &t, int where);  // 0: call() loop, 1: thunk entry, 2: thunk return, 3: exception
+void dbg_exception(GuestThread &t, u64 pc, int sig, u64 metype, u64 code, u64 sub);
+void dbg_init_from_env();
+bool dbg_check_request();
+void dbg_exiting(int linux_sig);
+bool dbg_started();
+std::mutex &dbg_threads_mutex();
 void agout_dump(u32 attr);
 // "svc #0xfffc": Swift type-by-name conformance walk step (swiftscan.cpp), substituted by MemoryReadCode.
 constexpr u32 kSwiftTypeSvc = 0xfffc;
