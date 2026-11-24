@@ -382,6 +382,8 @@ fn call_json(name: &str, a: &Value) -> anyhow::Result<Answer> {
         "app_terminate" => return Ok(ax_answer(ax::terminate(&inst, a["bundle_id"].as_str().unwrap_or(""), after)?)),
         "screenshot" => {
             let div = a["scale"].as_u64().map(|s| s as u32).unwrap_or(inst.scale.round().max(1.0) as u32);
+            // a stable frame: what an action or setting just changed, not the frame before it
+            ax::settle(&inst, std::time::Duration::from_millis(150), std::time::Duration::from_millis(1500));
             let (png, w, h) = ax::screenshot(&inst, div)?;
             return Ok(Answer::Image(ax::base64(&png), format!("{} screen, {w}x{h} px", inst.name)));
         }

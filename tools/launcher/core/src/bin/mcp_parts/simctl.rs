@@ -81,7 +81,8 @@ pub fn call(name: &str, a: &Value, phone: &dyn Fn() -> anyhow::Result<instance::
             };
             let d = inst.dir.clone();
             let opt = |k: &str| s(a, k);
-            match name {
+            let seq0 = x86sim_core::ax::frame_seq(&inst);
+            let res = match name {
                 "sim_ui" => {
                     let mut v = vec![];
                     v.extend(opt("setting"));
@@ -164,7 +165,13 @@ pub fn call(name: &str, a: &Value, phone: &dyn Fn() -> anyhow::Result<instance::
                     x86sim(&d, "io", &["screenshot".into(), path.clone()]).map(|_| json!({"phone": inst.name, "path": path}))
                 }
                 _ => return None,
+            };
+            // what changes the screen answers once it shows: a screenshot taken right after has the new look
+            if res.is_ok() && matches!(name, "sim_ui" | "sim_status_bar" | "sim_locale" | "sim_timezone") {
+                use std::time::Duration;
+                x86sim_core::ax::settle_since(&inst, seq0, Duration::from_secs(3), Duration::from_millis(350), Duration::from_secs(6));
             }
+            res
         }
     };
     Some(r)

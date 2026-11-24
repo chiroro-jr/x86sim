@@ -700,6 +700,22 @@ fn hid_for(inst: &Instance) -> Hid {
     h
 }
 
+/// The newest frame's number, to settle on what a change draws (settle_since)
+pub fn frame_seq(inst: &Instance) -> u64 {
+    Ring::new(&inst.ring).seq()
+}
+
+/// After a change made when the newest frame was `seq0`: waits up to `first` for it to draw anything (a setting can
+/// take a second before its first frame), then until the screen has been still for `quiet`, at most `max` in all
+pub fn settle_since(inst: &Instance, seq0: u64, first: Duration, quiet: Duration, max: Duration) {
+    let t0 = Instant::now();
+    let mut ring = Ring::new(&inst.ring);
+    if ring.seq() == seq0 {
+        ring.wait(seq0, first);
+    }
+    settle(inst, quiet, max.saturating_sub(t0.elapsed()));
+}
+
 /// Waits until the screen has been still for `quiet` (no new frame), at most `max`
 pub fn settle(inst: &Instance, quiet: Duration, max: Duration) {
     let mut ring = Ring::new(&inst.ring);
