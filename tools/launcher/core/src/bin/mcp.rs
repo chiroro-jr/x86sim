@@ -77,6 +77,11 @@ fn phone_of(a: &Value, cfg: &aot::Config) -> anyhow::Result<instance::Instance> 
 }
 
 fn call(name: &str, a: &Value) -> anyhow::Result<Value> {
+    // ---- Develop (omarchy-apple-dev): dev_* tools, x86sim_core::dev ----
+    if name.starts_with("dev_") {
+        return x86sim_core::dev::mcp_call(name, a);
+    }
+    // ---- end Develop ----
     let cfg = aot::Paths::new(&aot::Paths::default_jc()).load_config();
     if matches!(name, "phones_list" | "sim_status") {
         return Ok(json!({"phones": instance::summaries(1000)}));
@@ -281,7 +286,13 @@ fn main() {
                 "serverInfo": {"name": "x86sim", "version": env!("CARGO_PKG_VERSION")}
             })),
             "ping" => Ok(json!({})),
-            "tools/list" => Ok(json!({"tools": tools()})),
+            "tools/list" => {
+                // ---- Develop (omarchy-apple-dev): dev_* tools, x86sim_core::dev ----
+                let mut t = tools().as_array().cloned().unwrap_or_default();
+                t.extend(x86sim_core::dev::mcp_tools());
+                // ---- end Develop ----
+                Ok(json!({"tools": t}))
+            }
             "tools/call" => {
                 let name = req["params"]["name"].as_str().unwrap_or("");
                 let args = req["params"].get("arguments").cloned().unwrap_or(json!({}));

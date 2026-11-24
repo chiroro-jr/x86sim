@@ -43,10 +43,18 @@ echo "== payload (version $VERSION)"
 git -C "$X" ls-files -z -- cli host linux tools/debug tools/runtime tests docs/RELEASE.md README.md LICENSE* \
 	| (cd "$X" && xargs -0 cp --parents -t "$P" 2>/dev/null) || true
 rm -rf "$P/linux/mtlvk/src" "$P/tests/metal/shaders"
+# omarchy-apple-dev (submodule, our fork): the scripts and tools `x86sim dev` runs, not its receipts, docs, tests or
+# demos. The toolchain itself (Swift, xtool, the SDK from the user's Xcode.xip) installs at runtime into user dirs.
+O=$X/external/omarchy-apple-dev
+[ -f "$O/install-toolchain.sh" ] || { echo "appimage: external/omarchy-apple-dev is not checked out (git submodule update --init external/omarchy-apple-dev)" >&2; exit 1; }
+mkdir -p "$P/external/omarchy-apple-dev"
+git -C "$O" ls-files -z -- install-toolchain.sh ship.sh ship-mac.sh device-run.sh tools sdk-free flutter kmp patches compat \
+	LICENSE README.md CHANGELOG.md docs/DISTROS.md | (cd "$O" && xargs -0 cp --parents -t "$P/external/omarchy-apple-dev")
+echo "  omarchy-apple-dev $(git -C "$O" describe --tags --always), $(du -sh "$P/external/omarchy-apple-dev" | cut -f1)"
 # build outputs at the paths the scripts and the launcher expect (repo-relative)
 mkdir -p "$P/linux/mtlvk/target/release" "$P/tools/launcher/target/release"
 cp "$OUT/cargo-mtlvk/release/mtlvk" "$P/linux/mtlvk/target/release/"
-for b in x86sim-launcher x86sim-aot x86sim-mcp; do cp "$OUT/cargo-launcher/release/$b" "$P/tools/launcher/target/release/"; done
+for b in x86sim-launcher x86sim-aot x86sim-mcp x86sim-dev; do cp "$OUT/cargo-launcher/release/$b" "$P/tools/launcher/target/release/"; done
 strip --strip-debug "$P/linux/mtlvk/target/release/mtlvk" "$P/tools/launcher/target/release/"*
 echo "$VERSION" > "$S/VERSION"
 
@@ -84,6 +92,7 @@ for f in "$X"/external/metal2vulkan/LICENSE*; do [ -f "$f" ] && cp "$f" "$S/lice
 cp "$X/linux/arm64jit/third_party/astcenc/LICENSE.txt" "$S/licenses/astcenc-LICENSE" 2>/dev/null || true
 cp "$X/linux/arm64jit/third_party/lzfse/LICENSE" "$S/licenses/lzfse-LICENSE" 2>/dev/null || true
 cp "$X/LICENSE" "$S/licenses/x86sim-LICENSE"
+cp "$X/external/omarchy-apple-dev/LICENSE" "$S/licenses/omarchy-apple-dev-LICENSE"
 cp "$X/NOTICE" "$S/NOTICE"
 
 echo "== Apple content check"
