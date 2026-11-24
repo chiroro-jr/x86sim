@@ -39,7 +39,8 @@ arm64jit)
 	step "arm64jit"
 	B=$OUT/build-arm64jit
 	[ -f "$B/build.ninja" ] || cmake -S "$X/linux/arm64jit" -B "$B" -G Ninja -DCMAKE_BUILD_TYPE=Release \
-		-DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ > "$OUT/arm64jit-cmake.log" 2>&1
+		-DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+		${CCACHE:+-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache} > "$OUT/arm64jit-cmake.log" 2>&1
 	ninja -C "$B" -j"$JOBS" arm64jit a64hugecopy > "$OUT/arm64jit.log" 2>&1 || { grep -E 'FAILED|error:' "$OUT/arm64jit.log" | head; exit 1; }
 	mkdir -p "$L" && cp "$B/libarm64jit.so" "$B/a64hugecopy" "$L/"
 	;;
