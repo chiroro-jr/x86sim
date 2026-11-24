@@ -1,11 +1,18 @@
 //! Share: the HTTP + WebSocket server behind `x86sim serve`. A thread a connection (a handful of viewers), no TLS of its
 //! own: remote access goes through tailscale / cloudflared (tunnel.rs), which bring HTTPS.
 //!
-//! Access: a token (control: watch and drive, start / stop phones, make links; view: watch only), optionally limited
-//! to one phone and expiring, from `?t=`, a cookie set from it, or `Authorization: Bearer`. Without a token only a
-//! plain local browser gets in (loopback peer, a loopback Host, no proxy headers, a same-origin Origin): a tunnel's
-//! requests arrive from loopback too but carry forwarding headers and their own Host, and a web page elsewhere can
-//! neither name a loopback Host through DNS rebinding nor pass the Origin check on the WebSocket.
+//! Access: a token (control: watch and drive, start / stop phones; view: watch only), optionally limited to one phone
+//! and expiring, from `?t=`, a cookie set from it, or `Authorization: Bearer`. Links (share_link, the page's Share
+//! dialog) get their own tokens and can do only what their scope allows: the server-wide endpoints (status, the main
+//! tokens' URLs, tunnels, making / listing / revoking links) are the owner's alone: the main control token, or a local
+//! browser of the user who runs the server.
+//! Without a token only that owner's local browser gets in: a loopback peer whose socket belongs to our own uid (looked
+//! up in /proc/net/tcp: another user on the machine is not the owner), a loopback Host, no proxy headers, a same-origin
+//! Origin. A tunnel's requests arrive from loopback too but carry forwarding headers and their own Host (tailscaled's
+//! also another uid), and a web page elsewhere can neither name a loopback Host through DNS rebinding nor pass the
+//! Origin check on the WebSocket.
+//! Limits before any token is checked: request head 32 KiB / 100 headers, 20 s to send it, 128 connections at a time
+//! (24 from one address other than loopback).
 use super::tunnel::{self, Kind, Tunnel};
 use super::video::{self, Codec, Out, StreamKey};
 use super::ws;
@@ -16,7 +23,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -42,6 +49,8 @@ pub struct Req {
     pub headers: HashMap<String, String>,
     pub body: Vec<u8>,
     pub peer: SocketAddr,
+    /// our end of the connection (to find the peer's socket in /proc/net/tcp)
+    pub local: SocketAddr,
 }
 
 #[derive(Clone, Debug)]
@@ -50,6 +59,34 @@ pub struct Grant {
     pub phone: Option<String>,
     pub token: Option<String>,
     pub expires: Option<u64>,
+    /// the server's owner (the main control token, or the user's own local browser): tunnels, links, status
+    pub owner: bool,
+}
+
+/// Request head limits (before any token is checked)
+const MAX_HEAD: u64 = 32 * 1024;
+const MAX_HEADERS: usize = 100;
+const HEAD_DEADLINE: Duration = Duration::from_secs(20);
+/// Connections at a time: in all, and from one address other than loopback (a tunnel's all come from loopback)
+const MAX_CONNS: usize = 128;
+const MAX_CONNS_PEER: usize = 24;
+
+/// A reader that gives up at a deadline (a socket read timeout alone is per read: a byte every 14 s kept a thread)
+struct Deadline<'a> {
+    s: &'a TcpStream,
+    end: Instant,
+}
+
+impl Read for Deadline<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let left = self.end.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "request too slow"));
+        }
+        self.s.set_read_timeout(Some(left))?;
+        let mut s = self.s;
+        s.read(buf)
+    }
 }
 
 fn pct_decode(s: &str) -> String {
@@ -76,20 +113,30 @@ pub fn pct_encode(s: &str) -> String {
 }
 
 fn read_req(s: &mut TcpStream, peer: SocketAddr) -> Option<Req> {
-    s.set_read_timeout(Some(Duration::from_secs(15))).ok()?;
-    let mut r = BufReader::new(s.try_clone().ok()?);
+    let local = s.local_addr().ok()?;
+    let r = read_head(Deadline { s, end: Instant::now() + HEAD_DEADLINE }, peer, local);
+    // what follows (a WebSocket session) sets its own timeouts; a plain request is answered at once
+    let _ = s.set_read_timeout(Some(Duration::from_secs(15)));
+    r
+}
+
+/// Parses a request head and body from `src`: at most MAX_HEAD bytes of head, MAX_HEADERS headers, a 256 KiB body
+fn read_head(src: impl Read, peer: SocketAddr, local: SocketAddr) -> Option<Req> {
+    let mut r = BufReader::new(src.take(MAX_HEAD));
     let mut line = String::new();
     r.read_line(&mut line).ok()?;
+    if !line.ends_with('\n') {
+        return None;
+    }
     let mut it = line.split_whitespace();
     let method = it.next()?.to_string();
     let target = it.next()?.to_string();
     let mut headers = HashMap::new();
-    let mut total = 0;
     loop {
         let mut l = String::new();
         let n = r.read_line(&mut l).ok()?;
-        total += n;
-        if n == 0 || total > 32 * 1024 {
+        // n == 0: the end, or the head limit reached; a line without its newline: cut off by the limit
+        if n == 0 || !l.ends_with('\n') || headers.len() >= MAX_HEADERS {
             return None;
         }
         let l = l.trim_end();
@@ -104,15 +151,22 @@ fn read_req(s: &mut TcpStream, peer: SocketAddr) -> Option<Req> {
     if len > 256 * 1024 {
         return None;
     }
-    let mut body = vec![0u8; len];
-    r.read_exact(&mut body).ok()?;
+    // the body is read past the head's limit (bytes the BufReader holds already, then the rest)
+    let mut body = Vec::with_capacity(len);
+    let have = r.buffer().len().min(len);
+    body.extend_from_slice(&r.buffer()[..have]);
+    r.consume(have);
+    let mut rest = r.into_inner().into_inner();
+    let mut tail = vec![0u8; len - have];
+    rest.read_exact(&mut tail).ok()?;
+    body.extend(tail);
     // the BufReader may hold bytes past the request only for a pipelining client; we answer one request a connection
     let (path, q) = target.split_once('?').unwrap_or((&target, ""));
     let query = q.split('&').filter(|p| !p.is_empty()).map(|p| {
         let (k, v) = p.split_once('=').unwrap_or((p, ""));
         (pct_decode(k), pct_decode(v))
     });
-    Some(Req { method, path: pct_decode(path), query: query.collect(), headers, body, peer })
+    Some(Req { method, path: pct_decode(path), query: query.collect(), headers, body, peer, local })
 }
 
 fn respond(s: &mut TcpStream, code: u16, ctype: &str, extra: &[(&str, String)], body: &[u8]) {
@@ -156,7 +210,47 @@ fn is_loopback_name(h: &str) -> bool {
     h == "localhost" || h == "127.0.0.1" || h == "[::1]" || h.ends_with(".localhost")
 }
 
-/// A plain local browser (see the module doc)
+/// The uid owning the socket at `peer` connected to `local` (Linux: /proc/net/tcp and tcp6, both ends on this machine)
+pub fn peer_uid(peer: SocketAddr, local: SocketAddr) -> Option<u32> {
+    fn norm(a: SocketAddr) -> SocketAddr {
+        match a {
+            SocketAddr::V6(v) => match v.ip().to_ipv4_mapped() {
+                Some(v4) => SocketAddr::new(v4.into(), v.port()),
+                None => a,
+            },
+            a => a,
+        }
+    }
+    fn parse(s: &str) -> Option<SocketAddr> {
+        let (ip, port) = s.split_once(':')?;
+        let port = u16::from_str_radix(port, 16).ok()?;
+        let ip: std::net::IpAddr = match ip.len() {
+            8 => std::net::Ipv4Addr::from(u32::from_str_radix(ip, 16).ok()?.to_ne_bytes()).into(),
+            32 => {
+                let mut b = [0u8; 16];
+                for i in 0..4 {
+                    b[i * 4..i * 4 + 4].copy_from_slice(&u32::from_str_radix(&ip[i * 8..i * 8 + 8], 16).ok()?.to_ne_bytes());
+                }
+                std::net::Ipv6Addr::from(b).into()
+            }
+            _ => return None,
+        };
+        Some(norm(SocketAddr::new(ip, port)))
+    }
+    let (peer, local) = (norm(peer), norm(local));
+    for f in ["/proc/net/tcp", "/proc/net/tcp6"] {
+        let Ok(t) = std::fs::read_to_string(f) else { continue };
+        for l in t.lines().skip(1) {
+            let c: Vec<&str> = l.split_whitespace().collect();
+            if c.len() > 7 && parse(c[1]) == Some(peer) && parse(c[2]) == Some(local) {
+                return c[7].parse().ok();
+            }
+        }
+    }
+    None
+}
+
+/// A plain local browser (see the module doc); who runs it is checked apart (peer_uid)
 pub fn local_trusted(req: &Req) -> bool {
     if !req.peer.ip().is_loopback() {
         return false;
@@ -185,7 +279,7 @@ fn cookie(req: &Req, name: &str) -> Option<String> {
 
 impl Server {
     pub fn new(opts: Options, port: u16) -> Arc<Server> {
-        let exp = opts.ttl_s.map(|t| now_s() + t);
+        let exp = opts.ttl_s.map(|t| now_s().saturating_add(t));
         let tokens = vec![
             TokenRec { token: random_token(), role: Role::Control, phone: None, expires: exp, label: "control".into() },
             TokenRec { token: random_token(), role: Role::View, phone: None, expires: exp, label: "view".into() },
@@ -211,15 +305,27 @@ impl Server {
             let mut toks = self.tokens.lock().unwrap();
             toks.retain(|r| r.expires.is_none_or(|e| e > now) || r.label == "control" || r.label == "view");
             match toks.iter().find(|r| ct_eq(&r.token, &t)) {
-                Some(r) if r.expires.is_none_or(|e| e > now) => return Some(Grant { role: r.role, phone: r.phone.clone(), token: Some(t), expires: r.expires }),
+                Some(r) if r.expires.is_none_or(|e| e > now) => return Some(Grant { role: r.role, phone: r.phone.clone(), token: Some(t), expires: r.expires, owner: r.label == "control" }),
                 _ if !from_cookie => return None,
                 _ => {}
             }
         }
-        if !self.opts.require_token && local_trusted(req) {
-            return Some(Grant { role: Role::Control, phone: None, token: None, expires: None });
+        // only the user running the server: another user's process on this machine is refused
+        if !self.opts.require_token && local_trusted(req) && peer_uid(req.peer, req.local) == Some(unsafe { libc::getuid() }) {
+            return Some(Grant { role: Role::Control, phone: None, token: None, expires: None, owner: true });
         }
         None
+    }
+
+    /// The grant's token still works (not revoked, not expired): an open WebSocket ends when it doesn't
+    pub fn still_valid(&self, g: &Grant) -> bool {
+        if g.expires.is_some_and(|e| e <= now_s()) {
+            return false;
+        }
+        match &g.token {
+            None => true,
+            Some(t) => self.tokens.lock().unwrap().iter().any(|r| ct_eq(&r.token, t) && r.expires.is_none_or(|e| e > now_s())),
+        }
     }
 
     pub fn state(&self) -> State {
@@ -247,6 +353,9 @@ impl Server {
         let p = super::state_path();
         let tmp = p.with_extension("tmp");
         if let Ok(mut f) = std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode_0600().open(&tmp) {
+            // a tmp file left over keeps its old mode: 0600 in any case
+            use std::os::unix::fs::PermissionsExt;
+            let _ = f.set_permissions(std::fs::Permissions::from_mode(0o600));
             let _ = f.write_all(serde_json::to_string_pretty(&self.state()).unwrap_or_default().as_bytes());
             let _ = std::fs::rename(&tmp, &p);
         }
@@ -343,7 +452,7 @@ impl Server {
     }
 
     fn mint(&self, role: Role, phone: Option<String>, ttl_s: Option<u64>, label: &str) -> TokenRec {
-        let r = TokenRec { token: random_token(), role, phone, expires: ttl_s.map(|t| now_s() + t), label: format!("link:{label}") };
+        let r = TokenRec { token: random_token(), role, phone, expires: ttl_s.map(|t| now_s().saturating_add(t)), label: format!("link:{label}") };
         self.tokens.lock().unwrap().push(r.clone());
         self.write_state();
         r
@@ -365,15 +474,55 @@ impl Mode0600 for std::fs::OpenOptions {
     }
 }
 
+/// Open connections: in all and per address (MAX_CONNS, MAX_CONNS_PEER)
+#[derive(Default)]
+pub struct Conns {
+    total: AtomicUsize,
+    peers: Mutex<HashMap<std::net::IpAddr, usize>>,
+}
+
+/// One connection's slot, given back when dropped
+pub struct Slot<'a>(&'a Conns, std::net::IpAddr);
+
+impl Conns {
+    pub fn enter(&self, ip: std::net::IpAddr) -> Option<Slot<'_>> {
+        let mut p = self.peers.lock().unwrap();
+        let n = p.get(&ip).copied().unwrap_or(0);
+        if self.total.load(Ordering::Relaxed) >= MAX_CONNS || (!ip.is_loopback() && n >= MAX_CONNS_PEER) {
+            return None;
+        }
+        self.total.fetch_add(1, Ordering::Relaxed);
+        p.insert(ip, n + 1);
+        Some(Slot(self, ip))
+    }
+}
+
+impl Drop for Slot<'_> {
+    fn drop(&mut self) {
+        let mut p = self.0.peers.lock().unwrap();
+        if let Some(n) = p.get_mut(&self.1) {
+            *n -= 1;
+            if *n == 0 {
+                p.remove(&self.1);
+            }
+        }
+        self.0.total.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
 pub fn run(srv: Arc<Server>, listener: TcpListener) {
+    let conns: &'static Conns = Box::leak(Box::default());
     for c in listener.incoming() {
         if srv.stop.load(Ordering::Relaxed) {
             break;
         }
         let Ok(s) = c else { continue };
+        let peer = s.peer_addr().unwrap_or_else(|_| "0.0.0.0:0".parse().unwrap());
+        // over the limit: closed at once (dropped), no thread
+        let Some(slot) = conns.enter(peer.ip()) else { continue };
         let srv = srv.clone();
         std::thread::spawn(move || {
-            let peer = s.peer_addr().unwrap_or_else(|_| "0.0.0.0:0".parse().unwrap());
+            let _slot = slot;
             handle(&srv, s, peer);
         });
     }
@@ -409,14 +558,16 @@ fn handle(srv: &Arc<Server>, mut s: TcpStream, peer: SocketAddr) {
     }
     let seg: Vec<&str> = p.trim_matches('/').split('/').collect();
     let control = g.role == Role::Control;
+    // server-wide: tunnels, the main tokens, links. A link (however broad) never manages the server or other links
+    let owner = control && g.owner;
     match (req.method.as_str(), seg.as_slice()) {
-        ("GET", ["api", "me"]) => json_resp(&mut s, 200, &json!({"role": g.role, "phone": g.phone, "expires": g.expires, "local": g.token.is_none(), "server": {"started": srv.started, "version": env!("CARGO_PKG_VERSION")}})),
+        ("GET", ["api", "me"]) => json_resp(&mut s, 200, &json!({"role": g.role, "phone": g.phone, "expires": g.expires, "local": g.token.is_none(), "owner": owner, "server": {"started": srv.started, "version": env!("CARGO_PKG_VERSION")}})),
         ("GET", ["api", "phones"]) => {
             let all = srv.phones();
             let v: Vec<Value> = all.as_array().into_iter().flatten().filter(|p| srv.visible(&g, p["id"].as_str().unwrap_or(""))).cloned().collect();
             json_resp(&mut s, 200, &Value::Array(v))
         }
-        ("GET", ["api", "status"]) if control => {
+        ("GET", ["api", "status"]) if owner => {
             let streams: Vec<Value> = video::streams().into_iter().map(|(k, st)| json!({"phone": k.phone, "codec": format!("{:?}", k.codec), "width": k.width, "quality": k.quality, "fps": k.fps, "stats": st})).collect();
             let mut st = serde_json::to_value(srv.state()).unwrap_or_default();
             st["control_token"] = Value::Null;
@@ -432,7 +583,10 @@ fn handle(srv: &Arc<Server>, mut s: TcpStream, peer: SocketAddr) {
                     let cached = srv.thumbs.lock().unwrap().get(&key).filter(|(t, _)| t.elapsed() < Duration::from_millis(900)).map(|(_, b)| b.clone());
                     let jpg = cached.or_else(|| {
                         let j = video::snapshot_jpeg(&inst, w, 70)?;
-                        srv.thumbs.lock().unwrap().insert(key, (Instant::now(), j.clone()));
+                        let mut t = srv.thumbs.lock().unwrap();
+                        // stale ones go (a widths sweep otherwise kept hundreds of JPEGs a phone)
+                        t.retain(|_, (at, _)| at.elapsed() < Duration::from_secs(10));
+                        t.insert(key, (Instant::now(), j.clone()));
                         Some(j)
                     });
                     match jpg {
@@ -470,21 +624,22 @@ fn handle(srv: &Arc<Server>, mut s: TcpStream, peer: SocketAddr) {
                 Err(e) => json_resp(&mut s, 400, &json!({"error": format!("{e:#}")})),
             }
         }
-        ("GET", ["api", "links"]) if control => {
+        ("GET", ["api", "links"]) if owner => {
             let toks = srv.tokens.lock().unwrap();
             let v: Vec<Value> = toks.iter().filter(|r| r.label.starts_with("link:")).map(|r| json!({"id": &r.token[..6], "role": r.role, "phone": r.phone, "expires": r.expires, "label": r.label})).collect();
             json_resp(&mut s, 200, &Value::Array(v))
         }
-        ("POST", ["api", "links"]) if control => {
+        ("POST", ["api", "links"]) if owner => {
             let b: Value = serde_json::from_slice(&req.body).unwrap_or_default();
             let role = if b["role"].as_str() == Some("control") { Role::Control } else { Role::View };
-            // a link made through a limited token stays within its phone
-            let phone = g.phone.clone().or_else(|| b["phone"].as_str().filter(|p| !p.is_empty()).map(String::from));
-            if let Some(p) = &phone {
-                if instance::find(p).is_none() {
-                    return json_resp(&mut s, 404, &json!({"error": "no such phone"}));
-                }
-            }
+            // a phone named by its name or folder is stored as its id (what visible() compares with)
+            let phone = match g.phone.clone().or_else(|| b["phone"].as_str().filter(|p| !p.is_empty()).map(String::from)) {
+                Some(p) => match instance::find(&p) {
+                    Some(i) => Some(i.id),
+                    None => return json_resp(&mut s, 404, &json!({"error": "no such phone"})),
+                },
+                None => None,
+            };
             let ttl = b["ttl_s"].as_u64().filter(|t| *t > 0).or(Some(3600)).map(|t| t.min(30 * 86400));
             // a link never outlives the token that made it
             let ttl = match (ttl, g.expires) {
@@ -494,9 +649,13 @@ fn handle(srv: &Arc<Server>, mut s: TcpStream, peer: SocketAddr) {
             let r = srv.mint(role, phone.clone(), ttl, b["label"].as_str().unwrap_or(""));
             json_resp(&mut s, 200, &json!({"role": r.role, "phone": r.phone, "expires": r.expires, "token": r.token, "urls": srv.urls_for(&r.token, phone.as_deref())}))
         }
-        ("POST", ["api", "links", "revoke"]) if control => {
+        ("POST", ["api", "links", "revoke"]) if owner => {
             let b: Value = serde_json::from_slice(&req.body).unwrap_or_default();
-            let id = b["id"].as_str().unwrap_or("-");
+            let id = b["id"].as_str().unwrap_or("");
+            // a link's id (its token's first 6 characters, as GET /api/links lists it) or "all": "" matched every link
+            if id != "all" && !(id.len() >= 6 && id.bytes().all(|c| c.is_ascii_hexdigit())) {
+                return json_resp(&mut s, 400, &json!({"error": "id: a link id (6+ hex characters) or \"all\""}));
+            }
             let mut toks = srv.tokens.lock().unwrap();
             let before = toks.len();
             toks.retain(|r| !(r.label.starts_with("link:") && (r.token.starts_with(id) || id == "all")));
@@ -505,7 +664,7 @@ fn handle(srv: &Arc<Server>, mut s: TcpStream, peer: SocketAddr) {
             srv.write_state();
             json_resp(&mut s, 200, &json!({"revoked": n}))
         }
-        ("GET", ["api", "urls"]) if control => {
+        ("GET", ["api", "urls"]) if owner => {
             let st = srv.state();
             let tok = match req.query.get("role").map(String::as_str) {
                 Some("view") => st.view_token,
@@ -513,7 +672,7 @@ fn handle(srv: &Arc<Server>, mut s: TcpStream, peer: SocketAddr) {
             };
             json_resp(&mut s, 200, &json!({"urls": srv.urls_for(&tok, req.query.get("phone").map(String::as_str)), "tunnels": st.tunnels, "available": tunnel::available()}))
         }
-        ("POST", ["api", "tunnel"]) if control => {
+        ("POST", ["api", "tunnel"]) if owner => {
             let b: Value = serde_json::from_slice(&req.body).unwrap_or_default();
             let Some(kind) = b["kind"].as_str().and_then(Kind::parse) else { return json_resp(&mut s, 400, &json!({"error": "kind: tailscale, funnel or cloudflared"})) };
             if b["on"].as_bool() == Some(false) {
@@ -550,12 +709,12 @@ fn handle(srv: &Arc<Server>, mut s: TcpStream, peer: SocketAddr) {
             }
             session(srv, s, inst, g, &req.query);
         }
-        _ => json_resp(&mut s, if control { 404 } else { 403 }, &json!({"error": "not found or not allowed"})),
+        _ => json_resp(&mut s, if owner { 404 } else { 403 }, &json!({"error": "not found or not allowed"})),
     }
 }
 
 /// One viewer's socket: video out (from the shared stream), input in (control role only), phone state changes out
-fn session(_srv: &Arc<Server>, s: TcpStream, inst: Instance, g: Grant, q: &HashMap<String, String>) {
+fn session(srv: &Arc<Server>, s: TcpStream, inst: Instance, g: Grant, q: &HashMap<String, String>) {
     let codec = if q.get("codec").map(String::as_str) == Some("jpeg") { Codec::Jpeg } else { Codec::H264 };
     let width = q.get("w").and_then(|v| v.parse::<u32>().ok()).unwrap_or(720).clamp(160, 2048) / 16 * 16;
     let quality = q.get("q").and_then(|v| v.parse::<u8>().ok()).unwrap_or(1).min(2);
@@ -607,8 +766,9 @@ fn session(_srv: &Arc<Server>, s: TcpStream, inst: Instance, g: Grant, q: &HashM
                     break;
                 }
             }
-            if g.expires.is_some_and(|e| e <= now_s()) {
-                let _ = tx.send(Out::Text(json!({"t": "expired"}).to_string()));
+            // expired, or revoked since the socket opened: the session ends
+            if !srv.still_valid(&g) {
+                let _ = tx.send(Out::Text(json!({"t": if g.expires.is_some_and(|e| e <= now_s()) { "expired" } else { "revoked" }}).to_string()));
                 break;
             }
         }
@@ -865,7 +1025,135 @@ mod tests {
             headers: headers.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
             body: vec![],
             peer: peer.parse().unwrap(),
+            local: "127.0.0.1:7380".parse().unwrap(),
         }
+    }
+
+    /// A request to a running test server: (status, body)
+    fn http(port: u16, method: &str, path: &str, token: Option<&str>, body: &str) -> (u16, Value) {
+        let mut c = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        let auth = token.map(|t| format!("Authorization: Bearer {t}\r\n")).unwrap_or_default();
+        write!(c, "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n{auth}X-X86sim: 1\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+        let mut out = String::new();
+        c.read_to_string(&mut out).unwrap();
+        let (head, b) = out.split_once("\r\n\r\n").unwrap_or((&out, ""));
+        (head.split_whitespace().nth(1).and_then(|c| c.parse().ok()).unwrap_or(0), serde_json::from_str(b).unwrap_or(Value::Null))
+    }
+
+    /// A server on a free loopback port (its state file is not written: Server::new gets port 0)
+    fn test_server() -> (Arc<Server>, u16) {
+        let srv = Server::new(Options { require_token: false, ..Options::default() }, 0);
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        let s2 = srv.clone();
+        std::thread::spawn(move || run(s2, l));
+        (srv, port)
+    }
+
+    #[test]
+    fn links_are_scoped_to_what_they_allow() {
+        let (srv, port) = test_server();
+        let main = srv.state().control_token;
+        let view = srv.state().view_token;
+        // a control link limited to a phone and expiring: no server-wide endpoint, no main token
+        let l = srv.mint(Role::Control, Some("device-a64-x".into()), Some(600), "t");
+        let other = srv.mint(Role::View, None, Some(600), "o");
+        for (m, path, body) in [("GET", "/api/urls", ""), ("GET", "/api/urls?role=view", ""), ("GET", "/api/status", ""), ("GET", "/api/links", ""),
+                                ("POST", "/api/tunnel", r#"{"kind":"funnel"}"#), ("POST", "/api/links", r#"{"role":"control"}"#),
+                                ("POST", "/api/links/revoke", r#"{"id":""}"#), ("POST", "/api/links/revoke", r#"{"id":"all"}"#)] {
+            let (code, v) = http(port, m, path, Some(&l.token), body);
+            assert!(code == 403 || code == 404, "{m} {path} with a limited link: {code} {v}");
+            assert!(!v.to_string().contains(&main), "{m} {path} handed out the main token");
+        }
+        // an unlimited control link is no owner either
+        let wide = srv.mint(Role::Control, None, Some(600), "w");
+        assert_eq!(http(port, "GET", "/api/urls", Some(&wide.token), "").0, 403);
+        assert_eq!(http(port, "POST", "/api/tunnel", Some(&wide.token), r#"{"kind":"funnel"}"#).0, 403);
+        // the view token neither
+        assert_eq!(http(port, "GET", "/api/links", Some(&view), "").0, 403);
+        let (code, me) = http(port, "GET", "/api/me", Some(&l.token), "");
+        assert_eq!((code, me["owner"].as_bool()), (200, Some(false)));
+        // the owner (main control token) does it all; revoke wants a real id
+        let (code, me) = http(port, "GET", "/api/me", Some(&main), "");
+        assert_eq!((code, me["owner"].as_bool()), (200, Some(true)));
+        assert_eq!(http(port, "GET", "/api/urls", Some(&main), "").0, 200);
+        assert_eq!(http(port, "GET", "/api/links", Some(&main), "").1.as_array().map(|a| a.len()), Some(3));
+        assert_eq!(http(port, "POST", "/api/links/revoke", Some(&main), r#"{"id":""}"#).0, 400);
+        assert_eq!(http(port, "POST", "/api/links/revoke", Some(&main), r#"{"id":"a"}"#).0, 400);
+        assert!(srv.still_valid(&srv.grant(&{
+            let mut r = req("10.0.0.2:1", &[("host", "x")]);
+            r.query.insert("t".into(), other.token.clone());
+            r
+        }).unwrap()));
+        let g = Grant { role: Role::View, phone: None, token: Some(other.token.clone()), expires: other.expires, owner: false };
+        let (code, v) = http(port, "POST", "/api/links/revoke", Some(&main), &json!({"id": &other.token[..6]}).to_string());
+        assert_eq!((code, v["revoked"].as_u64()), (200, Some(1)));
+        // an open session of the revoked link ends at its next check (session() polls still_valid)
+        assert!(!srv.still_valid(&g));
+        assert_eq!(http(port, "GET", "/api/me", Some(&other.token), "").0, 401);
+        srv.stop.store(true, Ordering::Relaxed);
+    }
+
+    #[test]
+    fn the_local_owner_is_this_user_only() {
+        let (srv, port) = test_server();
+        // this test process is the server's user: no token needed, and it is the owner
+        let (code, me) = http(port, "GET", "/api/me", None, "");
+        assert_eq!((code, me["owner"].as_bool(), me["local"].as_bool()), (200, Some(true), Some(true)));
+        // peer_uid finds our socket's uid; a pair that is no connection has none
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let c = TcpStream::connect(l.local_addr().unwrap()).unwrap();
+        let (a, _) = l.accept().unwrap();
+        assert_eq!(peer_uid(a.peer_addr().unwrap(), a.local_addr().unwrap()), Some(unsafe { libc::getuid() }));
+        assert_eq!(peer_uid("127.0.0.1:1".parse().unwrap(), a.local_addr().unwrap()), None);
+        drop(c);
+        // a peer that is not ours (no such socket: e.g. another user's, which /proc/net/tcp lists with its uid) is refused
+        let mut r = req("127.0.0.1:1", &[("host", "127.0.0.1:7380")]);
+        r.local = "127.0.0.1:2".parse().unwrap();
+        assert!(srv.grant(&r).is_none());
+        srv.stop.store(true, Ordering::Relaxed);
+    }
+
+    #[test]
+    fn request_heads_are_bounded() {
+        let peer: SocketAddr = "10.0.0.2:1".parse().unwrap();
+        // an endless header line without a newline: refused at the head limit, not read to the end
+        let endless = std::io::repeat(b'a');
+        let t = Instant::now();
+        assert!(read_head(std::io::Cursor::new(b"GET / HTTP/1.1\r\nX: ".to_vec()).chain(endless), peer, peer).is_none());
+        assert!(t.elapsed() < Duration::from_secs(5));
+        // too many headers
+        let mut h = b"GET / HTTP/1.1\r\n".to_vec();
+        for i in 0..200 {
+            h.extend(format!("X-{i}: 1\r\n").as_bytes());
+        }
+        h.extend(b"\r\n");
+        assert!(read_head(std::io::Cursor::new(h), peer, peer).is_none());
+        // a normal one with a body
+        let r = read_head(std::io::Cursor::new(b"POST /api/x?a=1 HTTP/1.1\r\nContent-Length: 4\r\n\r\nbody".to_vec()), peer, peer).unwrap();
+        assert_eq!((r.method.as_str(), r.path.as_str(), r.body.as_slice()), ("POST", "/api/x", &b"body"[..]));
+        // a slow client: the deadline ends it however it trickles
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut c = TcpStream::connect(l.local_addr().unwrap()).unwrap();
+        let (a, _) = l.accept().unwrap();
+        c.write_all(b"GET / HT").unwrap();
+        let t = Instant::now();
+        assert!(read_head(Deadline { s: &a, end: Instant::now() + Duration::from_millis(400) }, peer, peer).is_none());
+        assert!(t.elapsed() < Duration::from_secs(3));
+    }
+
+    #[test]
+    fn connections_are_capped() {
+        let c = Conns::default();
+        let lan: std::net::IpAddr = "192.168.1.9".parse().unwrap();
+        let held: Vec<_> = (0..MAX_CONNS_PEER).map(|_| c.enter(lan).unwrap()).collect();
+        assert!(c.enter(lan).is_none(), "one address is capped");
+        let lo: std::net::IpAddr = "127.0.0.1".parse().unwrap();
+        let more: Vec<_> = (0..MAX_CONNS - MAX_CONNS_PEER).map(|_| c.enter(lo).unwrap()).collect();
+        assert!(c.enter(lo).is_none(), "the total is capped");
+        drop(held);
+        drop(more);
+        assert!(c.enter(lan).is_some(), "slots come back");
     }
 
     #[test]

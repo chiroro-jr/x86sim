@@ -23,9 +23,15 @@ extern "C" fn on_signal(_: libc::c_int) {
     STOP.store(true, Ordering::Relaxed);
 }
 
+/// `redact`: the server's own output when it goes to a file (serve.log): tokens cut short (x86sim serve status prints them)
 fn print_urls(st: &share::State, phone: Option<&str>) {
-    let ctl = share::share_urls(st, Role::Control, phone);
-    let view = share::share_urls(st, Role::View, phone);
+    print_urls_r(st, phone, false)
+}
+
+fn print_urls_r(st: &share::State, phone: Option<&str>, redact: bool) {
+    let r = |v: Vec<(String, String, String)>| -> Vec<(String, String, String)> { v.into_iter().map(|(k, re, u)| (k, re, if redact { share::redact(&u) } else { u })).collect() };
+    let ctl = r(share::share_urls(st, Role::Control, phone));
+    let view = r(share::share_urls(st, Role::View, phone));
     println!("x86sim serve: pid {}, listening on {}", st.pid, st.listen);
     for t in &st.tunnels {
         match t.state.as_str() {
@@ -45,7 +51,7 @@ fn print_urls(st: &share::State, phone: Option<&str>) {
         println!("tokens expire in {} min", e.saturating_sub(share::now_s()) / 60);
     }
     // a QR code of the first remote control link (a phone's camera opens it)
-    if let Some((_, _, u)) = ctl.iter().find(|(k, _, _)| k != "local") {
+    if let Some((_, _, u)) = ctl.iter().find(|(k, _, _)| k != "local" && !redact) {
         if let Some(q) = share::qr_text(u) {
             println!("{q}");
         }
@@ -242,7 +248,10 @@ fn run(opts: Options, phone: Option<String>, open: bool) {
     }
     srv.write_state();
     let st = srv.state();
-    print_urls(&st, phone.as_deref());
+    print_urls_r(&st, phone.as_deref(), unsafe { libc::isatty(1) } == 0);
+    if unsafe { libc::isatty(1) } == 0 {
+        println!("(tokens cut short here: x86sim serve status prints the full links)");
+    }
     let _ = std::io::stdout().flush();
     if open {
         if let Some((_, _, u)) = share::share_urls(&st, Role::Control, phone.as_deref()).into_iter().find(|(k, _, _)| k == "local") {

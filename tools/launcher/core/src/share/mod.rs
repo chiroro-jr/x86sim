@@ -204,7 +204,11 @@ pub fn start(opts: &Options) -> Result<State> {
     if let Some(d) = log.parent() {
         std::fs::create_dir_all(d)?;
     }
-    let lf = std::fs::OpenOptions::new().create(true).append(true).open(&log)?;
+    // the log is the user's alone (an older one made 0644 is narrowed): the server prints no full token into it, but it
+    // names the tunnels and the phones
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    let lf = std::fs::OpenOptions::new().create(true).append(true).mode(0o600).open(&log)?;
+    lf.set_permissions(std::fs::Permissions::from_mode(0o600))?;
     let mut cmd = std::process::Command::new("setsid");
     cmd.arg(&exe).args(args_of(opts)).stdin(std::process::Stdio::null()).stdout(lf.try_clone()?).stderr(lf);
     let mut child = cmd.spawn().context("starting x86sim-serve")?;
@@ -315,6 +319,9 @@ pub fn qr_text(text: &str) -> Option<String> {
     Some(s)
 }
 
+/// The longest TTL taken (a year): "1e30" saturated to u64::MAX and then wrapped `now + ttl` into the past
+pub const MAX_TTL_S: u64 = 365 * 86400;
+
 pub fn parse_duration(s: &str) -> Option<u64> {
     let s = s.trim();
     let (n, mul) = match s.chars().last()? {
@@ -324,7 +331,18 @@ pub fn parse_duration(s: &str) -> Option<u64> {
         'd' => (&s[..s.len() - 1], 86400),
         _ => (s, 1),
     };
-    n.parse::<f64>().ok().filter(|v| *v > 0.0).map(|v| (v * mul as f64) as u64)
+    n.parse::<f64>().ok().filter(|v| v.is_finite() && *v > 0.0).map(|v| ((v * mul as f64) as u64).clamp(1, MAX_TTL_S))
+}
+
+/// A URL with its token cut to the first 6 characters (for logs: enough to tell links apart, useless to get in)
+pub fn redact(url: &str) -> String {
+    match url.split_once("t=") {
+        Some((a, b)) => {
+            let end = b.find('&').unwrap_or(b.len());
+            format!("{a}t={}…{}", &b[..end.min(6)], &b[end..])
+        }
+        None => url.to_string(),
+    }
 }
 
 /// The URLs to hand out: every way in for a role's token, the remote ones first
@@ -421,6 +439,10 @@ mod tests {
         assert_eq!(parse_duration("2h"), Some(7200));
         assert_eq!(parse_duration("1.5d"), Some(129600));
         assert_eq!(parse_duration("x"), None);
+        assert_eq!(parse_duration("1e30"), Some(MAX_TTL_S));
+        assert_eq!(parse_duration("inf"), None);
+        assert_eq!(parse_duration("NaN"), None);
+        assert!(redact("http://x/?t=0123456789abcdef&phone=p").contains("?t=012345…&phone=p"));
         let st = State {
             port: 7380,
             listen: "127.0.0.1:7380".into(),
