@@ -139,11 +139,24 @@ typedef struct {
 	NSMutableArray* webviews;   // WKWebViews on screen, walked by JS afterwards
 	NSMutableSet* seen;
 	CGRect screen;
+	CGRect clip;                 // the window's part of the screen (screen coordinates): beyond it is off screen
+	CGPoint off;                 // the window's origin on the display (window_origin)
+	long rot;                    // a window that does not rotate (SpringBoard's switcher window) under a landscape
+	                             // interface: its interface orientation (3, 4), its frames turned into the screen's
+	CGSize portrait;             // the display in points, portrait
 	BOOL all;
 	int win;                     // index of the window being walked
 	id focus;                    // the first responder
+	id focus_item;               // the focus engine's focused item (tvOS: what the remote's select acts on; iPad: keyboard focus)
 	int budget;                  // max nodes visited
 } Walk;
+
+// a frame in a window's coordinates -> the screen's (as the agent sees the display)
+static CGRect place(Walk* w, CGRect f) {
+	if (w->rot == 3) f = CGRectMake(f.origin.y, w->portrait.width - (f.origin.x + f.size.width), f.size.height, f.size.width);
+	else if (w->rot == 4) f = CGRectMake(w->portrait.height - (f.origin.y + f.size.height), f.origin.x, f.size.height, f.size.width);
+	return CGRectOffset(f, w->off.x, w->off.y);
+}
 
 static BOOL view_hidden(UIView* v) {
 	return v.hidden || v.alpha < 0.01 || v.accessibilityElementsHidden;
@@ -177,7 +190,8 @@ static void emit(Walk* w, id e, int depth, NSString* container) {
 	CGRect f = CGRectZero;
 	@try { f = [e accessibilityFrame]; } @catch (id ex) { return; }
 	if (CGRectIsNull(f) || CGRectIsInfinite(f)) return;
-	BOOL on = CGRectIntersectsRect(f, w->screen) && f.size.width > 0.5 && f.size.height > 0.5;
+	f = place(w, f);
+	BOOL on = CGRectIntersectsRect(f, w->clip) && f.size.width > 0.5 && f.size.height > 0.5;
 	if (!on && !w->all) return;
 	uint64_t t = 0;
 	NSString *label = nil, *value = nil, *ident = nil, *hint = nil;
@@ -212,6 +226,21 @@ static void emit(Walk* w, id e, int depth, NSString* container) {
 	if (t & UIAccessibilityTraitSelected) d[@"selected"] = @YES;
 	BOOL focused = w->focus && (e == w->focus || ([e isKindOfClass:[UIView class]] && [w->focus isKindOfClass:[UIView class]] &&
 		[(UIView*)w->focus isDescendantOfView:(UIView*)e]));
+	// the focus engine's item (tvOS): the element itself, a view inside it, or the view it stands for
+	id fi = w->focus_item;
+	if (fi && !focused) {
+		if (e == fi) focused = YES;
+		else if ([fi isKindOfClass:[UIView class]] && [e isKindOfClass:[UIView class]] && [(UIView*)fi isDescendantOfView:(UIView*)e]) focused = YES;
+		else if ([e respondsToSelector:@selector(accessibilityContainer)]) {
+			id c = nil;
+			@try { c = [e accessibilityContainer]; } @catch (id ex) { c = nil; }
+			// a cell's accessibility element (SwiftUI, collection cells) stands for the focused view when it covers it
+			if (c == fi && [fi isKindOfClass:[UIView class]]) {
+				CGRect ff = place(w, to_screen(fi, ((UIView*)fi).bounds));
+				focused = CGRectContainsPoint(CGRectInset(f, -1, -1), CGPointMake(CGRectGetMidX(ff), CGRectGetMidY(ff)));
+			}
+		}
+	}
 	if (focused || (t & kTraitIsEditing)) d[@"focused"] = @YES;
 	if (!on) d[@"offscreen"] = @YES;
 	d[@"win"] = @(w->win);
@@ -230,16 +259,17 @@ static void walk(Walk* w, id o, int depth, NSString* container) {
 		if (view_hidden(v)) return;
 #if SIMAX_WEB
 		if ([v isKindOfClass:[WKWebView class]]) {
-			CGRect f = to_screen(v, v.bounds);
-			if (CGRectIntersectsRect(f, w->screen)) [w->webviews addObject:@{ @"view": v, @"win": @(w->win), @"depth": @(depth) }];
+			CGRect f = place(w, to_screen(v, v.bounds));
+			if (CGRectIntersectsRect(f, w->clip)) [w->webviews addObject:@{ @"view": v, @"win": @(w->win), @"depth": @(depth),
+				@"off": [NSValue valueWithCGPoint:w->off], @"clip": [NSValue valueWithCGRect:w->clip] }];
 			return;   // its content comes from the DOM walk (the AX tree of a web page lives in another process)
 		}
 #endif
 		// off-screen subtrees: skip unless all (a scroll view's content is checked element by element)
 		if (!w->all && ![v isKindOfClass:[UIScrollView class]]) {
-			CGRect f = to_screen(v, v.bounds);
+			CGRect f = place(w, to_screen(v, v.bounds));
 			if (!v.clipsToBounds) f = CGRectInset(f, -2000, -2000);   // children may draw outside a non-clipping view
-			if (!CGRectIntersectsRect(f, w->screen) && v.subviews.count < 50) return;
+			if (!CGRectIntersectsRect(f, w->clip) && v.subviews.count < 50) return;
 		}
 	} else if ([o respondsToSelector:@selector(accessibilityElementsHidden)] && [o accessibilityElementsHidden]) {
 		return;
@@ -325,7 +355,8 @@ static void walk_web(Walk* w, NSDictionary* wv, NSMutableArray* out, dispatch_gr
 	NSString* js = [NSString stringWithFormat:kDomWalker, w->all ? @"true" : @"false"];
 	UIScrollView* sv = v.scrollView;
 	CGFloat zoom = sv.zoomScale > 0 ? sv.zoomScale : 1;
-	CGRect vis = to_screen(v, v.bounds);
+	CGPoint off = [wv[@"off"] CGPointValue];
+	CGRect vis = CGRectIntersection(CGRectOffset(to_screen(v, v.bounds), off.x, off.y), [wv[@"clip"] CGRectValue]);
 	int win = [wv[@"win"] intValue], depth = [wv[@"depth"] intValue];
 	dispatch_group_enter(g);
 	void (^done)(id, NSError*) = ^(id res, NSError* err) {
@@ -341,6 +372,7 @@ static void walk_web(Walk* w, NSDictionary* wv, NSMutableArray* out, dispatch_gr
 			// client rect -> page coordinates -> the scroll view's content coordinates -> screen
 			CGPoint p = CGPointMake(([it[@"x"] doubleValue] + sx) * zoom, ([it[@"y"] doubleValue] + sy) * zoom);
 			CGPoint s = to_screen(sv, CGRectMake(p.x, p.y, 0, 0)).origin;
+			s.x += off.x, s.y += off.y;
 			CGRect f = CGRectMake(s.x, s.y, [it[@"w"] doubleValue] * zoom, [it[@"h"] doubleValue] * zoom);
 			BOOL on = CGRectIntersectsRect(f, vis);
 			if (!on && !w->all) continue;
@@ -380,6 +412,22 @@ static UIResponder* first_responder(void) {
 			if (r) return r;
 		}
 	}
+	return nil;
+}
+
+// The focus engine's focused item (UIFocusSystem of a window's scene; tvOS: what the remote acts on). Looked up by
+// name: UIFocusSystem is iOS 15+ / tvOS 15+ API, and UIScreen.focusedItem the tvOS way.
+static id focused_item(NSArray* wins) {
+	Class fs = NSClassFromString(@"UIFocusSystem");
+	SEL forEnv = NSSelectorFromString(@"focusSystemForEnvironment:");
+	for (UIWindow* w in [wins reverseObjectEnumerator]) {
+		id sys = fs && [fs respondsToSelector:forEnv] ? ((id(*)(id, SEL, id))objc_msgSend)(fs, forEnv, w) : nil;
+		id it = [sys respondsToSelector:@selector(focusedItem)] ? ((id(*)(id, SEL))objc_msgSend)(sys, @selector(focusedItem)) : nil;
+		if (it) return it;
+	}
+	id scr = ((id(*)(id, SEL))objc_msgSend)(NSClassFromString(@"UIScreen"), NSSelectorFromString(@"mainScreen"));
+	if (scr && [scr respondsToSelector:NSSelectorFromString(@"focusedItem")])
+		return ((id(*)(id, SEL))objc_msgSend)(scr, NSSelectorFromString(@"focusedItem"));
 	return nil;
 }
 
@@ -440,6 +488,64 @@ static double screen_scale(void) {
 	return 2;
 }
 
+// Where the window's scene is on the display (iPadOS windowed apps / Stage Manager, an iPhone app on an iPad): the
+// scene's FBSSceneSettings frame. UIKit's screen coordinates are the scene's own (its origin is 0,0 wherever SpringBoard
+// put the window); an agent's are the display's. (0, 0) for a full-screen scene and wherever there is no such frame.
+static CGRect scene_frame(UIWindow* w, long* io) {
+	CGRect r = CGRectNull;
+	@try {
+		id sc = w.windowScene;
+		SEL fs = NSSelectorFromString(@"_FBSScene");
+		id fbs = [sc respondsToSelector:fs] ? ((id(*)(id, SEL))objc_msgSend)(sc, fs) : nil;
+		id set = [fbs respondsToSelector:@selector(settings)] ? ((id(*)(id, SEL))objc_msgSend)(fbs, @selector(settings)) : nil;
+		if (![set respondsToSelector:@selector(frame)]) return r;
+		r = ((CGRect(*)(id, SEL))objc_msgSend)(set, @selector(frame));
+		if (io && [set respondsToSelector:@selector(interfaceOrientation)])
+			*io = ((long(*)(id, SEL))objc_msgSend)(set, @selector(interfaceOrientation));
+	} @catch (id ex) {
+	}
+	return r;
+}
+
+static CGPoint window_origin(UIWindow* w) {
+	long io = 1;
+	CGRect r = scene_frame(w, &io);
+	if (CGRectIsNull(r)) return CGPointZero;
+	CGSize sz = w.bounds.size;
+	if (fabs(r.size.width - sz.width) < 1 && fabs(r.size.height - sz.height) < 1) return r.origin;
+	// a rotated interface: the scene's frame is in the display's own (portrait) coordinates; the window's origin is
+	// the corner that is its top left in the interface's orientation
+	if (fabs(r.size.width - sz.height) < 1 && fabs(r.size.height - sz.width) < 1) {
+		CGRect d = ((CGRect(*)(id, SEL))objc_msgSend)(((id(*)(id, SEL))objc_msgSend)(NSClassFromString(@"UIScreen"),
+			NSSelectorFromString(@"mainScreen")), NSSelectorFromString(@"nativeBounds"));
+		double scale = screen_scale();
+		double W = d.size.width / scale, H = d.size.height / scale;   // the display, portrait, points
+		if (io == 4)   // UIInterfaceOrientationLandscapeLeft: home button on the left; interface x = H - (y + h)
+			return CGPointMake(H - (r.origin.y + r.size.height), r.origin.x);
+		if (io == 3)   // LandscapeRight
+			return CGPointMake(r.origin.y, W - (r.origin.x + r.size.width));
+	}
+	return CGPointZero;
+}
+
+// A window that keeps the display's portrait coordinates while the interface is landscape (SpringBoard's
+// SBMainSwitcherWindow: window controls, resize grabbers): the interface orientation its frames are turned by, else 0
+static long window_rot(UIWindow* win, CGSize screen, CGSize* portrait) {
+	CGSize b = win.bounds.size;
+	*portrait = CGSizeMake(MIN(screen.width, screen.height), MAX(screen.width, screen.height));
+	if (screen.width <= screen.height || fabs(b.width - screen.height) > 1 || fabs(b.height - screen.width) > 1) return 0;
+	// the interface's orientation: a scene that turned with it (UIWindowScene.interfaceOrientation of a landscape window)
+	for (UIScene* sc in UIApplication.sharedApplication.connectedScenes) {
+		if (![sc isKindOfClass:[UIWindowScene class]]) continue;
+		for (UIWindow* o in ((UIWindowScene*)sc).windows)
+			if (o.bounds.size.width > o.bounds.size.height) {
+				long io = ((long(*)(id, SEL))objc_msgSend)(sc, NSSelectorFromString(@"interfaceOrientation"));
+				if (io == 3 || io == 4) return io;
+			}
+	}
+	return 0;
+}
+
 static NSMutableDictionary* info(void) {
 	UIApplication* app = UIApplication.sharedApplication;
 	NSMutableDictionary* d = [NSMutableDictionary dictionary];
@@ -457,8 +563,15 @@ static NSMutableDictionary* info(void) {
 	NSMutableArray* ws = [NSMutableArray array];
 	for (UIWindow* w in visible_windows()) {
 		CGRect f = to_screen(w, w.bounds);
-		[ws addObject:@{ @"class": NSStringFromClass([w class]), @"level": @(w.windowLevel), @"key": @(w.isKeyWindow),
-			@"frame": @[ @(f.origin.x), @(f.origin.y), @(f.size.width), @(f.size.height) ] }];
+		CGPoint wo = window_origin(w);
+		f = CGRectOffset(f, wo.x, wo.y);
+		NSMutableDictionary* wd = [@{ @"class": NSStringFromClass([w class]), @"level": @(w.windowLevel), @"key": @(w.isKeyWindow),
+			@"frame": @[ @(f.origin.x), @(f.origin.y), @(f.size.width), @(f.size.height) ] } mutableCopy];
+		long io = 0;
+		CGRect sf = scene_frame(w, &io);
+		if (!CGRectIsNull(sf)) wd[@"scene"] = @[ @(sf.origin.x), @(sf.origin.y), @(sf.size.width), @(sf.size.height), @(io) ];
+		if (wo.x || wo.y) wd[@"origin"] = @[ @(wo.x), @(wo.y) ];
+		[ws addObject:wd];
 	}
 	d[@"windows"] = ws;
 	d[@"ax"] = @(atomic_load(&g_ax_loaded));
@@ -486,13 +599,42 @@ static void tree(NSDictionary* req, void (^reply)(NSDictionary*)) {
 	w.focus = first_responder();
 	w.budget = 20000;
 	NSArray* wins = visible_windows();
+	w.focus_item = focused_item(wins);
 	// front to back: a modal window on top (an alert) hides the windows below it from VoiceOver too, but they are still
 	// on screen; the host decides (it knows every process's windows)
 	for (int i = 0; i < (int)wins.count; i++) {
 		w.win = i;
+		w.off = window_origin(wins[i]);
+		w.rot = window_rot(wins[i], w.screen.size, &w.portrait);
+		w.clip = CGRectIntersection(w.screen, place(&w, to_screen(wins[i], [wins[i] bounds])));
 		walk(&w, wins[i], 0, nil);
 	}
 	if (w.focus) d[@"focus"] = hex(w.focus);
+	if (w.focus_item) {
+		// where the focus is, also when no element stands for it (the host moves it there with the remote's arrows)
+		CGRect ff = CGRectNull;
+		@try {
+			if ([w.focus_item isKindOfClass:[UIView class]]) {
+				UIView* fv = w.focus_item;
+				CGPoint o = fv.window ? window_origin(fv.window) : CGPointZero;
+				ff = CGRectOffset(to_screen(fv, fv.bounds), o.x, o.y);
+			}
+			else if ([w.focus_item respondsToSelector:@selector(frame)] && [w.focus_item respondsToSelector:@selector(coordinateSpace)]) {
+				CGRect r = ((CGRect(*)(id, SEL))objc_msgSend)(w.focus_item, @selector(frame));
+				id<UICoordinateSpace> cs = ((id(*)(id, SEL))objc_msgSend)(w.focus_item, @selector(coordinateSpace));
+				id scr = ((id(*)(id, SEL))objc_msgSend)(NSClassFromString(@"UIScreen"), NSSelectorFromString(@"mainScreen"));
+				id<UICoordinateSpace> to = scr ? ((id(*)(id, SEL))objc_msgSend)(scr, NSSelectorFromString(@"coordinateSpace")) : nil;
+				ff = to ? [cs convertRect:r toCoordinateSpace:to] : r;
+			}
+		} @catch (id ex) {
+		}
+		NSMutableDictionary* fd = [NSMutableDictionary dictionaryWithDictionary:@{ @"oid": hex(w.focus_item), @"class": NSStringFromClass([w.focus_item class]) }];
+		if (!CGRectIsNull(ff)) fd[@"frame"] = @[ @(round(ff.origin.x * 10) / 10), @(round(ff.origin.y * 10) / 10), @(round(ff.size.width * 10) / 10), @(round(ff.size.height * 10) / 10) ];
+		NSString* fl = nil;
+		@try { fl = str([w.focus_item accessibilityLabel]); } @catch (id ex) { fl = nil; }
+		if (fl) fd[@"label"] = fl;
+		d[@"focus_item"] = fd;
+	}
 	int budget = 5000;
 	for (UIWindow* win in wins)
 		if (animating_layer(win.layer, &budget)) { d[@"animating"] = @YES; break; }
@@ -526,7 +668,12 @@ static id find_oid(NSString* oid) {
 	w.all = YES;
 	w.budget = 20000;
 	NSArray* wins = visible_windows();
-	for (int i = 0; i < (int)wins.count; i++) walk(&w, wins[i], 0, nil);
+	for (int i = 0; i < (int)wins.count; i++) {
+		w.off = window_origin(wins[i]);
+		w.rot = window_rot(wins[i], w.screen.size, &w.portrait);
+		w.clip = w.screen;
+		walk(&w, wins[i], 0, nil);
+	}
 	for (NSValue* v in w.seen)
 		if ([hex((__bridge id)v.pointerValue) isEqualToString:oid]) return (__bridge id)v.pointerValue;
 	return nil;

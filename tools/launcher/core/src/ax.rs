@@ -59,12 +59,16 @@ pub struct El {
     pub focused: bool,
     #[serde(skip_serializing_if = "is_false", default)]
     pub offscreen: bool,
+    /// under another app's window (iPadOS windowed apps / Stage Manager): not visible, a touch there hits that window
+    #[serde(skip_serializing_if = "is_false", default)]
+    pub covered: bool,
     #[serde(skip_serializing_if = "is_false", default)]
     pub web: bool,
     /// the app (bundle id) whose process draws it
     pub app: String,
     pub pid: u32,
     /// where it is: "app", "system" (SpringBoard over everything: alerts, banners, Control Center, app switcher),
+    /// "window" (SpringBoard's chrome of iPadOS app windows: window controls, resize grabbers, the windows behind),
     /// "home" (home screen, dock, App Library), "status" (status bar)
     pub layer: String,
     /// the window it is in (class name)
@@ -104,7 +108,7 @@ impl El {
                 s += &format!(" id={i}");
             }
         }
-        for (on, f) in [(!self.enabled, "disabled"), (self.selected, "selected"), (self.focused, "focused"), (self.offscreen, "offscreen")] {
+        for (on, f) in [(!self.enabled, "disabled"), (self.selected, "selected"), (self.focused, "focused"), (self.offscreen, "offscreen"), (self.covered, "covered")] {
             if on {
                 s += &format!(" [{f}]");
             }
@@ -166,9 +170,10 @@ impl Snapshot {
         );
         let layer_rank = |l: &str| match l {
             "system" => 0,
-            "app" => 1,
-            "home" => 2,
-            _ => 3,
+            "window" => 1,
+            "app" => 2,
+            "home" => 3,
+            _ => 4,
         };
         let mut groups: Vec<(String, String)> = Vec::new();
         for e in &self.elements {
@@ -177,7 +182,9 @@ impl Snapshot {
                 groups.push(k);
             }
         }
-        groups.sort_by_key(|g| layer_rank(&g.0));
+        // apps front-most first (iPadOS windows: the top window's app)
+        let front_rank = |app: &str| self.front.iter().position(|f| f == app).unwrap_or(usize::MAX);
+        groups.sort_by_key(|g| (layer_rank(&g.0), front_rank(&g.1)));
         for (layer, app) in groups {
             let els: Vec<&El> = self.elements.iter().filter(|e| e.layer == layer && e.app == app).collect();
             if layer == "status" {
@@ -196,6 +203,7 @@ impl Snapshot {
             }
             out += &match layer.as_str() {
                 "system" => format!("system ({}) on top:\n", els.first().map(|e| e.window.as_str()).unwrap_or("")),
+                "window" => "app windows (SpringBoard: window controls, windows behind the front one):\n".to_string(),
                 "home" => "home screen:\n".to_string(),
                 _ => format!("app {app}:\n"),
             };
@@ -229,7 +237,7 @@ impl Snapshot {
                     if o.value != e.value {
                         ch.push(format!("value {} -> {}", quote(o.value.as_deref().unwrap_or("")), quote(e.value.as_deref().unwrap_or(""))));
                     }
-                    for (a, b, n) in [(o.enabled, e.enabled, "enabled"), (o.selected, e.selected, "selected"), (o.focused, e.focused, "focused"), (o.offscreen, e.offscreen, "offscreen")] {
+                    for (a, b, n) in [(o.enabled, e.enabled, "enabled"), (o.selected, e.selected, "selected"), (o.focused, e.focused, "focused"), (o.offscreen, e.offscreen, "offscreen"), (o.covered, e.covered, "covered")] {
                         if a != b {
                             ch.push(format!("{n} {a} -> {b}"));
                         }
@@ -481,6 +489,72 @@ fn layer_of(bundle: &str, window: &str, class: &str) -> &'static str {
     }
 }
 
+/// iPadOS windowed apps (Windowed Apps, Stage Manager): SpringBoard draws each window's chrome in SBMainSwitcherWindow
+/// (the front window's "window-controls:<bundle>" and its resize grabber, a "card:<bundle>:..." over each window behind
+/// it, back to front). Those are the "window" layer, not a system overlay (the app switcher has no window controls).
+/// Answers each windowed app's stacking order (higher: nearer the front); empty when no app is in a window.
+fn windows_z(snap: &mut Snapshot) -> HashMap<String, i32> {
+    let mut z = HashMap::new();
+    let chrome = |e: &El| e.app == SPRINGBOARD && e.window == "SBMainSwitcherWindow";
+    let windowed = snap.elements.iter().any(|e| chrome(e) && e.id.as_deref().is_some_and(|i| i.starts_with("window-controls:") || i == "resize-grabber"));
+    if !windowed {
+        return z;
+    }
+    let mut n = 0;
+    for e in snap.elements.iter_mut().filter(|e| chrome(e)) {
+        e.layer = "window".into();
+        let id = e.id.as_deref().unwrap_or("");
+        if let Some(b) = id.strip_prefix("card:").and_then(|r| r.split(':').next()) {
+            z.entry(b.to_string()).or_insert(n);
+            n += 1;
+        }
+    }
+    for e in snap.elements.iter().filter(|e| chrome(e)) {
+        if let Some(b) = e.id.as_deref().and_then(|i| i.strip_prefix("window-controls:")) {
+            z.insert(b.to_string(), 10_000);
+        }
+    }
+    snap.overlay = snap.elements.iter().any(|e| e.layer == "system");
+    z
+}
+
+/// Elements of a window behind another app's window: fully covered ones are marked, partly covered ones keep the
+/// part that shows (so a tap lands on them, not on the window in front)
+fn cover(els: &mut [El], rects: &HashMap<String, [f64; 4]>, z: &HashMap<String, i32>) {
+    for e in els.iter_mut().filter(|e| e.layer == "app") {
+        let mine = z.get(&e.app).copied().unwrap_or(-1);
+        for (b, r) in rects {
+            if *b == e.app || z.get(b).copied().unwrap_or(-1) <= mine {
+                continue;
+            }
+            let [x, y, w, h] = e.frame;
+            let (rx0, ry0, rx1, ry1) = (r[0], r[1], r[0] + r[2], r[1] + r[3]);
+            let (x1, y1) = (x + w, y + h);
+            if rx1 <= x || rx0 >= x1 || ry1 <= y || ry0 >= y1 {
+                continue;
+            }
+            if rx0 <= x && rx1 >= x1 && ry0 <= y && ry1 >= y1 {
+                e.covered = true;
+                break;
+            }
+            // a cover across the whole height (or width) leaves one side
+            if ry0 <= y && ry1 >= y1 {
+                if rx0 > x {
+                    e.frame[2] = rx0 - x;
+                } else {
+                    e.frame = [rx1, y, x1 - rx1, h];
+                }
+            } else if rx0 <= x && rx1 >= x1 {
+                if ry0 > y {
+                    e.frame[3] = ry0 - y;
+                } else {
+                    e.frame = [x, ry1, w, y1 - ry1];
+                }
+            }
+        }
+    }
+}
+
 fn s(v: &Value) -> Option<String> {
     v.as_str().filter(|s| !s.is_empty()).map(String::from)
 }
@@ -508,6 +582,9 @@ fn snapshot_once(inst: &Instance, opt: SnapOpts) -> Result<Snapshot> {
     }
     let mut snap = Snapshot { phone: inst.name.clone(), ..Default::default() };
     let mut fronts: Vec<(u32, String, bool)> = Vec::new();
+    // each app's main window on the display (simax offsets an iPadOS window by its scene's place)
+    let mut app_rects: HashMap<String, [f64; 4]> = HashMap::new();
+    let mut screen_from_sb = false;
     for (sock, r) in answers {
         let v = match r {
             Ok(v) => v,
@@ -535,10 +612,19 @@ fn snapshot_once(inst: &Instance, opt: SnapOpts) -> Result<Snapshot> {
         if state != "active" && state != "inactive" {
             continue;
         }
+        // the screen as SpringBoard has it (a helper process such as the keyboard's can lag behind a rotation)
         if let Some(sc) = v["screen"].as_array() {
-            snap.screen = (sc[0].as_f64().unwrap_or(0.0), sc[1].as_f64().unwrap_or(0.0));
+            if bundle == SPRINGBOARD || !screen_from_sb {
+                snap.screen = (sc[0].as_f64().unwrap_or(0.0), sc[1].as_f64().unwrap_or(0.0));
+                screen_from_sb = bundle == SPRINGBOARD;
+            }
         }
         let pid = v["pid"].as_u64().unwrap_or(0) as u32;
+        if bundle != SPRINGBOARD {
+            if let Some(f) = v["windows"].as_array().and_then(|a| a.first()).and_then(|w| w["frame"].as_array()) {
+                app_rects.insert(bundle.clone(), [0, 1, 2, 3].map(|i| f.get(i).and_then(Value::as_f64).unwrap_or(0.0)));
+            }
+        }
         let wins: Vec<String> = v["windows"].as_array().map(|a| a.iter().map(|w| w["class"].as_str().unwrap_or("").to_string()).collect()).unwrap_or_default();
         let els = v["elements"].as_array().cloned().unwrap_or_default();
         let mut has_app_content = false;
@@ -566,6 +652,7 @@ fn snapshot_once(inst: &Instance, opt: SnapOpts) -> Result<Snapshot> {
                 selected: e["selected"].as_bool().unwrap_or(false),
                 focused: e["focused"].as_bool().unwrap_or(false),
                 offscreen: e["offscreen"].as_bool().unwrap_or(false),
+                covered: false,
                 web: e["web"].as_bool().unwrap_or(false),
                 app: bundle.clone(),
                 pid,
@@ -579,8 +666,23 @@ fn snapshot_once(inst: &Instance, opt: SnapOpts) -> Result<Snapshot> {
             fronts.push((pid, bundle.clone(), state == "active"));
         }
     }
-    // active before inactive (an app under an alert)
-    fronts.sort_by_key(|f| !f.2);
+    // iPadOS windowed apps: SpringBoard's window chrome is not an overlay, and gives the windows' stacking order
+    let z = windows_z(&mut snap);
+    // top window first, then active before inactive (an app under an alert)
+    fronts.sort_by_key(|f| (std::cmp::Reverse(z.get(&f.1).copied().unwrap_or(-1)), !f.2));
+    if !z.is_empty() {
+        // what shows of an element is inside its window (a web page wider than the window): taps land there
+        for e in snap.elements.iter_mut().filter(|e| e.layer == "app" && !e.offscreen) {
+            if let Some(r) = app_rects.get(&e.app) {
+                let [x, y, w, h] = e.frame;
+                let (x0, y0, x1, y1) = (x.max(r[0]), y.max(r[1]), (x + w).min(r[0] + r[2]), (y + h).min(r[1] + r[3]));
+                if x1 > x0 && y1 > y0 {
+                    e.frame = [x0, y0, x1 - x0, y1 - y0];
+                }
+            }
+        }
+        cover(&mut snap.elements, &app_rects, &z);
+    }
     snap.front = fronts.into_iter().map(|f| f.1).collect();
     if snap.front.is_empty() {
         snap.front.push(SPRINGBOARD.into());
@@ -645,8 +747,9 @@ fn layer_rank(l: &str) -> u8 {
     match l {
         "system" => 0,
         "app" => 1,
-        "home" => 2,
-        _ => 3,
+        "window" => 2,
+        "home" => 3,
+        _ => 4,
     }
 }
 
@@ -692,7 +795,9 @@ pub fn find_all_q<'a>(snap: &'a Snapshot, target: &Target, worst: u8) -> Vec<&'a
             v.push((q, e));
         }
     }
-    v.sort_by_key(|(q, e)| (e.offscreen, layer_rank(&e.layer), *q, !actionable(&e.role), e.role == "webview"));
+    // the front-most app's element wins a tie (iPadOS: two windows with a Back button each)
+    let front_rank = |app: &str| snap.front.iter().position(|f| f == app).unwrap_or(usize::MAX);
+    v.sort_by_key(|(q, e)| (e.offscreen || e.covered, layer_rank(&e.layer), *q, front_rank(&e.app), !actionable(&e.role), e.role == "webview"));
     v.into_iter().map(|x| x.1).collect()
 }
 
@@ -891,6 +996,11 @@ pub fn tap(inst: &Instance, target: &str, hold_ms: u64, after: After) -> Result<
                 let s2 = snapshot(inst, SnapOpts::default())?;
                 e = find(&s2, &format!("@{}", e.r)).cloned().or_else(|_| find(&s2, target).cloned())?;
                 snap = s2;
+            }
+            if e.covered {
+                // iPadOS: under another app's window; a touch there would hit that window
+                let front = snap.front.first().cloned().unwrap_or_default();
+                bail!("@{} is under {front}'s window: bring {} to the front first (tap a part of its window that shows, or its icon in the dock)", e.r, e.app);
             }
             let (x, y) = e.center(snap.screen);
             (x, y, format!("@{} {} {}", e.r, e.role, e.label.as_deref().map(quote).unwrap_or_default()), Some(snap))
@@ -1132,7 +1242,7 @@ pub fn scroll_to(inst: &Instance, target: &str, direction: &str, max_steps: u32,
     let t = parse_target(target);
     for step in 0..=max_steps {
         let snap = snapshot(inst, SnapOpts::default())?;
-        if let Some(e) = find_all_q(&snap, &t, 2).into_iter().find(|e| !e.offscreen) {
+        if let Some(e) = find_all_q(&snap, &t, 2).into_iter().find(|e| !e.offscreen && !e.covered) {
             let did = format!("@{} {} {} is on screen after {step} scroll(s)", e.r, e.role, e.label.as_deref().map(quote).unwrap_or_default());
             return Ok(outcome(inst, did, before, after));
         }
@@ -1168,7 +1278,7 @@ pub fn wait_for(inst: &Instance, target: &str, gone: bool, timeout: Duration) ->
         let seq = ring.seq();
         let snap = snapshot(inst, SnapOpts::default());
         if let Ok(snap) = &snap {
-            let hit = find_all_q(snap, &t, 2).into_iter().find(|e| !e.offscreen).cloned();
+            let hit = find_all_q(snap, &t, 2).into_iter().find(|e| !e.offscreen && !e.covered).cloned();
             if hit.is_some() != gone {
                 let ms = t0.elapsed().as_millis();
                 let did = match hit {
@@ -1360,6 +1470,30 @@ mod tests {
         assert_eq!(find(&snap, "Allow").unwrap().r, "e3");
         assert_eq!(find(&snap, "@e4").unwrap().r, "e4");
         assert!(find(&snap, "nothing").is_err());
+    }
+
+    #[test]
+    fn ipad_windows() {
+        // iPadOS windowed apps: Safari's window in front of Settings'; SpringBoard's chrome is the window layer
+        let sb = |r: &str, id: &str| El { app: SPRINGBOARD.into(), window: "SBMainSwitcherWindow".into(), layer: "system".into(), id: Some(id.into()), ..el(r, 9, r, "element", "", 0.0) };
+        let mut snap = Snapshot {
+            screen: (820.0, 1180.0),
+            elements: vec![
+                sb("e1", "card:com.apple.Preferences:sceneID:x"),
+                sb("e2", "window-controls:com.apple.mobilesafari"),
+                El { app: "com.apple.Preferences".into(), frame: [17.0, 560.0, 358.0, 40.0], ..el("e3", 1, "3", "button", "General", 0.0) },
+                El { app: "com.apple.Preferences".into(), frame: [250.0, 600.0, 100.0, 40.0], ..el("e4", 1, "4", "button", "Hidden", 0.0) },
+            ],
+            ..Default::default()
+        };
+        let z = windows_z(&mut snap);
+        assert_eq!(z["com.apple.mobilesafari"], 10_000);
+        assert_eq!(z["com.apple.Preferences"], 0);
+        assert!(snap.elements[..2].iter().all(|e| e.layer == "window") && !snap.overlay);
+        let rects = HashMap::from([("com.apple.mobilesafari".to_string(), [222.0, 50.0, 375.0, 965.0]), ("com.apple.Preferences".to_string(), [0.0, 290.0, 375.0, 486.0])]);
+        cover(&mut snap.elements, &rects, &z);
+        assert_eq!(snap.elements[2].frame, [17.0, 560.0, 205.0, 40.0]);
+        assert!(!snap.elements[2].covered && snap.elements[3].covered);
     }
 
     #[test]
