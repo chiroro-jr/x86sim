@@ -16,6 +16,37 @@ pub struct Hid {
     pub main_rot: u32,
 }
 
+/// A preset of a two-screen phone's hinge, as Xcode's DeviceHub offers for one (CoreDevicePopDeviceKitExtension's pose
+/// presets v68_Closed, v68_HalfOpen_Portrait, v68_HalfOpen_Landscape, v68_Open, beside its hinge slider)
+pub struct HingePose {
+    /// the name the CLI / MCP take
+    pub key: &'static str,
+    pub label: &'static str,
+    pub angle: f64,
+    /// the device orientation the pose sets (host/simhid "orientation"): every pose is held a way up (DeviceHub's
+    /// Closed and Open are portrait poses; keeping a landscape turn showed the outer screen's portrait-only home
+    /// screen sideways)
+    pub orientation: Option<&'static str>,
+}
+
+pub const HINGE_POSES: [HingePose; 4] = [
+    HingePose { key: "closed", label: "Closed", angle: 0.0, orientation: Some("portrait") },
+    HingePose { key: "half-portrait", label: "Half open", angle: 90.0, orientation: Some("portrait") },
+    HingePose { key: "half-landscape", label: "Half open, landscape", angle: 90.0, orientation: Some("landscapeLeft") },
+    HingePose { key: "open", label: "Open", angle: 180.0, orientation: Some("portrait") },
+];
+
+/// The hinge state CoreMotion names for an angle (host/simhid's device state: closed at 5 degrees or less, flat from 170)
+pub fn hinge_state(deg: f64) -> &'static str {
+    if deg <= 5.0 {
+        "Closed"
+    } else if deg >= 170.0 {
+        "Open flat"
+    } else {
+        "Partially open"
+    }
+}
+
 /// Inputs 2: how far the panel's picture is turned to stand upright for a device orientation (host/simhid's names;
 /// landscapeLeft: the device's top points left, so its framebuffer is shown a quarter counterclockwise); None for
 /// faceUp / faceDown / unknown (the window keeps its last turn, as Apple's Simulator does)
@@ -106,6 +137,14 @@ impl Hid {
     /// Models 2: the hinge of a two-screen phone, degrees (0 folded .. 180 flat), moved over `ms`
     pub fn hinge(&mut self, deg: f64, ms: u32) {
         self.send(&format!("hinge {deg:.1} {ms}"));
+    }
+
+    /// The hinge poses of a two-screen phone (`HINGE_POSES`): the angle, and the orientation the pose holds it in, if any
+    pub fn hinge_pose(&mut self, pose: &HingePose) {
+        if let Some(o) = pose.orientation {
+            self.orientation(o);
+        }
+        self.hinge(pose.angle, 600);
     }
 
     /// Platforms 1: turns an Apple Watch's Digital Crown by `delta` (positive: towards the bottom), host/simhid "crown"

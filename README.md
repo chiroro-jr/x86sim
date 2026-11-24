@@ -27,7 +27,8 @@ from scripts or by an AI agent. No Mac and no Apple ID are needed.
 **Devices**
 
 - iPhone, iPad, Apple TV, Apple Watch and Apple Vision Pro: 82 device models, including the dual-screen iPhone
-  Duo, which folds and unfolds.
+  Duo, whose hinge moves from closed to flat on a slider, with the poses of Xcode's DeviceHub (closed, half open in
+  portrait or landscape, open).
 - Several devices at once. Each runs in its own container with its own apps, data and settings; starting or stopping
   one leaves the others alone.
 - The stock system apps of each runtime, such as Settings, Safari, Photos, Files, Maps and Health.
