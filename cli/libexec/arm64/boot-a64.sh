@@ -956,8 +956,13 @@ BDONE=
 if [ "$A64_PLATFORM" != ios ] || [ "${A64_BOOTSTRAP_DONE:-0}" = 1 ]; then
 	BDONE="SIMHOST_BOOTSTRAP_DONE=1"
 fi
+# mksimdevice.py seeds Apple's SampleContent (the six stock simulator photos) into $D/data/Media, while assetsd
+# and Photos read /var/mobile/Media inside Darling. Link /var/mobile/Media to $D/data/Media before launchd_sim
+# starts when missing, empty, or already a symlink (preserving any existing non-empty library in an older prefix).
+mkdir -p "$D/data/Media"
+MEDIA_LINK='mkdir -p /var/mobile; if [ -L /var/mobile/Media ]; then rm -f /var/mobile/Media; elif [ -d /var/mobile/Media ] && [ -z "$(ls -A /var/mobile/Media 2>/dev/null)" ]; then rmdir /var/mobile/Media; fi; [ -e /var/mobile/Media ] || ln -s "/Volumes/SystemRoot'"$D"'/data/Media" /var/mobile/Media;'
 cat > "$CMDFILE" <<CMDEOF
-$MDNS_LINK $BDONE exec "$H" /usr/bin/env $ENVS "$R/sbin/launchd_sim" "/Volumes/SystemRoot$D/data/var/run/launchd_bootstrap.plist"
+$MEDIA_LINK $MDNS_LINK $BDONE exec "$H" /usr/bin/env $ENVS "$R/sbin/launchd_sim" "/Volumes/SystemRoot$D/data/var/run/launchd_bootstrap.plist"
 CMDEOF
 
 # Speed 14: fixed placement of non-cache Mach-Os (libarm64jit; mkplacement.py): the jitcache dir gets the committed
