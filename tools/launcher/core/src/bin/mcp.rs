@@ -3,12 +3,14 @@
 //! image status. Uses x86sim-core like the CLI and the GUI.
 //!
 //! Register it with an MCP client, e.g. `claude mcp add x86sim -- /path/to/x86sim-mcp`.
+#![recursion_limit = "512"]
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
-use x86sim_core::{aot, apps, features, instance, sim};
+use x86sim_core::{aot, apps, ax, features, instance, sim};
 
 fn tools() -> Value {
     let phone = json!({"type": "string", "description": "the phone: its name (as in the hub, e.g. \"QA\"), folder (device-a64-qa) or path. Default: the only running phone, else the configured one"});
+    let after = json!({"type": "string", "enum": ["full", "diff", "none"], "description": "what to answer with after the action settled: the whole screen (default), only what changed, or nothing"});
     json!([
         {"name": "phones_list", "description": "Every phone, as the hub shows it: name, model, iOS version and whether it is installed, state (off / starting / running / stopping), home screen reached, memory (MB), CPU %, processes, uptime.",
          "inputSchema": {"type": "object", "properties": {}}},
@@ -55,6 +57,33 @@ fn tools() -> Value {
         {"name": "app_launch", "description": "Open an app on a running phone by bundle id (simctl launch); args are passed to the app. Returns the pid.",
          "inputSchema": {"type": "object", "properties": {"phone": phone, "bundle_id": {"type": "string"}, "args": {"type": "array", "items": {"type": "string"}}}, "required": ["bundle_id"]}},
         {"name": "app_list", "description": "Installed apps on a running phone (simctl listapps).", "inputSchema": {"type": "object", "properties": {"phone": phone}}},
+        // agents: the screen as text and actions on its elements (x86sim_core::ax, host/simax)
+        {"name": "snapshot", "description": "The phone's screen as text: the accessibility elements of the app(s) in front, SpringBoard (alerts, home screen icons, status bar, Control Center) and web pages (DOM: links, buttons, fields, headings, text). One line per element: @ref role \"label\" value= id= [states] (center x,y in points). Refs stay the same for the same element across snapshots, so act on them (tap ref=@e3). diff=true: only what changed since the last snapshot. all=true: also elements scrolled out of view. json=true: full records (frames, app, layer, window).",
+         "inputSchema": {"type": "object", "properties": {"phone": phone, "diff": {"type": "boolean"}, "all": {"type": "boolean"}, "json": {"type": "boolean"}}}},
+        {"name": "tap", "description": "Tap an element and answer with the screen after it settled. target: a ref from the snapshot (@e3), id:<accessibility identifier>, or label text (exact, then prefix, then substring; alerts over the app win); or x and y in points. An element scrolled out of view is scrolled in first. hold_ms >= 500 is a long press.",
+         "inputSchema": {"type": "object", "properties": {"phone": phone, "target": {"type": "string"}, "x": {"type": "number"}, "y": {"type": "number"}, "hold_ms": {"type": "integer"}, "after": after}}},
+        {"name": "long_press", "description": "Touch and hold an element (target as tap) or a point, ms (default 800): context menus, icon editing.",
+         "inputSchema": {"type": "object", "properties": {"phone": phone, "target": {"type": "string"}, "x": {"type": "number"}, "y": {"type": "number"}, "ms": {"type": "integer"}, "after": after}}},
+        {"name": "type", "description": "Type text into the focused field (tap the field first, or pass target to tap it first), as the software keyboard does: any characters. clear: empty the field first; submit: press return after. keys=true: hardware key presses instead (US layout; for games / key handlers).",
+         "inputSchema": {"type": "object", "properties": {"phone": phone, "text": {"type": "string"}, "target": {"type": "string"}, "clear": {"type": "boolean"}, "submit": {"type": "boolean"}, "keys": {"type": "boolean"}, "after": after}, "required": ["text"]}},
+        {"name": "key", "description": "Press a key on the hardware keyboard: return, tab, escape, delete, space, up, down, left, right, home, end, pageup, pagedown, a character, or a combination such as cmd+a, shift+tab.",
+         "inputSchema": {"type": "object", "properties": {"phone": phone, "key": {"type": "string"}, "after": after}, "required": ["key"]}},
+        {"name": "scroll", "description": "Scroll content precisely (no fling): direction is where you want to see more (down = content below comes up), amount in screens (default 0.5), optionally inside an element (target).",
+         "inputSchema": {"type": "object", "properties": {"phone": phone, "direction": {"type": "string", "enum": ["up", "down", "left", "right"]}, "amount": {"type": "number"}, "target": {"type": "string"}, "after": after}, "required": ["direction"]}},
+        {"name": "scroll_to", "description": "Scroll until an element (target as tap) is on screen: an element the app already has is scrolled into view directly, else the content is scrolled in direction (default down) until it shows or stops moving.",
+         "inputSchema": {"type": "object", "properties": {"phone": phone, "target": {"type": "string"}, "direction": {"type": "string", "enum": ["up", "down", "left", "right"]}, "max_steps": {"type": "integer"}, "after": after}, "required": ["target"]}},
+        {"name": "swipe", "description": "A quick swipe (with momentum): direction up/down/left/right from the middle of the screen, or a system gesture: home (up from the bottom edge), notifications, controlcenter, back (from the left edge); or from x1,y1 to x2,y2 in points over ms.",
+         "inputSchema": {"type": "object", "properties": {"phone": phone, "direction": {"type": "string", "enum": ["up", "down", "left", "right", "home", "notifications", "controlcenter", "back"]}, "x1": {"type": "number"}, "y1": {"type": "number"}, "x2": {"type": "number"}, "y2": {"type": "number"}, "ms": {"type": "integer"}, "after": after}}},
+        {"name": "wait_for", "description": "Wait until an element (target as tap: text, @ref, id:...) is on screen, or with gone=true until it is not; timeout seconds (default 20). Wakes on every new frame (no fixed polling). Answers with the screen.",
+         "inputSchema": {"type": "object", "properties": {"phone": phone, "target": {"type": "string"}, "gone": {"type": "boolean"}, "timeout": {"type": "number"}}, "required": ["target"]}},
+        {"name": "press", "description": "Press a hardware button (home, lock, side, volup, voldown, siri, action, ...; as sim_button) and answer with the screen after it.",
+         "inputSchema": {"type": "object", "properties": {"phone": phone, "button": {"type": "string"}, "ms": {"type": "integer"}, "after": after}, "required": ["button"]}},
+        {"name": "screenshot", "description": "The screen as an image (PNG), upright. Default scale: one pixel per point, so positions match the snapshot's coordinates; scale=1 for full device pixels, 2 for half, etc. (a divisor).",
+         "inputSchema": {"type": "object", "properties": {"phone": phone, "scale": {"type": "integer"}}}},
+        {"name": "open_url", "description": "Open a URL (web page in Safari, deep link, prefs:/settings link) as simctl openurl, and answer with the screen.",
+         "inputSchema": {"type": "object", "properties": {"phone": phone, "url": {"type": "string"}, "after": after}, "required": ["url"]}},
+        {"name": "app_terminate", "description": "Stop a running app by bundle id (simctl terminate) and answer with the screen.",
+         "inputSchema": {"type": "object", "properties": {"phone": phone, "bundle_id": {"type": "string"}, "after": after}, "required": ["bundle_id"]}},
         {"name": "aot_status", "description": "Pre-translated code of a phone's iOS version: parts up to date / stale (with reasons) / missing, and the translator's codegen version.",
          "inputSchema": {"type": "object", "properties": {"phone": phone}}}
     ])
@@ -76,15 +105,32 @@ fn phone_of(a: &Value, cfg: &aot::Config) -> anyhow::Result<instance::Instance> 
     Ok(instance::load(&d))
 }
 
-fn call(name: &str, a: &Value) -> anyhow::Result<Value> {
+/// What a tool answers: JSON (shown as text too), text for an agent to read (with optional structured content), or an
+/// image
+enum Answer {
+    Json(Value),
+    Text(String, Option<Value>),
+    Image(String, String),
+}
+
+fn ax_answer(o: ax::Outcome) -> Answer {
+    Answer::Text(o.text(), None)
+}
+
+fn call(name: &str, a: &Value) -> anyhow::Result<Answer> {
+    call_json(name, a)
+}
+
+fn call_json(name: &str, a: &Value) -> anyhow::Result<Answer> {
+    let after = ax::After::parse(a["after"].as_str());
     let cfg = aot::Paths::new(&aot::Paths::default_jc()).load_config();
     if matches!(name, "phones_list" | "sim_status") {
-        return Ok(json!({"phones": instance::summaries(1000)}));
+        return Ok(Answer::Json(json!({"phones": instance::summaries(1000)})));
     }
     if name == "sim_devices" {
-        return Ok(json!({"devices": instance::list().into_iter().map(|i| json!({"name": i.name, "id": i.id, "label": format!("{} · {}", i.model, i.name), "path": i.dir, "ios": i.ios, "installed": i.runtime_present})).collect::<Vec<_>>(),
+        return Ok(Answer::Json(json!({"devices": instance::list().into_iter().map(|i| json!({"name": i.name, "id": i.id, "label": format!("{} · {}", i.model, i.name), "path": i.dir, "ios": i.ios, "installed": i.runtime_present})).collect::<Vec<_>>(),
                          "models": sim::models().into_iter().map(|m| m.0).collect::<Vec<_>>(),
-                         "runtimes": sim::runtimes().into_iter().map(|r| r.0).collect::<Vec<_>>()}));
+                         "runtimes": sim::runtimes().into_iter().map(|r| r.0).collect::<Vec<_>>()})));
     }
     if name == "sim_add_device" {
         let want = a["ios"].as_str().unwrap_or("27.2");
@@ -106,11 +152,11 @@ fn call(name: &str, a: &Value) -> anyhow::Result<Value> {
             .or(cands.first())
             .map(|r| r.1.clone())
             .ok_or_else(|| anyhow::anyhow!("no {pname} {want} installed for {model} (see sim_devices runtimes)"))?;
-        return Ok(json!({"device": sim::create_device(a["model"].as_str().unwrap_or(""), a["name"].as_str().unwrap_or(""), &rt)?}));
+        return Ok(Answer::Json(json!({"device": sim::create_device(a["model"].as_str().unwrap_or(""), a["name"].as_str().unwrap_or(""), &rt)?})));
     }
     let inst = phone_of(a, &cfg)?;
     let device = inst.dir.clone();
-    Ok(match name {
+    Ok(Answer::Json(match name {
         "features_list" => json!({"phone": inst.name, "preset": features::preset_of(&features::load(&device)), "features": features::list(&device)}),
         "feature_get" => {
             let id = a["id"].as_str().unwrap_or("");
@@ -131,7 +177,7 @@ fn call(name: &str, a: &Value) -> anyhow::Result<Value> {
         "app_uninstall" => json!({"phone": inst.name, "answer": apps::uninstall(&inst, a["bundle_id"].as_str().unwrap_or(""))?}),
         "app_launch" => {
             let args: Vec<String> = a["args"].as_array().map(|v| v.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
-            json!({"phone": inst.name, "answer": apps::launch(&inst, a["bundle_id"].as_str().unwrap_or(""), &args)?})
+            return Ok(ax_answer(ax::launch(&inst, a["bundle_id"].as_str().unwrap_or(""), &args, after)?));
         }
         "app_list" => json!({"phone": inst.name, "answer": apps::list(&inst)?}),
         "sim_restart" => json!({"phone": inst.name, "restarting": true, "pid": sim::restart(&device)?}),
@@ -250,6 +296,63 @@ fn call(name: &str, a: &Value) -> anyhow::Result<Value> {
             sim::stop(&device)?;
             json!({"phone": inst.name, "stopped": true})
         }
+        "snapshot" => {
+            let prev = ax::last(&inst);
+            let snap = ax::snapshot(&inst, ax::SnapOpts { all: a["all"].as_bool().unwrap_or(false), ..Default::default() })?;
+            let text = match (a["diff"].as_bool().unwrap_or(false), prev) {
+                (true, Some(p)) => snap.diff(&p),
+                _ => snap.text(),
+            };
+            if a["json"].as_bool().unwrap_or(false) {
+                return Ok(Answer::Text(text, Some(serde_json::to_value(&snap)?)));
+            }
+            return Ok(Answer::Text(text, None));
+        }
+        "tap" | "long_press" => {
+            let hold = if name == "long_press" { a["ms"].as_u64().unwrap_or(800) } else { a["hold_ms"].as_u64().unwrap_or(80) };
+            let target = match (a["target"].as_str(), a["x"].as_f64(), a["y"].as_f64()) {
+                (Some(t), _, _) => t.to_string(),
+                (None, Some(x), Some(y)) => format!("{x} {y}"),
+                _ => anyhow::bail!("target (a ref, id:..., or text) or x and y required"),
+            };
+            return Ok(ax_answer(ax::tap(&inst, &target, hold, after)?));
+        }
+        "type" => {
+            if let Some(t) = a["target"].as_str() {
+                ax::tap(&inst, t, 80, ax::After::None)?;
+                ax::settle(&inst, std::time::Duration::from_millis(250), std::time::Duration::from_millis(2000));
+            }
+            let o = ax::type_text(&inst, a["text"].as_str().unwrap_or(""), a["clear"].as_bool().unwrap_or(false), a["submit"].as_bool().unwrap_or(false), a["keys"].as_bool().unwrap_or(false), after)?;
+            return Ok(ax_answer(o));
+        }
+        "key" => return Ok(ax_answer(ax::key(&inst, a["key"].as_str().unwrap_or(""), after)?)),
+        "scroll" => {
+            let o = ax::scroll(&inst, a["direction"].as_str().unwrap_or("down"), a["amount"].as_f64().unwrap_or(0.5), a["target"].as_str(), after)?;
+            return Ok(ax_answer(o));
+        }
+        "scroll_to" => {
+            let o = ax::scroll_to(&inst, a["target"].as_str().unwrap_or(""), a["direction"].as_str().unwrap_or("down"), a["max_steps"].as_u64().unwrap_or(10) as u32, after)?;
+            return Ok(ax_answer(o));
+        }
+        "swipe" => {
+            let o = match (a["x1"].as_f64(), a["y1"].as_f64(), a["x2"].as_f64(), a["y2"].as_f64()) {
+                (Some(x1), Some(y1), Some(x2), Some(y2)) => ax::swipe(&inst, (x1, y1), (x2, y2), a["ms"].as_u64().unwrap_or(250), after)?,
+                _ => ax::swipe_dir(&inst, a["direction"].as_str().unwrap_or("up"), after)?,
+            };
+            return Ok(ax_answer(o));
+        }
+        "wait_for" => {
+            let t = std::time::Duration::from_secs_f64(a["timeout"].as_f64().unwrap_or(20.0).clamp(0.1, 600.0));
+            return Ok(ax_answer(ax::wait_for(&inst, a["target"].as_str().unwrap_or(""), a["gone"].as_bool().unwrap_or(false), t)?));
+        }
+        "press" => return Ok(ax_answer(ax::press(&inst, a["button"].as_str().unwrap_or("home"), a["ms"].as_u64().unwrap_or(100), after)?)),
+        "open_url" => return Ok(ax_answer(ax::open_url(&inst, a["url"].as_str().unwrap_or(""), after)?)),
+        "app_terminate" => return Ok(ax_answer(ax::terminate(&inst, a["bundle_id"].as_str().unwrap_or(""), after)?)),
+        "screenshot" => {
+            let div = a["scale"].as_u64().map(|s| s as u32).unwrap_or(inst.scale.round().max(1.0) as u32);
+            let (png, w, h) = ax::screenshot(&inst, div)?;
+            return Ok(Answer::Image(ax::base64(&png), format!("{} screen, {w}x{h} px", inst.name)));
+        }
         "aot_status" => {
             // the phone's iOS version decides the image and its cache dir
             let rt = sim::device_runtime(&device);
@@ -263,7 +366,7 @@ fn call(name: &str, a: &Value) -> anyhow::Result<Value> {
                    "stale": st.stale, "missing": st.missing, "codegen": format!("{:#x}", st.codegen), "codegen_source": st.codegen_source, "need_rebuild": attention})
         }
         _ => anyhow::bail!("unknown tool {name}"),
-    })
+    }))
 }
 
 fn main() {
@@ -286,7 +389,10 @@ fn main() {
                 let name = req["params"]["name"].as_str().unwrap_or("");
                 let args = req["params"].get("arguments").cloned().unwrap_or(json!({}));
                 Ok(match call(name, &args) {
-                    Ok(v) => json!({"content": [{"type": "text", "text": serde_json::to_string_pretty(&v).unwrap_or_default()}], "structuredContent": v}),
+                    Ok(Answer::Json(v)) => json!({"content": [{"type": "text", "text": serde_json::to_string_pretty(&v).unwrap_or_default()}], "structuredContent": v}),
+                    Ok(Answer::Text(t, None)) => json!({"content": [{"type": "text", "text": t}]}),
+                    Ok(Answer::Text(t, Some(v))) => json!({"content": [{"type": "text", "text": t}], "structuredContent": v}),
+                    Ok(Answer::Image(b64, caption)) => json!({"content": [{"type": "image", "data": b64, "mimeType": "image/png"}, {"type": "text", "text": caption}]}),
                     Err(e) => json!({"content": [{"type": "text", "text": format!("{e:#}")}], "isError": true}),
                 })
             }

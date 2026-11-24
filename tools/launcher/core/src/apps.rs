@@ -67,3 +67,8 @@ pub fn launch(inst: &Instance, bundle_id: &str, args: &[String]) -> Result<Strin
 pub fn list(inst: &Instance) -> Result<String> {
     helper(inst, &["listapps"])
 }
+
+/// Stops a running app (simctl terminate)
+pub fn terminate(inst: &Instance, bundle_id: &str) -> Result<String> {
+    helper(inst, &["terminate", bundle_id])
+}

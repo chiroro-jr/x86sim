@@ -2,6 +2,7 @@
 //! builder), per-device feature toggles and sim control. Shared by the `x86sim-aot` CLI, the `x86sim-mcp` server and
 //! the egui launcher.
 pub mod aot;
+pub mod ax;
 pub mod appcache;
 pub mod apps;
 pub mod discover;

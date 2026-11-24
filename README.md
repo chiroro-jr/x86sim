@@ -200,6 +200,7 @@ x86sim addmedia photo.jpg clip.mov
 x86sim log stream --app com.example.myapp
 
 x86sim tap 200 400                            # also: swipe, pinch, type, key, home, lock, crown
+x86sim --phone work snapshot                  # the screen as text (see "Agents" below); --phone on any command
 x86sim screenshot shot.png
 x86sim io recordVideo --secs 10 out.mp4
 ```
@@ -211,14 +212,62 @@ devices, edits feature sets and builds the pre-translated image from a terminal.
 
 `x86sim-mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server over stdio for AI agents and
 other MCP clients. Its tools list, create, start, stop and restart devices, fold the iPhone Duo, read and change
-feature sets, install, launch, list and uninstall apps, and report the state of the pre-translated image.
+feature sets, install, launch, list and uninstall apps, and report the state of the pre-translated image. Agents can
+also read the screen as text and act on its elements (below).
 
 ```sh
 claude mcp add x86sim -- /path/to/x86sim.AppImage mcp      # AppImage
 claude mcp add x86sim -- /path/to/x86sim-mcp               # built from source
 ```
 
-Screenshots, input and the other developer tools are on the command line, which an agent can call as well.
+#### Agents: reading the screen and acting on it
+
+An agent drives a running phone through the screen as text. `snapshot` lists the accessibility elements on screen:
+the app in front (UIKit and SwiftUI), web pages it shows (links, buttons, fields, headings and text from the DOM),
+and SpringBoard (alerts and other system UI on top, the home screen, the status bar). Each element gets a ref, its
+role, label, value, identifier, states, and the point to touch:
+
+```
+phone ram2 · 402x874 pt · front com.apple.Preferences
+app com.apple.Preferences:
+@e17 button "General" id=com.apple.settings.general (201,319)
+@e18 button "Accessibility" id=com.apple.settings.accessibility (201,371)
+@e28 searchfield "Search" (201,822)
+status bar: 2:23 AM | Cellular: No signal | 100% battery power: Not charging
+```
+
+- **Refs are stable.** An element keeps its ref for as long as it is on screen, across snapshots and CLI calls,
+  so an agent can act on a ref it saw a few steps back. `snapshot diff=true` shows only what changed (`+` new,
+  `-` gone, `~` a label, value or state changed).
+- **Actions answer with the result.** `tap`, `long_press`, `type`, `key`, `scroll`, `scroll_to`, `swipe`,
+  `press`, `open_url`, `app_launch` and `app_terminate` wait until the screen has settled (no new frames and no
+  transition still running) and answer with the next snapshot, or only the changes (`after: "diff"`), or nothing
+  (`after: "none"`).
+- **Targets**: a ref (`@e3`), an accessibility identifier (`id:com.apple.settings.general`), label text (exact,
+  then prefix, then substring, with an alert over the app before the app beneath it), or `x`/`y` in points. An
+  element the app has loaded but scrolled out of view is scrolled into view before it is tapped.
+- **Typing** inserts text into the focused field as the software keyboard does, so any characters work (`clear`
+  empties the field first, `submit` presses return). `keys=true` presses hardware keys instead.
+- **`wait_for`** returns when a target appears (or, with `gone`, disappears). It checks again on every new
+  frame rather than polling on a timer.
+- **`screenshot`** returns the screen as an image, one pixel per point by default, so its coordinates match the
+  snapshot's.
+
+Every tool takes `phone` (a name, a folder or a path). The same commands are on the command line:
+
+```sh
+x86sim --phone ram2 snapshot [--diff] [--all] [--json]
+x86sim --phone ram2 tap @e17                 # or: tap "General", tap id:com.apple.settings.general
+x86sim --phone ram2 type "hello@example.com" --submit
+x86sim --phone ram2 scroll-to "Privacy & Security"
+x86sim --phone ram2 wait-for "Wi-Fi" --timeout 10
+x86sim --phone ram2 screenshot shot.png      # points; --scale 1 for device pixels
+```
+
+Snapshots come from host/simax, a reader loaded into every process that has UIKit
+([docs/protocols/SIMAX.md](docs/protocols/SIMAX.md)). On an iPhone 17, a snapshot that has settled takes about 10 ms in Settings, about 15 ms on the
+home screen, and 25-35 ms for a long web page (about 130 elements). It works on iPhone and iPad, and is built for
+tvOS, watchOS and visionOS too.
 
 ## Building and shipping apps
 

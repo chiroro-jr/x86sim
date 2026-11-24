@@ -1139,3 +1139,24 @@ __attribute__((constructor)) static void shim_app_stderr_init(void)
 	shim_quiet_os_log();
 }
 
+
+// x86Sim (agents): host/simax, the accessibility reader agents read the screen through (x86sim snapshot, the MCP
+// server's snapshot / tap tools), runs in every process with UIKit: apps, SpringBoard, view services. It links UIKit
+// and WebKit, so it is not inserted everywhere: processes that have UIKitCore at launch dlopen it here
+// (X86SIM_AX_DYLIB, set by mksimdevice.py; X86SIM_AX_OFF=1 turns it off).
+__attribute__((constructor)) static void shim_ax_init(void)
+{
+	const char* ax = getenv("X86SIM_AX_DYLIB");
+	if (!ax || !*ax || getenv("X86SIM_AX_OFF"))
+		return;
+	for (uint32_t i = 0; i < _dyld_image_count(); i++) {
+		const char* n = _dyld_get_image_name(i);
+		size_t l = n ? strlen(n) : 0;
+		if (l >= 10 && !strcmp(n + l - 10, "/UIKitCore")) {
+			if (!dlopen(ax, RTLD_NOW | RTLD_LOCAL)) {
+				char b[512]; int k = snprintf(b, sizeof b, "simshim: simax: %s\n", dlerror() ?: "dlopen failed"); write(2, b, k);
+			}
+			return;
+		}
+	}
+}

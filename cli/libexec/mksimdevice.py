@@ -523,6 +523,8 @@ def main():
                                           [darling(p) for p in [host_path("host/simshim/compat/libsimshim.dylib")] if p] +
                                           [darling(p) for p in [host_path("host/simaudio/libsimaudio.dylib")] if p] + [darling(os.path.abspath(p))
                                           for p in os.environ.get("X86SIM_INSERT", "").split(":") if p]),
+        # simax: the accessibility reader for agents (host/simax), dlopened by libsimshim in processes with UIKit
+        **({"X86SIM_AX_DYLIB": darling(host_path("host/simax/libsimax.dylib"))} if host_path("host/simax/libsimax.dylib") else {}),
         "CFFIXED_USER_HOME": home,
         "HOME": home,
         "TMPDIR": home + "/tmp/",
@@ -637,6 +639,14 @@ def main():
     with open(device + "/sim.env", "w") as f:
         for k, v in env.items():
             f.write("%s=%s\n" % (k, v))
+    # the last boot's accessibility-reader sockets (host/simax): their processes are gone
+    import glob
+    ring_dir = os.path.dirname(env["SIMFB_RING"].removeprefix(DARLING_VIEW))
+    for p in glob.glob(os.path.join(ring_dir, "x86sim-ax-%s-*" % udid)):
+        try:
+            os.unlink(p)
+        except OSError:
+            pass
     print(device, udid)
 
 

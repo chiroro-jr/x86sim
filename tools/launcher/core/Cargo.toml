@@ -17,6 +17,10 @@ path = "src/bin/aot.rs"
 name = "x86sim-mcp"
 path = "src/bin/mcp.rs"
 
+[[bin]]
+name = "x86sim-ax"
+path = "src/bin/ax.rs"
+
 [dependencies]
 anyhow = "1"
 memmap2 = "0.9"
