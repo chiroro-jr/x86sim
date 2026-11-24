@@ -135,6 +135,11 @@ impl Aot {
 
     /// Check every version again soon (a device stopped, the versions changed).
     pub fn want_auto(&mut self, after: Duration) {
+        // X86SIM_NO_AUTO_AOT=1: no pre-translate pass on its own (a launcher started for screenshots or tests would
+        // otherwise update a shared cache in the background, and get killed half-way when the test ends)
+        if std::env::var_os("X86SIM_NO_AUTO_AOT").is_some_and(|v| v == "1") {
+            return;
+        }
         self.auto_at = Some(Instant::now() + after);
     }
 
