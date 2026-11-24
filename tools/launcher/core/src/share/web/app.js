@@ -210,9 +210,10 @@ function phoneView(id) {
   }
   function wantWidth() {
     const r = stage.getBoundingClientRect();
+    // the picture's shape as it arrives (a turned phone is wide), else the screen's
     const scr = info?.screen || [1206, 2622];
-    const s = Math.min((r.width - 24) / scr[0], (r.height - 24) / scr[1]);
-    const css = scr[0] * s * (window.devicePixelRatio || 1);
+    const aspect = fw && fh ? fw / fh : scr[0] / scr[1];
+    const css = Math.min(r.width - 24, (r.height - 24) * aspect) * (window.devicePixelRatio || 1);
     const cap = [540, 900, 1400][quality];
     return Math.max(240, Math.min(cap, Math.round(css / 16) * 16));
   }
