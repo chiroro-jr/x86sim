@@ -82,11 +82,15 @@ pub fn open_device() -> Result<Device, String> {
 /// does not use: clean file pages (MTLVK_FILETRIM, memstat::FileTrim) and glibc's free arena pages (malloc_trim, after
 /// a quiet tick and at least every minute).
 ///
-/// Not ported to the new runtime (TODO, see docs/METAL.md): the old runtime's Device::trim_idle (spare command pools
-/// reset with RELEASE_RESOURCES / destroyed, spare descriptor pools released) and Device::trim_idle_pipelines
-/// (pipelines no draw used for MTLVK_PIPELINE_IDLE s). The new runtime keeps at most 64 idle command pools (reset
-/// without RELEASE_RESOURCES), one descriptor set for every pipeline, and the last 1,024 compiled contents; whether
-/// those still need a trim is measured with MTLVK_MEMSTATS before anything is re-added.
+/// x86Sim RAM 8: compiled contents (compute kernels and render pipelines, with their VkPipelines) no pipeline state's
+/// creation looked up for MTLVK_PIPELINE_IDLE seconds (default 300; 0 = never) are forgotten from the device's map
+/// (`Device::forget_idle_contents`, x86Sim's addition to the new runtime): the map keeps the last 1,024 for the
+/// device's life otherwise, those of every app that ended among them. Each goes once no live state holds it.
+///
+/// Dropped with the old runtime: Device::trim_idle (spare command pools reset with RELEASE_RESOURCES or destroyed,
+/// spare descriptor pools released). The new runtime records into at most 64 idle pools and keeps one descriptor set
+/// for every pipeline; after a boot and nine apps NVIDIA's command memory (memstat nvctl-small) stayed at 21 MB, where
+/// the old runtime's spares grew it to 126 MB.
 fn start_trim(device: Device) {
     let every = std::env::var("MTLVK_TRIM_EVERY").ok().and_then(|v| v.parse::<f64>().ok()).unwrap_or(5.0);
     if every <= 0.0 {
@@ -94,13 +98,23 @@ fn start_trim(device: Device) {
     }
     let log = std::env::var_os("MTLVK_MEMSTATS").is_some();
     let file_trim_mb = std::env::var("MTLVK_FILETRIM").ok().and_then(|v| v.parse::<u64>().ok()).unwrap_or(8);
+    let pipeline_idle = std::env::var("MTLVK_PIPELINE_IDLE").ok().and_then(|v| v.parse::<f64>().ok()).unwrap_or(300.0);
+    let pipeline_idle = (pipeline_idle > 0.0).then(|| std::time::Duration::from_secs_f64(pipeline_idle));
     let _ = std::thread::Builder::new().name("trim".into()).spawn(move || {
-        let _device = device;
         let mut last_malloc_trim = std::time::Instant::now();
         let mut ft = memstat::FileTrim::new(file_trim_mb << 10);
         loop {
             std::thread::sleep(std::time::Duration::from_secs_f64(every));
             let mut quiet = false;
+            if let Some(idle) = pipeline_idle {
+                let forgotten = device.forget_idle_contents(idle);
+                if forgotten > 0 {
+                    quiet = true;
+                    if log {
+                        eprintln!("mtlvk trim: {forgotten} idle compiled contents forgotten");
+                    }
+                }
+            }
             if file_trim_mb > 0 {
                 if let Some((before, after)) = ft.tick(every) {
                     quiet = true;

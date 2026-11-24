@@ -43,7 +43,8 @@ Cross-process IOSurfaces (`com.apple.IOSurface.Remote`, host/iosurfaced/iosurfac
 - **mtlvk** (`mtlvk/`, Rust): one thread per metalhostd connection; object table (buffers, textures, queues, events);
   executes commands with [steelbrain/metal2vulkan](../../external/metal2vulkan)'s runtime crate (cloned at f6a96b7,
   license GPL-2.0-or-later OR LGPL-3.0-or-later; mtlvk takes the same). Buffers are imported **without copies**:
-  `new_buffer_with_bytes_no_copy` over our mmap of the memfd (VK_EXT_external_memory_host); if a driver refuses,
+  our mmap of the memfd is one `import_host_memory` block (VK_EXT_external_memory_host) and the buffer is placed in
+  it; if a driver refuses,
   mtlvk mirrors the buffer around each command buffer, and if Darling only has a snapshot fd, metalhostd copies
   (`BUF_WRITE`/`BUF_READ`). Textures live in mtlvk; replaceRegion/getBytes of Private textures go through a staging blit.
 - **Protocol**: `vkmtl_proto.h` (mirrored by `mtlvk/src/proto.rs`): 16-byte header, requests with seq get replies,
@@ -65,7 +66,8 @@ Cross-process IOSurfaces (`com.apple.IOSurface.Remote`, host/iosurfaced/iosurfac
   it into a memfd). For a texture over a surface (message 13: MTLSimImplementation calls
   `IOSurfaceLookupFromXPCObject` and then `newTextureWithDescriptor:iosurface:plane:`), metalhostd's IOSurface
   client maps the same pages. vkmtl wraps them in a VKMTLBuffer (memfd through syscall 599, imported by mtlvk
-  without a copy), and mtlvk makes the texture with the runtime's `Buffer::new_texture_with_iosurface_plane`.
+  without a copy), and mtlvk makes the texture with the runtime's `Buffer::new_texture` (over a host import the
+  runtime copies it into an image of its own and back; large render targets are mtlvk's VRAM proxies instead).
 
 ## Gating
 
@@ -303,6 +305,31 @@ unimplemented.
 - Its speckle and magenta rim came from one ASTC texture: MTLSimDriver's `astc` kernel reads `uint4` blocks
   from a KTX mip bound at a 4-aligned offset, and the translator's `uvec4` view dropped the bind residual's low
   bits. 16-byte leaves now use four aligned words (patch, `memory/leaf.rs`). Now it matches a Mac (36, 37).
+
+## metal2vulkan's new runtime (2026-11-23)
+
+Upstream replaced its runtime on 2026-11-20 (metal2vulkan-runtime 0.2, the former metal2vulkan-rt); mtlvk runs on it
+from branch `mtlvk/new-runtime` (metal2vulkan `x86sim-new-runtime`). What changed for mtlvk:
+
+- **Device**: an `Instance`, the first physical device above the runtime's floor (a discrete GPU first;
+  `MTLVK_DEVICE=<n>`), `Device::new`. Lowerings and the pipeline cache live in `pipeline_cache_dir`:
+  `$XDG_CACHE_HOME/metal2vulkan-rt` (`MTLVK_PIPELINE_CACHE=<dir>`, `0` for none; `MTLVK_PIPELINE_CACHE_MB` caps the
+  lowerings, default 128). The registryID is Vulkan's vendor << 32 | device id.
+- **Indices**: textures and samplers sit at set-1 indices the consumer chooses. mtlvk grants both whole ranges and
+  hands them out process-wide (one device for every phone), a released index again only after 5 s; constexpr
+  samplers keep the index their state words took first.
+- **Memory**: blocks. A guest memfd mapping is one `import_host_memory` block; mtlvk's own buffers (mirrors, copies,
+  staging) are Shared blocks. The VRAM proxy of a large IOSurface render target is filled from the surface's buffer
+  once and copied back straight into it (`copy_from_texture_to_buffer`) after each command buffer that wrote it.
+- **Old runtime knobs gone**: `MTLVK_RAYTRACING` (the runtime enables no ray tracing), `METAL2VULKAN_QUEUES` (one
+  VkQueue), `MTLVK_MEMO_MB` (the runtime keeps 1,024 compiled contents), `MTLVK_TRIM_IDLE` (no spare command or
+  descriptor pools to trim; NVIDIA's command memory stayed at 21 MB through a boot and nine apps).
+- **x86Sim's runtime addition**: `Device::forget_idle_contents`, called by mtlvk's trim thread every
+  `MTLVK_TRIM_EVERY` s for contents unused `MTLVK_PIPELINE_IDLE` s (default 300) that no live state holds (an ended
+  app's pipelines).
+- **Gaps**: kernels past the runtime's stage bound need a helper process (`serve_stage`) mtlvk does not run yet: such
+  a compute pipeline fails and its dispatches are skipped (none met on the Duo's boot and nine apps). `MTLVK_MEMSTATS`
+  prints the runtime's `Gauges` in place of the old spare counts and pipeline census.
 
 ## Next and known gaps
 
