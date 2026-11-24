@@ -85,7 +85,7 @@ required parts.
   scroll events or a synthesized two-finger pan), not be ignored.
 
 - Audio: host/simaudio (in-process HAL stand-in, in every process: silent devices by default) +
-  cli/libexec/simaudio.py (PipeWire), heard on the host with `X86SIM_AUDIO=1`. A faithful version would
+  cli/libexec/simaudio.py (PipeWire), heard on the host with `X86SIM_AUDIO=1` and in `x86sim serve`'s page. A faithful version would
   answer coreaudiod's MIG protocol on `com.apple.audio.audiohald`.
 - Software keyboard toggle (Apple's Cmd-K): not started. (Clipboard sync is `x86sim pbcopy|pbpaste --host` and
   `pbsync`; rotation is `x86sim rotate`; the home swipe from the bottom edge goes home: `x86sim swipe home`.)

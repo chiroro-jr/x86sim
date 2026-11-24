@@ -178,7 +178,8 @@ x86sim serve link --phone qa --control --ttl 1h       # a link to give out (with
 x86sim serve status | x86sim serve stop
 ```
 
-Links off this machine carry a token; `--ttl` makes them expire. Public tunnels expose a phone to anyone with the
+The page plays the phone's sound (Sound on) and can send the viewer's microphone (Mic on). Links off this machine
+carry a token; `--ttl` makes them expire. Public tunnels expose a phone to anyone with the
 link: use them only when asked.
 
 ## Gotchas

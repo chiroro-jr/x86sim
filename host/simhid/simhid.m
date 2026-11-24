@@ -997,6 +997,17 @@ static void handle_line(char* line, Client* cl) {
 			add_service(hid_system, &keyboard_svc);
 			const char* ms = getenv("SIMHID_KB_SETTLE_MS");
 			wait_ns = (int64_t)(cl && cl->kb_settle_ms >= 0 ? cl->kb_settle_ms : ms && *ms ? atoi(ms) : 150) * 1000000;
+			// r2: the first attach of a boot needs longer. UIKit's switch into hardware-keyboard mode is cold then (its
+			// code not yet translated in the processes involved): Shift + h e l l o typed 150 ms after it came out as
+			// "HELLO WORLD" (from the browser view and from a plain simhid client alike), 500 ms and 1000 ms
+			// after it as typed; every later attach in the boot, also the first one in another app, typed right at
+			// 150 ms. SIMHID_KB_FIRST_SETTLE_MS (default 800) for that first one, a client's kbsettle still wins.
+			static int attaches;
+			if (!attaches++ && !(cl && cl->kb_settle_ms >= 0)) {
+				const char* f = getenv("SIMHID_KB_FIRST_SETTLE_MS");
+				const int64_t first = (int64_t)(f && *f ? atoi(f) : 800) * 1000000;
+				if (first > wait_ns) wait_ns = first;
+			}
 		}
 		{
 			static int64_t guard = -1;

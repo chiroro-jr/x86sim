@@ -5,6 +5,7 @@
 //! find it there and talk to it over loopback with its control token.
 /// the Accessibility Inspector's routes (/api/phones/<id>/ax/...)
 pub mod axapi;
+pub mod audio;
 pub mod server;
 pub mod tunnel;
 pub mod video;

@@ -495,6 +495,12 @@ lacks it, e.g. plain HTTP on the LAN); quality, size and frame rate are picked o
 - **Controls per platform**: iPhone / iPad buttons (Home, Lock, volume, Siri, Action, App Switcher), rotate, shake,
   the iPhone Duo's fold poses; an Apple TV's Siri Remote; an Apple Watch's crown, side button and hand gestures; a
   Vision Pro's crown, and the mouse as its system pointer (hover, click, drag; the wheel scrolls where it points).
+- **Sound**: Sound on plays the device's audio in the page (Opus decoded by WebCodecs, 16-bit PCM where the
+  browser lacks it), ~70 ms from the server to the speaker (a tap on a button that beeps is heard ~115 ms later),
+  with a volume per viewer; browsers start audio only from a click, so it is off until then. Mic on (control links, HTTPS or this machine) sends the browser's microphone to the
+  device's input instead of the host's.
+- **On a phone's browser**: the screen fills the window, with Home, App Switcher, Type… and Sound under it and the
+  other controls below; fingers touch, two fingers pinch, rotate and pan.
 - **Capture**: a full-size PNG screenshot, and recording the stream to a video file.
 - **Links**: a control link (watch and drive) and a view-only link; more links with their own expiry, limited to
   one device or not, from the Share dialog (with a QR code) or `x86sim serve link`; revoke them there.
@@ -595,7 +601,8 @@ above work. These are the known gaps:
   XCUITest bundles run (`x86sim test`), but an app's own test targets are built on a Mac (`xcodebuild
   build-for-testing`); only Swift package tests build on Linux.
 - **Maps** shows no map tiles: the map data comes from a Mac and is not part of a release.
-- **Audio** is silent unless `X86SIM_AUDIO=1` sends it to PipeWire; apps always see audio devices.
+- **Audio** is not played on the host unless `X86SIM_AUDIO=1` sends it to PipeWire (which also records the host's
+  microphone); the browser view plays it either way. Apps always see audio devices.
 - **Sensors and accessories**: no accelerometer, Apple Pencil, external displays or CarPlay.
 - **Pairing** an Apple Watch with an iPhone is not supported.
 - **Networking**: ordinary DNS and sockets work; Bonjour works between apps on one device but not with the network

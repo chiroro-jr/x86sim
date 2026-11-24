@@ -50,3 +50,7 @@ openh264 = "0.9"
 jpeg-encoder = "0.7"
 qrcode = { version = "0.14", default-features = false }
 sha1_smol = "1"
+# Share audio: Opus (libopus built from source by audiopus_sys and linked statically; tools/launcher/.cargo/config.toml
+# keeps it off the host's pkg-config and lets its CMake build under CMake 4)
+opus = "0.3"
+audiopus_sys = { version = "0.2", features = ["static"] }

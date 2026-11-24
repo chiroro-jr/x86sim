@@ -53,7 +53,9 @@ before connecting (Linux's own limit is 108):
   kbidle <seconds>               this client's keyboard idle detach: after its last key the on-demand keyboard stays
                                  attached that long (default SIMHID_KB_IDLE_S, 30; <= 0 never detaches)
   kbsettle <ms>                  this client's wait after the keyboard service is attached (default
-                                 SIMHID_KB_SETTLE_MS, 150)
+                                 SIMHID_KB_SETTLE_MS, 150; the first attach of a boot SIMHID_KB_FIRST_SETTLE_MS, 800:
+                                 UIKit's switch to hardware-keyboard mode is cold then, and a Shift typed 150 ms after
+                                 it turned that whole burst into capitals)
   button home|lock|volup|voldown down|up
   button menu|tv|playpause|side|siri|action|wallet|select|back|mute down|up
                                  Apple's usages per platform (Inputs 2 table below)
