@@ -234,9 +234,14 @@ impl Viewer {
         self.shared.rot.store((panel + orient) % 360, Ordering::Relaxed);
     }
 
-    /// Models 2: move the hinge of a two-screen phone (degrees, 0 folded .. 180 flat)
-    pub fn hinge(&mut self, deg: f64) {
-        self.hid.hinge(deg, 600);
+    /// Models 2: move the hinge of a two-screen phone (degrees, 0 folded .. 180 flat) over `ms`
+    pub fn hinge(&mut self, deg: f64, ms: u32) {
+        self.hid.hinge(deg, ms);
+    }
+
+    /// Models 2: a hinge preset (x86sim_core::hid::HINGE_POSES): its angle and orientation
+    pub fn hinge_pose(&mut self, pose: &x86sim_core::hid::HingePose) {
+        self.hid.hinge_pose(pose);
     }
 
     pub fn set_boot_time(&self, t: Option<f64>) {

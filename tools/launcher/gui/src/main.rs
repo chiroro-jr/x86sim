@@ -192,7 +192,7 @@ impl App {
         });
         let aot = global::Aot::new(runtimes.iter().find(|r| r.present && r.restricted_to.is_empty()).map(|r| r.root.clone()));
         // start view / open sections, for scripted screenshots: X86SIM_LAUNCHER_VIEW=ios|aot|settings|add|phone:<id>,
-        // X86SIM_LAUNCHER_OPEN=features,logs,perf,adv
+        // X86SIM_LAUNCHER_OPEN=features,logs,perf,adv (and hinge: a two-screen phone's hinge panel, phone.rs)
         let view = match std::env::var("X86SIM_LAUNCHER_VIEW").unwrap_or_default().as_str() {
             "ios" => View::Ios,
             "aot" => View::Aot,
