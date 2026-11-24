@@ -10,10 +10,19 @@ final class XCTestDemoUITests: XCTestCase {
         let label = app.staticTexts["countLabel"]
         XCTAssertTrue(label.waitForExistence(timeout: 30))
         XCTAssertEqual(label.label, "Count: 0")
+        #if os(tvOS)
+        // tvOS: the Siri Remote (Increment has the focus first)
+        XCUIRemote.shared.press(.select)
+        XCUIRemote.shared.press(.select)
+        XCTAssertEqual(label.label, "Count: 2")
+        XCUIRemote.shared.press(.down)
+        XCUIRemote.shared.press(.select)
+        #else
         app.buttons["incrementButton"].tap()
         app.buttons["incrementButton"].tap()
         XCTAssertEqual(label.label, "Count: 2")
         app.buttons["resetButton"].tap()
+        #endif
         XCTAssertEqual(label.label, "Count: 0")
     }
 
@@ -22,7 +31,13 @@ final class XCTestDemoUITests: XCTestCase {
         app.launch()
         let field = app.textFields["nameField"]
         XCTAssertTrue(field.waitForExistence(timeout: 30))
+        #if os(tvOS)
+        XCUIRemote.shared.press(.down)
+        XCUIRemote.shared.press(.down)
+        XCUIRemote.shared.press(.select)
+        #else
         field.tap()
+        #endif
         field.typeText("Ada")
         XCTAssertEqual(app.staticTexts["greetingLabel"].label, "Hello, Ada!")
     }

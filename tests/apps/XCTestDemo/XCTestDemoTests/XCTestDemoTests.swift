@@ -2,6 +2,9 @@
 // reported with their message and file:line), one is skipped.
 import XCTest
 @testable import XCTestDemo
+#if os(watchOS)
+import WatchKit
+#endif
 
 final class CalcTests: XCTestCase {
     func testAdd() { XCTAssertEqual(Calc.add(2, 3), 5) }
@@ -21,7 +24,11 @@ final class CalcTests: XCTestCase {
 final class HostTests: XCTestCase {
     func testRunsInsideHostApp() {
         XCTAssertEqual(Bundle.main.bundleIdentifier, "com.x86sim.test.XCTestDemo")
+        #if os(watchOS)
+        XCTAssertNotNil(WKApplication.shared())
+        #else
         XCTAssertNotNil(UIApplication.shared)
+        #endif
     }
     func testDeliberateThrow() throws {
         struct Oops: Error {}

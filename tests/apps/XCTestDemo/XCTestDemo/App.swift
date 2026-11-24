@@ -20,8 +20,12 @@ struct ContentView: View {
             Text("Count: \(count)").font(.title).accessibilityIdentifier("countLabel")
             Button("Increment") { count += 1 }.accessibilityIdentifier("incrementButton")
             Button("Reset") { count = 0 }.accessibilityIdentifier("resetButton")
+            #if os(iOS) || os(visionOS)
             TextField("Name", text: $name).textFieldStyle(.roundedBorder).padding(.horizontal)
                 .accessibilityIdentifier("nameField")
+            #else
+            TextField("Name", text: $name).accessibilityIdentifier("nameField")
+            #endif
             Text(Calc.greeting(name)).accessibilityIdentifier("greetingLabel")
         }
     }

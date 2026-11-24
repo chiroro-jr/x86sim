@@ -10,13 +10,15 @@ X86SIM_ROOT=${X86SIM_ROOT:-$(cd "$(dirname "$0")/../../.." && pwd)}
 phone=${1:?usage: run.sh <phone> [--no-build] [--no-ui]}; shift
 build=1 ui=1
 for a in "$@"; do case $a in --no-build) build=0 ;; --no-ui) ui=0 ;; esac; done
-P=$X86SIM_SCRATCH/apps/XCTestDemo-products
-[ "$build" = 1 ] && { "$(dirname "$0")/build.sh" "$P" || exit 1; }
+# the phone's platform picks the build (build.sh X86SIM_PLATFORM): iOS, tvOS, watchOS or visionOS
+plat=$(cut -d- -f1 "$X86SIM_ROOT/var/device-a64-$phone/runtime" 2>/dev/null); plat=${plat:-ios}
+P=$X86SIM_SCRATCH/apps/XCTestDemo-products$([ "$plat" = ios ] || echo "-$plat")
+[ "$build" = 1 ] && { X86SIM_PLATFORM=$plat "$(dirname "$0")/build.sh" "$P" || exit 1; }
 OUT=$X86SIM_SCRATCH/xctest/XCTestDemo-$(date +%Y%m%d-%H%M%S)
 skip=(); [ "$ui" = 0 ] && skip=(--skip-testing XCTestDemoUITests)
 "$X86SIM_ROOT/cli/x86sim" test "$phone" --xctestrun "$(ls "$P"/*.xctestrun | head -1)" --out "$OUT" "${skip[@]}"
 echo "exit status $? (1 expected: the deliberate failures)"
-python3 - "$OUT/results.json" "$ui" <<'PY'
+python3 - "$OUT/results.json" "$ui" "$plat" <<'PY'
 import json, sys
 s = json.load(open(sys.argv[1]))
 want = {  # Apple's simulator: target -> {test: result}
@@ -31,7 +33,7 @@ want = {  # Apple's simulator: target -> {test: result}
 }
 if sys.argv[2] == "0":
     del want["XCTestDemoUITests"]
-lines = {"CalcTests/testDeliberateFailure": 12, "LogicTests/testDeliberateFailure": 8, "XCTestDemoUITests/testDeliberateUIFailure": 33}
+lines = {"CalcTests/testDeliberateFailure": 15, "LogicTests/testDeliberateFailure": 8, "XCTestDemoUITests/testDeliberateUIFailure": 48}
 bad = 0
 got = {r["name"]: r for r in s["targets"]}
 for tgt, tests in want.items():
