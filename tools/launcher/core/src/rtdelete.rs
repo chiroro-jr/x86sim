@@ -206,6 +206,13 @@ pub fn plan(r: &Runtime) -> Plan {
         caches.push(Item { bytes: std::fs::metadata(&log).map(|m| m.len()).unwrap_or(0), path: log, what: "download log".into() });
     }
     kept.push(format!("cli/libexec/arm64/placement-{0}.txt / training-{0}.x86t ship with x86Sim (part of the repo)", r.build));
+    // a cache configured outside the scratch dir (an AOT config's training dir, say) is never removed: listed as kept
+    // here rather than failing delete() halfway through
+    let (ok, outside): (Vec<Item>, Vec<Item>) = caches.into_iter().partition(|i| removable(&r.dir, &i.path));
+    caches = ok;
+    for i in outside {
+        kept.push(format!("{} stays: outside runtimes/ and the scratch dir", i.path.display()));
+    }
     let gone = r.version.is_empty();
     let sums = crate::instance::summaries(0);
     let devices = crate::instance::list()
@@ -233,24 +240,28 @@ pub fn plan(r: &Runtime) -> Plan {
     }
 }
 
-/// Removes what the plan lists (`all`: the caches too). Returns the bytes freed. Paths are checked again: only
-/// runtimes/<dir> and paths under the scratch dir (or /tmp/x86sim-a64-img) are ever removed.
+/// Only runtimes/<dir> and paths under the scratch dir (or /tmp/x86sim-a64-img) are ever removed
+fn removable(dir: &str, path: &Path) -> bool {
+    let rtroot = repo_root().join("runtimes");
+    path.parent() == Some(rtroot.as_path()) && path.file_name().is_some_and(|n| n.to_string_lossy() == dir) || path.starts_with(scratch()) && path != scratch() || path.starts_with("/tmp/x86sim-a64-img/")
+}
+
+/// Removes what the plan lists (`all`: the caches too). Returns the bytes freed. Paths are checked again, all of them
+/// before anything is removed (removable()).
 pub fn delete(p: &Plan, all: bool) -> Result<u64> {
     if let Some(b) = p.blocker() {
         bail!("can't delete {}: {b}", p.label);
     }
-    let rtroot = repo_root().join("runtimes");
     let mut freed = 0;
     let mut items: Vec<&Item> = p.runtime.iter().collect();
     if all {
         items.extend(p.caches.iter());
     }
+    if let Some(it) = items.iter().find(|it| !removable(&p.dir, &it.path)) {
+        bail!("refusing to remove {} (outside runtimes/ and the scratch dir): nothing deleted", it.path.display());
+    }
     for it in items {
         let path = &it.path;
-        let ok = path.parent() == Some(rtroot.as_path()) && path.file_name().is_some_and(|n| n.to_string_lossy() == p.dir)
-            || path.starts_with(scratch()) && path != &scratch()
-            || path.starts_with("/tmp/x86sim-a64-img/");
-        anyhow::ensure!(ok, "refusing to remove {} (outside runtimes/ and the scratch dir)", path.display());
         let md = match path.symlink_metadata() {
             Ok(m) => m,
             Err(_) => continue,
@@ -316,6 +327,27 @@ pub fn describe(p: &Plan) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nothing_goes_when_one_path_is_outside() {
+        let d = scratch().join(format!("rtdelete-test-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        let inside = d.join("a");
+        std::fs::write(&inside, b"x").unwrap();
+        let item = |p: &Path| Item { path: p.to_path_buf(), bytes: 1, what: String::new() };
+        let mut p = Plan { dir: "x".into(), label: "x".into(), build: "x".into(), runtime: vec![], runtime_bytes: 0, caches: vec![item(&inside), item(Path::new("/etc/hostname"))], caches_bytes: 2, devices: vec![], downloading: false, aot_running: None, kept: vec![] };
+        assert!(delete(&p, true).is_err());
+        assert!(inside.exists(), "the item inside stayed: the check came before any removal");
+        // a running phone blocks it (aot.rs re-plans after its y/N prompt so a phone started meanwhile is seen)
+        p.caches.pop();
+        p.devices.push(Device { id: "device-a64-x".into(), name: "x".into(), state: "starting".into() });
+        assert!(delete(&p, true).is_err());
+        assert!(inside.exists());
+        p.devices.clear();
+        assert_eq!(delete(&p, true).unwrap(), 1);
+        assert!(!inside.exists());
+        let _ = std::fs::remove_dir_all(&d);
+    }
 
     #[test]
     fn uuid_prefixes() {
