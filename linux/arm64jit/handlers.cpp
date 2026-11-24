@@ -113,22 +113,39 @@ bool stack_of(u64 handle, KnownStack &out) {
 }
 }  // namespace
 
-static void *thread_start(void *p) {
+// After the longjmp nothing of thread_start's frame but its frame pointer can be trusted: clang reuses spill slots of
+// a returns_twice function for locals of the first path (the TLS address it reloaded after the jump was overwritten
+// by a.stack, 0x80000 for an NSThread: every pthread_exit faulted at 0x80058). The way back reads only TLS, in
+// functions of their own.
+struct ExitFrame { ExitJmp jb; ExitJmp *outer; };
+__attribute__((noinline)) static u64 thread_body(void *p) {
     StartArg a = *(StartArg *)p;
     delete (StartArg *)p;
-    ExitJmp jb;
-    ExitJmp *outer = t_exit_jmp;
-    t_exit_jmp = &jb;
+    GuestThread &g = GuestThread::self();
+    g.ensure_stack(a.stack);
+    stack_publish(g);
+    return g.call(a.fn, {a.arg});
+}
+__attribute__((noinline)) static u64 thread_unwound() {
+    t_exit_jmp = ((ExitFrame *)t_exit_jmp)->outer;
+    u64 r = t_exit_value;
+    if (g_trace) logf("thread_start: unwound from pthread_exit (tid %ld)", (long)syscall(SYS_gettid));
+    GuestThread::self().reset_after_unwind();
+    if (g_trace) logf("thread_start: new Jit, returning %#lx", (unsigned long)r);
+    return r;
+}
+static void *thread_start(void *p) {
+    ExitFrame f;
+    f.outer = t_exit_jmp;
+    t_exit_jmp = &f.jb;
     u64 r;
-    struct Forget { ~Forget() { stack_forget(); } } forget;  // also when pthread_exit unwinds through here
-    if (__builtin_setjmp(jb) == 0) { GuestThread &g = GuestThread::self(); g.ensure_stack(a.stack); stack_publish(g); r = g.call(a.fn, {a.arg}); }
-    else {
-        r = t_exit_value;
-        if (g_trace) logf("thread_start: unwound from pthread_exit (tid %ld)", (long)syscall(SYS_gettid));
-        GuestThread::self().reset_after_unwind();
-        if (g_trace) logf("thread_start: new Jit, returning %#lx", (unsigned long)r);
+    if (__builtin_setjmp(f.jb) == 0) {
+        r = thread_body(p);
+        t_exit_jmp = f.outer;
+    } else {
+        r = thread_unwound();
     }
-    t_exit_jmp = outer;
+    stack_forget();
     return (void *)r;
 }
 // the attr's stack size (Darling's pthread_attr_t: the guest's pthread_attr_* calls are native), 0 without an attr
@@ -601,7 +618,13 @@ static void h_pthread_exit(GuestThread &t, u32 i) {
         static auto *self = (u64 (*)())dsym("pthread_self");
         u64 th = self(), exit_value = t.x(0);
         struct Rec { u64 routine, arg, next; };
+        // a record is a local of a guest frame (the macro's struct), so it lies on this thread's guest stack; anything
+        // else in that word is not a guest cleanup list. An NSThread ending ([NSThread exit] -> pthread_exit) had
+        // 0x80048 there and the walk faulted reading it (Preferences, backboardd once the accessibility bundles were
+        // loaded: they run NSThreads that end)
+        auto on_stack = [&](u64 a) { return t.stack_base && a >= t.stack_base && a + sizeof(Rec) <= t.stack_base + t.stack_size; };
         while (Rec *r = *(Rec **)(th + 8)) {
+            if (!on_stack((u64)r)) break;
             *(u64 *)(th + 8) = r->next;
             if (r->routine) t.call(r->routine, {r->arg});
         }
