@@ -654,6 +654,12 @@ def main():
     with open(device + "/sim.env", "w") as f:
         for k, v in env.items():
             f.write("%s=%s\n" % (k, v))
+    # the last boot's device orientation (host/simhid writes it at a rotation): the device boots upright, and a stale
+    # landscape here turned screenshots and touches sideways (an iPad rebooted after landscapeRight)
+    try:
+        os.unlink(os.path.join(data, "orientation"))
+    except OSError:
+        pass
     # the last boot's accessibility-reader sockets (host/simax): their processes are gone
     import glob
     ring_dir = os.path.dirname(env["SIMFB_RING"].removeprefix(DARLING_VIEW))
