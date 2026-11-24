@@ -46,6 +46,9 @@ fn is_true(b: &bool) -> bool {
 fn yes() -> bool {
     true
 }
+fn is_zero(v: &u32) -> bool {
+    *v == 0
+}
 
 /// One element on screen. Frames are in screen points (UIKit's, of the current interface orientation).
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -95,6 +98,17 @@ pub struct El {
     /// class, container path, text font / color / truncation (axinspect.rs, axaudit.rs)
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub more: Option<Value>,
+    /// what stays the same while the object behind it may not (simax): a table / collection cell's index path
+    /// ("<list>:<section>.<row>/<role><n>"), a DOM node's identity ("dom:<document tag>.<n>"); refs follow it
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub key: Option<String>,
+    /// the interface orientation of its window as a turn of the panel (0, 90, 180, 270; hid::orientation_rot's
+    /// convention): its frame is in that orientation's coordinates
+    #[serde(skip_serializing_if = "is_zero", default)]
+    pub rot: u32,
+    /// web content of an iframe: the frame's URL
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub frame_url: Option<String>,
 }
 
 impl El {
@@ -163,6 +177,13 @@ pub struct Snapshot {
     /// processes on screen that did not answer in time (busy main thread)
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub busy: Vec<String>,
+    /// the front app's interface orientation as a turn of the panel (0 portrait, 90, 180, 270): `screen` and points
+    /// given to tap / swipe are in it
+    #[serde(skip_serializing_if = "is_zero", default)]
+    pub rot: u32,
+    /// a two-screen phone: which screen is in use ("inner" unfolded, "outer" folded)
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub display: Option<String>,
     /// how long the snapshot took
     pub ms: u64,
     /// an app was in the middle of an animation (a push, a sheet coming up) when it answered
@@ -205,13 +226,19 @@ impl Snapshot {
     /// The compact text form an agent reads.
     pub fn text(&self) -> String {
         let mut out = format!(
-            "phone {} · {} · front {}{}\n",
+            "phone {} · {}{}{} · front {}{}\n",
             self.phone,
             if self.platform == "xros" {
                 // windows float in the room: no display coordinates (tap acts through accessibility)
                 "Vision Pro: (x,y) are points in each app's own window".to_string()
             } else {
                 format!("{:.0}x{:.0} pt", self.screen.0, self.screen.1)
+            },
+            self.display.as_deref().map(|d| format!(" · {d} screen")).unwrap_or_default(),
+            match self.rot {
+                0 => "",
+                90 | 270 => " · landscape",
+                _ => " · upside down",
             },
             if self.front.is_empty() { "?".into() } else { self.front.join(", ") },
             if self.overlay { " · system overlay on top" } else { "" }
@@ -474,32 +501,52 @@ fn save_refs(inst: &Instance, st: &RefState) {
     }
 }
 
-/// Gives each element of `cur` the ref it had in `prev` when it is the same element: the same object (pid + oid, still
-/// the same role and label or id), else the only previous element of the same app with the same role and id, else
-/// with the same role and label (web content, recreated cells). New elements get new numbers.
+/// Gives each element of `cur` the ref it had in `prev` when it is the same element:
+/// 1. the same key in the same process (simax's `key`: a DOM node's identity, a cell's index path; a cell's element
+///    also needs its label, identifier or object to be the same, else the rows moved), or the same object (pid + oid)
+///    still with the same role and label or id;
+/// 2. else the only previous element of the same app with the same role and id, else the nearest one with the same
+///    role and label (recreated cells, a relaunched app). Two keyed elements of one process with different keys are
+///    different elements: they never trade refs on a label they share ("by", "|" on every row of a web page) unless
+///    the label is unique on both sides.
+/// New elements get new numbers.
 fn assign_refs(cur: &mut [El], prev: &[El], next: &mut u32) {
     let mut used: HashSet<String> = HashSet::new();
     let key_obj = |e: &El| format!("{}|{}", e.pid, e.oid);
+    let key_key = |e: &El| e.key.as_ref().map(|k| format!("{}|{}|{}", e.pid, e.role, k));
     let by_obj: HashMap<String, &El> = prev.iter().filter(|e| !e.web).map(|e| (key_obj(e), e)).collect();
+    let by_key: HashMap<String, &El> = prev.iter().filter_map(|e| key_key(e).map(|k| (k, e))).collect();
     let mut pending = Vec::new();
     for (i, e) in cur.iter_mut().enumerate() {
-        if e.web {
-            pending.push(i);
-            continue;
-        }
-        match by_obj.get(&key_obj(e)) {
-            Some(p) if p.role == e.role && (p.label == e.label || (p.id.is_some() && p.id == e.id)) && !used.contains(&p.r) => {
+        let same_content = |p: &El| p.label == e.label || (p.id.is_some() && p.id == e.id);
+        let hit = match key_key(e).and_then(|k| by_key.get(&k).copied()) {
+            // a DOM node is itself whatever it says now; a cell's row only while it shows the same thing
+            Some(p) if p.web == e.web && (e.web || same_content(p) || p.oid == e.oid) => Some(p),
+            Some(_) => None,
+            None => match by_obj.get(&key_obj(e)) {
+                Some(p) if !e.web && p.role == e.role && same_content(p) && (p.key.is_none() || e.key.is_none() || p.key == e.key) => Some(*p),
+                _ => None,
+            },
+        };
+        match hit {
+            Some(p) if !used.contains(&p.r) => {
                 e.r = p.r.clone();
                 used.insert(p.r.clone());
             }
             _ => pending.push(i),
         }
     }
+    // labels that occur once among an app's keyed elements of a role (a keyed element may move to another key by one)
+    let count = |els: &[El], e: &El| els.iter().filter(|o| o.key.is_some() && o.pid == e.pid && o.role == e.role && o.label == e.label).count();
     let unique = |cands: Vec<&El>| -> Option<String> { if cands.len() == 1 { Some(cands[0].r.clone()) } else { None } };
     let mut still = Vec::new();
     for i in pending {
         let e = &cur[i];
-        let free: Vec<&El> = prev.iter().filter(|p| !used.contains(&p.r) && p.app == e.app && p.role == e.role && p.web == e.web).collect();
+        let free: Vec<&El> = prev
+            .iter()
+            .filter(|p| !used.contains(&p.r) && p.app == e.app && p.role == e.role && p.web == e.web)
+            .filter(|p| p.key.is_none() || e.key.is_none() || p.pid != e.pid || (count(prev, p) == 1 && count(cur, e) == 1))
+            .collect();
         let r = e
             .id
             .as_ref()
@@ -637,6 +684,86 @@ fn cover(els: &mut [El], rects: &HashMap<String, [f64; 4]>, z: &HashMap<String, 
     }
 }
 
+/// The screen in use and how a process's coordinates sit on its panel (simax's `display`, `fixed`, `fixed_size`)
+struct Geometry {
+    /// simfb's name of the display in use (x86Sim-main-display, x86Sim-display-<id>); None on a one-screen phone
+    display: Option<String>,
+    /// the panel's turn as mounted (an inner screen's nativeRotation) and its framebuffer size in points
+    native: u32,
+    fb: (f64, f64),
+}
+
+impl Geometry {
+    fn of(inst: &Instance) -> Geometry {
+        let sc = inst.scale.max(1.0) as f64;
+        match &inst.inner {
+            Some(d) if inst.inner_active() => Geometry { display: Some(format!("x86Sim-display-{}", d.id)), native: d.rotation, fb: (d.size.0 as f64 / sc, d.size.1 as f64 / sc) },
+            Some(_) => Geometry { display: Some("x86Sim-main-display".into()), native: 0, fb: panel(inst).1 },
+            None => Geometry { display: None, native: 0, fb: panel(inst).1 },
+        }
+    }
+
+    /// The space of a window (or of a process's primary window: the same keys at the top of its answer), None when it
+    /// is on another display than the one in use. Its turn comes from where the screen's coordinate space puts the
+    /// unit x vector in the screen's fixed space (`fixed`), else from the interface orientation (older readers).
+    fn space(&self, w: &Value) -> Option<Space> {
+        if let (Some(want), Some(d)) = (&self.display, w["display"].as_str()) {
+            if want != d {
+                return None;
+            }
+        }
+        let sc = w["screen"].as_array()?;
+        let size = (sc.first()?.as_f64()?, sc.get(1)?.as_f64()?);
+        if size.0 <= 0.0 {
+            return None;
+        }
+        let rot = match w["fixed"].as_array().map(|f| (f.first().and_then(Value::as_f64).unwrap_or(1.0), f.get(1).and_then(Value::as_f64).unwrap_or(0.0))) {
+            Some(f) => {
+                let r = fixed_rot(f);
+                // a fixed space in the framebuffer's orientation (not the panel's upright picture): Hid adds the mount
+                // turn, so take it off here
+                let fixed = w["fixed_size"].as_array().map(|f| (f.first().and_then(Value::as_f64).unwrap_or(0.0), f.get(1).and_then(Value::as_f64).unwrap_or(0.0)));
+                let fb_like = fixed.is_some_and(|f| (f.0 > f.1) == (self.fb.0 > self.fb.1));
+                if self.native % 180 == 90 && fb_like {
+                    (r + 360 - self.native) % 360
+                } else {
+                    r
+                }
+            }
+            None => w["orient"].as_u64().map(interface_rot).unwrap_or(0),
+        };
+        Some(Space { size, rot })
+    }
+}
+
+/// Where a screen's coordinate space puts the unit x vector in its fixed space, as the turn of the picture (hid's
+/// convention: hid::unrotate(x, y, 90) = (1 - y, x), so x runs down the fixed space at 90)
+pub fn fixed_rot(x: (f64, f64)) -> u32 {
+    match (x.0.round() as i64, x.1.round() as i64) {
+        (0, 1) => 90,
+        (-1, 0) => 180,
+        (0, -1) => 270,
+        _ => 0,
+    }
+}
+
+/// UIInterfaceOrientation (1 portrait, 2 upside down, 3 landscape left, 4 landscape right) as the panel's turn in
+/// hid::orientation_rot's convention (measured: host/simhid's "landscapeLeft" turns Safari to interface 3, whose
+/// picture stands upright with the viewer's 90)
+pub fn interface_rot(o: u64) -> u32 {
+    match o {
+        2 => 180,
+        3 => 90,
+        4 => 270,
+        _ => 0,
+    }
+}
+
+/// The bundle id a process's `.fg` marker names (simax writes it), for messages about a process that did not answer
+fn fg_bundle(sock: &Path) -> String {
+    std::fs::read_to_string(sock.with_extension("fg")).ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).unwrap_or_else(|| "?".into())
+}
+
 fn s(v: &Value) -> Option<String> {
     v.as_str().filter(|s| !s.is_empty()).map(String::from)
 }
@@ -658,31 +785,43 @@ fn snapshot_once(inst: &Instance, opt: SnapOpts) -> Result<Snapshot> {
     let timeout = Duration::from_millis(if opt.timeout_ms > 0 { opt.timeout_ms } else { 6000 });
     let mut st = load_refs(inst);
     let answers = ask_fg(inst, &req, timeout, &st.stuck);
-    st.stuck.clear();
-    if answers.is_empty() {
-        bail!("{}: no app answers (is the phone running and booted to the home screen? its reader is host/simax)", inst.name);
-    }
+    let was_stuck = std::mem::take(&mut st.stuck);
     let mut snap = Snapshot { phone: inst.name.clone(), platform: inst.platform.clone(), ..Default::default() };
     let mut fronts: Vec<(u32, String, bool)> = Vec::new();
     // each app's main window on the display (simax offsets an iPadOS window by its scene's place)
     let mut app_rects: HashMap<String, [f64; 4]> = HashMap::new();
-    let mut screen_from_sb = false;
+    // the space of each process that answered, on the screen in use: (rank: 0 an app on screen, 1 SpringBoard, 2 other
+    // (a helper such as the keyboard's, which can lag behind a rotation), its bundle, space)
+    let mut spaces: Vec<(u8, String, Space)> = Vec::new();
+    let geo = Geometry::of(inst);
+    let mut silent: Vec<String> = Vec::new();
+    let n_answers = answers.len();
     for (sock, r) in answers {
         let v = match r {
             Ok(v) => v,
-            Err(_) => {
-                // no answer at all: suspended (or hung); not shown as busy, it draws nothing new either
-                st.stuck.insert(pid_of_sock(&sock));
+            Err(e) => {
+                // no answer at all: hung, or suspended (an extension RunningBoard suspended keeps its .fg: it draws
+                // nothing either). Said once (the first time), then it gets a short timeout until it answers again.
+                let pid = pid_of_sock(&sock);
+                st.stuck.insert(pid);
+                let who = format!("{} (pid {pid}: {})", fg_bundle(&sock), if was_stuck.contains(&pid) { "still no answer".to_string() } else { format!("no answer in {:.1} s", timeout.as_secs_f64()) });
                 if std::env::var_os("X86SIM_AX_DEBUG").is_some() {
-                    eprintln!("ax: pid {} does not answer", pid_of_sock(&sock));
+                    eprintln!("ax: {who}: {e:#}");
                 }
+                if !was_stuck.contains(&pid) {
+                    snap.busy.push(who.clone());
+                }
+                silent.push(who);
                 continue;
             }
         };
         let bundle = v["bundle"].as_str().unwrap_or("").to_string();
         if let Some(e) = v["error"].as_str() {
-            snap.busy.push(format!("{bundle} ({e})"));
+            snap.busy.push(format!("{bundle} (pid {}: {e})", v["pid"].as_u64().unwrap_or(0)));
             continue;
+        }
+        if let Some(n) = v["web_pending"].as_u64() {
+            snap.busy.push(format!("{bundle} web content ({n} frame(s) did not answer in time; their elements are missing)"));
         }
         if v["animating"].as_bool().unwrap_or(false) {
             snap.animating = true;
@@ -694,13 +833,7 @@ fn snapshot_once(inst: &Instance, opt: SnapOpts) -> Result<Snapshot> {
         if state != "active" && state != "inactive" {
             continue;
         }
-        // the screen as SpringBoard has it (a helper process such as the keyboard's can lag behind a rotation)
-        if let Some(sc) = v["screen"].as_array() {
-            if bundle == SPRINGBOARD || !screen_from_sb {
-                snap.screen = (sc[0].as_f64().unwrap_or(0.0), sc[1].as_f64().unwrap_or(0.0));
-                screen_from_sb = bundle == SPRINGBOARD;
-            }
-        }
+        let proc_space = geo.space(&v);
         let pid = v["pid"].as_u64().unwrap_or(0) as u32;
         // the focus (tvOS): the active process's focused item
         // (not a whole-screen item: a process whose focus sits on a window or a full-screen container)
@@ -717,11 +850,18 @@ fn snapshot_once(inst: &Instance, opt: SnapOpts) -> Result<Snapshot> {
             }
         }
         let wins: Vec<String> = v["windows"].as_array().map(|a| a.iter().map(|w| w["class"].as_str().unwrap_or("").to_string()).collect()).unwrap_or_default();
+        // per window: its space, None when it is on a screen not in use (a two-screen phone's other screen)
+        let win_space: Vec<Option<Space>> = v["windows"].as_array().map(|a| a.iter().map(|w| geo.space(w)).collect()).unwrap_or_default();
         let els = v["elements"].as_array().cloned().unwrap_or_default();
         let mut has_app_content = false;
         for e in els {
             let win = e["win"].as_u64().unwrap_or(0) as usize;
             let window = wins.get(win).cloned().unwrap_or_default();
+            let rot = match win_space.get(win) {
+                Some(Some(sp)) => sp.rot,
+                Some(None) => continue,
+                None => proc_space.map(|s| s.rot).unwrap_or(0),
+            };
             let class = e["class"].as_str().unwrap_or("");
             let layer = layer_of(&bundle, &window, class, e["id"].as_str().unwrap_or("")).to_string();
             if layer == "app" || layer == "home" {
@@ -752,6 +892,9 @@ fn snapshot_once(inst: &Instance, opt: SnapOpts) -> Result<Snapshot> {
                 oid: e["oid"].as_str().unwrap_or("").to_string(),
                 container: s(&e["in"]),
                 more: e.get("more").cloned(),
+                key: s(&e["key"]),
+                rot,
+                frame_url: s(&e["frame_url"]),
             });
         }
         for h in v["hidden"].as_array().into_iter().flatten() {
@@ -764,6 +907,19 @@ fn snapshot_once(inst: &Instance, opt: SnapOpts) -> Result<Snapshot> {
         if !is_shell(&bundle) && has_app_content {
             fronts.push((pid, bundle.clone(), state == "active"));
         }
+        if let Some(sp) = proc_space {
+            let rank = if bundle != SPRINGBOARD && has_app_content && state == "active" { 0 } else if bundle == SPRINGBOARD { 1 } else { 2 };
+            spaces.push((rank, bundle.clone(), sp));
+        }
+    }
+    if n_answers == 0 {
+        bail!("{}: no app answers (is the phone running and booted to the home screen? its reader is host/simax)", inst.name);
+    }
+    if snap.elements.is_empty() && !silent.is_empty() && spaces.is_empty() {
+        bail!("{}: no process on screen answered: {}", inst.name, silent.join("; "));
+    }
+    if inst.inner.is_some() {
+        snap.display = Some(if inst.inner_active() { "inner" } else { "outer" }.into());
     }
     // watchOS: Carousel's app grid covers the watch face (which stays active under it)
     if snap.elements.iter().any(|e| e.app == "com.apple.Carousel" && e.layer == "home") {
@@ -787,13 +943,20 @@ fn snapshot_once(inst: &Instance, opt: SnapOpts) -> Result<Snapshot> {
         cover(&mut snap.elements, &app_rects, &z);
     }
     snap.front = fronts.into_iter().map(|f| f.1).collect();
+    // the screen as the front app sees it (the top window's app on an iPad; a portrait-only app on a sideways phone
+    // keeps its portrait points), else SpringBoard's
+    let front_space = snap.front.first().and_then(|b| spaces.iter().find(|s| s.0 == 0 && s.1 == *b));
+    if let Some((_, _, sp)) = front_space.or_else(|| spaces.iter().min_by_key(|s| s.0)) {
+        snap.screen = sp.size;
+        snap.rot = sp.rot;
+    }
     if snap.front.is_empty() {
         // the home screen: the platform's (tvOS HeadBoard, a watch's Carousel, ...)
         let home = snap.elements.iter().find(|e| e.layer == "home").map(|e| e.app.clone());
         snap.front.push(home.unwrap_or_else(|| SPRINGBOARD.into()));
     }
     if snap.screen.0 <= 0.0 {
-        snap.screen = (inst.screen.0 as f64 / inst.scale as f64, inst.screen.1 as f64 / inst.scale as f64);
+        snap.screen = panel(inst).1;
     }
     // reading order on the home screen: rows, then columns (SpringBoard lists icons by page model)
     let idx: Vec<usize> = (0..snap.elements.len()).filter(|&i| snap.elements[i].layer == "home").collect();
@@ -922,23 +1085,120 @@ pub fn find<'a>(snap: &'a Snapshot, target: &str) -> Result<&'a El> {
 // ---------------------------------------------------------------------------------------------------------------------
 // Acting
 
-/// The touch / key channel to the phone, oriented like the screen the reader reports
-fn hid_for(inst: &Instance) -> Hid {
+/// The panel in use: an unfolded two-screen phone's inner screen (its simfb display id and the turn it is mounted
+/// at), else the main screen; and its upright size in points
+fn panel(inst: &Instance) -> (Option<(u32, u32)>, (f64, f64)) {
+    let sc = inst.scale.max(1.0) as f64;
+    match inst.inner.as_ref().filter(|_| inst.inner_active()) {
+        Some(d) => {
+            let (w, h) = d.upright();
+            (Some((d.id, d.rotation)), (w as f64 / sc, h as f64 / sc))
+        }
+        None => (None, (inst.screen.0 as f64 / sc, inst.screen.1 as f64 / sc)),
+    }
+}
+
+/// Where points are: the screen size (points) and the interface orientation's turn of the panel they are given in.
+/// UIKit's screen coordinates turn with the interface, not with the device: a portrait-only app on a phone held
+/// landscape keeps portrait coordinates.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Space {
+    pub size: (f64, f64),
+    pub rot: u32,
+}
+
+impl Space {
+    /// the same screen in another interface orientation
+    pub fn turned(&self, rot: u32) -> Space {
+        let d = (rot + 360 - self.rot % 360) % 180;
+        Space { size: if d == 90 { (self.size.1, self.size.0) } else { self.size }, rot }
+    }
+
+    /// a point in this space -> normalized upright coordinates of the interface's picture (Hid turns them to the panel)
+    pub fn norm(&self, x: f64, y: f64) -> (f32, f32) {
+        ((x / self.size.0.max(1.0)) as f32, (y / self.size.1.max(1.0)) as f32)
+    }
+}
+
+impl Snapshot {
+    /// the space its points are in (the front app's)
+    pub fn space(&self) -> Space {
+        Space { size: self.screen, rot: self.rot }
+    }
+
+    /// the space an element's frame is in (its own window's orientation: SpringBoard's status bar can be turned
+    /// another way than a portrait-only app under it)
+    pub fn space_of(&self, e: &El) -> Space {
+        self.space().turned(e.rot)
+    }
+}
+
+/// The touch / key channel to the phone for points in a space: the panel in use (an unfolded phone's inner screen)
+/// and the turn from the interface's picture to the panel
+fn hid_for(inst: &Instance, sp: Space) -> Hid {
     let mut h = Hid::new(&inst.sock);
-    h.main_rot = inst.orientation().as_deref().and_then(hid::orientation_rot).unwrap_or(0);
+    match panel(inst).0 {
+        Some((id, native)) => h.display = Some((id, (native + sp.rot) % 360)),
+        None => h.main_rot = sp.rot % 360,
+    }
     h
+}
+
+/// The front app's space now: a quick `info` of the processes on screen (no walk), else the last snapshot's, else the
+/// device orientation's
+pub fn front_space(inst: &Instance) -> Space {
+    let answers = ask_fg(inst, &json!({"op": "info"}), Duration::from_millis(1500), &load_refs(inst).stuck);
+    let geo = Geometry::of(inst);
+    let front = last(inst).map(|s| s.front).unwrap_or_default();
+    let mut best: Option<((u8, usize), Space)> = None;
+    for (_, r) in answers {
+        let Ok(v) = r else { continue };
+        let st = v["state"].as_str().unwrap_or("");
+        if !matches!(st, "active" | "inactive") || v["error"].is_string() {
+            continue;
+        }
+        let Some(sp) = geo.space(&v) else { continue };
+        // the app the last snapshot had in front (view services and the keyboard host are active too; of two iPad
+        // windows, the top one), else SpringBoard
+        let bundle = v["bundle"].as_str().unwrap_or("");
+        let pos = front.iter().position(|f| f == bundle);
+        let rank = match pos {
+            Some(i) if bundle != SPRINGBOARD && st == "active" => (0, i),
+            _ if bundle == SPRINGBOARD => (1, 0),
+            _ => (2, 0),
+        };
+        if best.is_none_or(|b| rank < b.0) {
+            best = Some((rank, sp));
+        }
+    }
+    if let Some((_, sp)) = best {
+        return sp;
+    }
+    if let Some(s) = last(inst).filter(|s| s.screen.0 > 0.0) {
+        return s.space();
+    }
+    let rot = inst.orientation().as_deref().and_then(hid::orientation_rot).unwrap_or(0);
+    Space { size: panel(inst).1, rot: 0 }.turned(rot)
+}
+
+/// The frame ring of the screen in use (an unfolded two-screen phone draws on its inner screen's ring)
+pub fn screen_ring(inst: &Instance) -> PathBuf {
+    match inst.inner.as_ref().filter(|_| inst.inner_active()) {
+        Some(d) => d.ring.clone(),
+        None => inst.ring.clone(),
+    }
 }
 
 /// The newest frame's number, to settle on what a change draws (settle_since)
 pub fn frame_seq(inst: &Instance) -> u64 {
-    Ring::new(&inst.ring).seq()
+    Ring::new(&screen_ring(inst)).seq()
 }
 
 /// After a change made when the newest frame was `seq0`: waits up to `first` for it to draw anything (a setting can
 /// take a second before its first frame), then until the screen has been still for `quiet`, at most `max` in all
 pub fn settle_since(inst: &Instance, seq0: u64, first: Duration, quiet: Duration, max: Duration) {
     let t0 = Instant::now();
-    let mut ring = Ring::new(&inst.ring);
+    let mut ring = Ring::new(&screen_ring(inst));
     if ring.seq() == seq0 {
         ring.wait(seq0, first);
     }
@@ -947,7 +1207,7 @@ pub fn settle_since(inst: &Instance, seq0: u64, first: Duration, quiet: Duration
 
 /// Waits until the screen has been still for `quiet` (no new frame), at most `max`
 pub fn settle(inst: &Instance, quiet: Duration, max: Duration) {
-    let mut ring = Ring::new(&inst.ring);
+    let mut ring = Ring::new(&screen_ring(inst));
     let end = Instant::now() + max;
     let mut seq = ring.seq();
     // the first frame of a reaction can take a moment to come (a slow app under the translator)
@@ -966,25 +1226,10 @@ pub fn settle(inst: &Instance, quiet: Duration, max: Duration) {
     }
 }
 
-fn norm(snap_screen: (f64, f64), x: f64, y: f64) -> (f32, f32) {
-    ((x / snap_screen.0.max(1.0)) as f32, (y / snap_screen.1.max(1.0)) as f32)
-}
-
-fn screen_of(inst: &Instance) -> (f64, f64) {
-    if let Some(s) = last(inst).map(|s| s.screen).filter(|s| s.0 > 0.0) {
-        return s;
-    }
-    let (w, h) = (inst.screen.0 as f64 / inst.scale as f64, inst.screen.1 as f64 / inst.scale as f64);
-    match inst.orientation().as_deref() {
-        Some("landscapeLeft" | "landscapeRight") => (h, w),
-        _ => (w, h),
-    }
-}
-
-/// A touch at a point (screen points), held `hold_ms` (80: a tap; 600+: a long press)
-pub fn touch_at(inst: &Instance, x: f64, y: f64, hold_ms: u64) {
-    let (nx, ny) = norm(screen_of(inst), x, y);
-    let mut h = hid_for(inst);
+/// A touch at a point (screen points of `sp`), held `hold_ms` (80: a tap; 600+: a long press)
+pub fn touch_at(inst: &Instance, sp: Space, x: f64, y: f64, hold_ms: u64) {
+    let (nx, ny) = sp.norm(x, y);
+    let mut h = hid_for(inst, sp);
     h.touch("down", nx, ny, None);
     if hold_ms > 200 {
         // a still finger keeps reporting (a digitizer does at its scan rate)
@@ -1000,10 +1245,10 @@ pub fn touch_at(inst: &Instance, x: f64, y: f64, hold_ms: u64) {
 }
 
 /// A drag from (x1, y1) to (x2, y2) in points over `ms`; `hold_ms` still at the end (no fling: a precise scroll)
-pub fn drag(inst: &Instance, from: (f64, f64), to: (f64, f64), ms: u64, hold_ms: u64) {
-    let scr = screen_of(inst);
-    let (a, b) = (norm(scr, from.0, from.1), norm(scr, to.0, to.1));
-    let mut h = hid_for(inst);
+pub fn drag(inst: &Instance, sp: Space, from: (f64, f64), to: (f64, f64), ms: u64, hold_ms: u64) {
+    let scr = sp.size;
+    let (a, b) = (sp.norm(from.0, from.1), sp.norm(to.0, to.1));
+    let mut h = hid_for(inst, sp);
     let edge = hid::edge_at(a.0, a.1, scr.0 as u32, scr.1 as u32);
     let n = (ms / 16).max(2);
     h.touch("down", a.0, a.1, edge);
@@ -1101,8 +1346,8 @@ pub fn tap(inst: &Instance, target: &str, hold_ms: u64, after: After) -> Result<
     if inst.platform == "xros" {
         return xr_activate(inst, target, hold_ms, after);
     }
-    let (x, y, what, before) = match parse_target(target) {
-        Target::Point(x, y) => (x, y, format!("({x:.0},{y:.0})"), last(inst)),
+    let (x, y, what, before, sp) = match parse_target(target) {
+        Target::Point(x, y) => (x, y, format!("({x:.0},{y:.0})"), last(inst), front_space(inst)),
         _ => {
             let (mut e, mut snap) = resolve(inst, target)?;
             if e.offscreen {
@@ -1116,17 +1361,40 @@ pub fn tap(inst: &Instance, target: &str, hold_ms: u64, after: After) -> Result<
                 let front = snap.front.first().cloned().unwrap_or_default();
                 bail!("@{} is under {front}'s window: bring {} to the front first (tap a part of its window that shows, or its icon in the dock)", e.r, e.app);
             }
-            let (x, y) = e.center(snap.screen);
-            (x, y, format!("@{} {} {}", e.r, e.role, e.label.as_deref().map(quote).unwrap_or_default()), Some(snap))
+            let sp = snap.space_of(&e);
+            let (x, y) = e.center(sp.size);
+            (x, y, format!("@{} {} {}", e.r, e.role, e.label.as_deref().map(quote).unwrap_or_default()), Some(snap), sp)
         }
     };
-    touch_at(inst, x, y, hold_ms);
+    anyhow::ensure!(simhid_up(inst), "{}: its touch input (host/simhid) does not answer (is the phone still starting?)", inst.name);
+    touch_at(inst, sp, x, y, hold_ms);
     let verb = if hold_ms >= 500 { "long-pressed" } else { "tapped" };
+    let mut did = format!("{verb} {what} at ({x:.0},{y:.0})");
     if hold_ms < 500 && what.contains(" icon ") && after != After::None {
-        // an app icon: the answer is the app, once it is in front (its first frames can take seconds to come)
-        wait_front_change(inst, before.as_ref().map(|b| b.front.clone()).unwrap_or_default(), Duration::from_secs(10));
+        // an app icon: the answer is the app, once it is in front (its first frames can take seconds to come). On a
+        // phone just booted the home screen can still be settling (icons flying in, a page laid out again) and the
+        // touch lands between icons: when nothing opened, the icon is looked up again and tapped once more.
+        let front0 = before.as_ref().map(|b| b.front.clone()).unwrap_or_default();
+        if !wait_front_change(inst, front0.clone(), Duration::from_secs(6)) {
+            if let Ok((e, snap)) = resolve(inst, target) {
+                // only when the screen shows the same things (an icon that opened a folder or a menu did something)
+                let items = |s: &Snapshot| {
+                    let mut v: Vec<(String, String)> = s.elements.iter().filter(|e| e.layer != "status").map(|e| (e.role.clone(), e.label.clone().unwrap_or_default())).collect();
+                    v.sort();
+                    v
+                };
+                let same = before.as_ref().is_some_and(|b| items(b) == items(&snap));
+                if e.role == "icon" && snap.front == front0 && same {
+                    let sp = snap.space_of(&e);
+                    let (x2, y2) = e.center(sp.size);
+                    touch_at(inst, sp, x2, y2, hold_ms);
+                    did += &format!("; nothing opened, tapped again at ({x2:.0},{y2:.0})");
+                    wait_front_change(inst, front0, Duration::from_secs(10));
+                }
+            }
+        }
     }
-    Ok(outcome(inst, format!("{verb} {what} at ({x:.0},{y:.0})"), before, after))
+    Ok(outcome(inst, did, before, after))
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -1152,7 +1420,7 @@ fn tv_find(snap: &Snapshot, target: &str) -> Result<El> {
 pub fn tv_focus(inst: &Instance, target: &str) -> Result<(El, Snapshot, u32)> {
     let mut snap = snapshot(inst, SnapOpts::default())?;
     let first = tv_find(&snap, target)?;
-    let mut h = hid_for(inst);
+    let mut h = Hid::new(&inst.sock);   // remote keys: no touch space
     let mut presses = 0;
     let mut blocked: HashSet<u32> = HashSet::new();
     let mut last_focus: Option<[f64; 4]> = None;
@@ -1274,7 +1542,7 @@ fn xr_scroll(inst: &Instance, direction: &str, amount: f64, after: After) -> Res
 /// Waits (on new frames) until `bundle` is in front, showing something
 fn wait_front_is(inst: &Instance, bundle: &str, timeout: Duration) {
     let t0 = Instant::now();
-    let mut ring = Ring::new(&inst.ring);
+    let mut ring = Ring::new(&screen_ring(inst));
     while t0.elapsed() < timeout {
         let seq = ring.seq();
         if let Ok(s) = snapshot(inst, SnapOpts::default()) {
@@ -1286,19 +1554,20 @@ fn wait_front_is(inst: &Instance, bundle: &str, timeout: Duration) {
     }
 }
 
-/// Waits (on new frames) until the apps in front differ from `front`
-fn wait_front_change(inst: &Instance, front: Vec<String>, timeout: Duration) {
+/// Waits (on new frames) until the apps in front differ from `front`; false when they did not in time
+fn wait_front_change(inst: &Instance, front: Vec<String>, timeout: Duration) -> bool {
     let t0 = Instant::now();
-    let mut ring = Ring::new(&inst.ring);
+    let mut ring = Ring::new(&screen_ring(inst));
     while t0.elapsed() < timeout {
         let seq = ring.seq();
         if let Ok(s) = snapshot(inst, SnapOpts::default()) {
             if s.front != front && s.elements.iter().any(|e| e.layer == "app") {
-                return;
+                return true;
             }
         }
         ring.wait(seq, Duration::from_millis(500));
     }
+    false
 }
 
 fn scroll_into_view(inst: &Instance, e: &El) -> Result<()> {
@@ -1316,7 +1585,7 @@ fn scroll_into_view(inst: &Instance, e: &El) -> Result<()> {
 pub fn type_text(inst: &Instance, text: &str, clear: bool, submit: bool, keys: bool, after: After) -> Result<Outcome> {
     let before = last(inst);
     if keys {
-        let mut h = hid_for(inst);
+        let mut h = Hid::new(&inst.sock);
         for c in text.chars() {
             let (u, shift) = key_usage(c).ok_or_else(|| anyhow!("no US key for {c:?} (type without keys)"))?;
             if shift {
@@ -1422,7 +1691,7 @@ pub fn key(inst: &Instance, combo: &str, after: After) -> Result<Outcome> {
         });
     }
     let u = key_named(k[0]).ok_or_else(|| anyhow!("unknown key {:?}", k[0]))?;
-    let mut h = hid_for(inst);
+    let mut h = Hid::new(&inst.sock);
     for m in &mu {
         h.key(true, *m);
     }
@@ -1447,7 +1716,7 @@ pub fn scroll(inst: &Instance, direction: &str, amount: f64, at: Option<&str>, a
         // an Apple TV scrolls by moving the focus: arrow presses (about 4 per screen), from the focus, not a point
         let k = tv_arrow(direction)?;
         let n = (amount.clamp(0.05, 2.0) * 4.0).round().max(1.0) as u32;
-        let mut h = hid_for(inst);
+        let mut h = Hid::new(&inst.sock);   // remote keys: no touch space
         for _ in 0..n {
             h.key(true, k);
             std::thread::sleep(Duration::from_millis(40));
@@ -1457,15 +1726,19 @@ pub fn scroll(inst: &Instance, direction: &str, amount: f64, at: Option<&str>, a
         let _ = at;
         return Ok(outcome(inst, format!("moved the focus {direction} {n} time(s) (Apple TV: the remote's arrows)"), before, after));
     }
-    let scr = screen_of(inst);
-    let (cx, cy, area) = match at {
+    let (sp, cx, cy, area) = match at {
         Some(t) => {
             let (e, s) = resolve(inst, t)?;
-            let c = e.center(s.screen);
-            (c.0, c.1, (e.frame[2].min(scr.0), e.frame[3].min(scr.1)))
+            let sp = s.space_of(&e);
+            let c = e.center(sp.size);
+            (sp, c.0, c.1, (e.frame[2].min(sp.size.0), e.frame[3].min(sp.size.1)))
         }
-        None => (scr.0 / 2.0, scr.1 / 2.0, (scr.0, scr.1)),
+        None => {
+            let sp = front_space(inst);
+            (sp, sp.size.0 / 2.0, sp.size.1 / 2.0, sp.size)
+        }
     };
+    let scr = sp.size;
     let amount = amount.clamp(0.05, 2.0);
     let (dx, dy) = match direction {
         "down" => (0.0, -area.1 * 0.6 * amount),
@@ -1479,7 +1752,7 @@ pub fn scroll(inst: &Instance, direction: &str, amount: f64, at: Option<&str>, a
     let cl = |v: f64, hi: f64| v.clamp(m, hi - m);
     let from = (cl(cx - dx / 2.0, scr.0), cl(cy - dy / 2.0, scr.1));
     let to = (cl(cx + dx / 2.0, scr.0), cl(cy + dy / 2.0, scr.1));
-    drag(inst, from, to, 400, 150);
+    drag(inst, sp, from, to, 400, 150);
     Ok(outcome(inst, format!("scrolled {direction} {amount}"), before, after))
 }
 
@@ -1487,7 +1760,7 @@ pub fn scroll(inst: &Instance, direction: &str, amount: f64, at: Option<&str>, a
 /// middle; a swipe that starts at a screen edge is a system gesture (bottom edge up: home)
 pub fn swipe(inst: &Instance, from: (f64, f64), to: (f64, f64), ms: u64, after: After) -> Result<Outcome> {
     let before = last(inst);
-    drag(inst, from, to, ms.max(50), 0);
+    drag(inst, front_space(inst), from, to, ms.max(50), 0);
     Ok(outcome(inst, format!("swiped ({:.0},{:.0}) -> ({:.0},{:.0})", from.0, from.1, to.0, to.1), before, after))
 }
 
@@ -1533,13 +1806,13 @@ pub fn swipe_dir(inst: &Instance, direction: &str, after: After) -> Result<Outco
             // a swipe on the remote moves the focus the way the finger goes
             d => tv_arrow(d).map_err(|_| anyhow!("direction {d:?} on an Apple TV: up down left right home back"))?,
         };
-        let mut h = hid_for(inst);
+        let mut h = Hid::new(&inst.sock);   // remote keys: no touch space
         h.key(true, k);
         std::thread::sleep(Duration::from_millis(40));
         h.key(false, k);
         return Ok(outcome(inst, format!("moved the focus with a remote swipe {direction}"), before, after));
     }
-    let s = screen_of(inst);
+    let s = front_space(inst).size;
     let (cx, cy) = (s.0 / 2.0, s.1 / 2.0);
     let (from, to) = match direction {
         "up" => ((cx, s.1 * 0.75), (cx, s.1 * 0.25)),
@@ -1580,10 +1853,10 @@ pub fn scroll_to(inst: &Instance, target: &str, direction: &str, max_steps: u32,
         if step == max_steps {
             break;
         }
-        let seq = Ring::new(&inst.ring).seq();
+        let seq = Ring::new(&screen_ring(inst)).seq();
         scroll(inst, direction, 0.8, None, After::None)?;
         settle(inst, Duration::from_millis(250), Duration::from_millis(2500));
-        if Ring::new(&inst.ring).seq() == seq {
+        if Ring::new(&screen_ring(inst)).seq() == seq {
             bail!("{target:?} not found: the content stopped scrolling {direction}");
         }
     }
@@ -1594,7 +1867,7 @@ pub fn scroll_to(inst: &Instance, target: &str, direction: &str, max_steps: u32,
 pub fn wait_for(inst: &Instance, target: &str, gone: bool, timeout: Duration) -> Result<Outcome> {
     let t0 = Instant::now();
     let t = parse_target(target);
-    let mut ring = Ring::new(&inst.ring);
+    let mut ring = Ring::new(&screen_ring(inst));
     loop {
         let seq = ring.seq();
         let snap = snapshot(inst, SnapOpts::default());
@@ -1679,9 +1952,10 @@ pub fn terminate(inst: &Instance, bundle: &str, after: After) -> Result<Outcome>
 /// The newest frame upright as PNG, scaled down by `div` (the device's scale gives a picture in points: the same
 /// coordinates as the snapshot's)
 pub fn screenshot(inst: &Instance, div: u32) -> Result<(Vec<u8>, u32, u32)> {
-    let mut ring = Ring::new(&inst.ring);
+    let mut ring = Ring::new(&screen_ring(inst));
     let f = ring.latest().ok_or_else(|| anyhow!("{}: no frame (is the phone running?)", inst.name))?;
-    let rot = inst.orientation().as_deref().and_then(hid::orientation_rot).unwrap_or(0);
+    // upright as the front app's interface stands (its points are the snapshot's), on the panel in use
+    let rot = (panel(inst).0.map(|p| p.1).unwrap_or(0) + front_space(inst).rot) % 360;
     let div = div.max(1) as usize;
     let (w, h, s) = (f.w as usize, f.h as usize, f.stride as usize);
     let (sw, sh) = (w / div, h / div);
@@ -1796,6 +2070,125 @@ mod tests {
         assert!(find(&snap, "nothing").is_err());
     }
 
+    fn keyed(r: &str, oid: &str, role: &str, label: &str, key: &str, y: f64, web: bool) -> El {
+        El { key: Some(key.into()), web, ..el(r, 1, oid, role, label, y) }
+    }
+
+    #[test]
+    fn repeated_web_text_keeps_refs_by_dom_identity() {
+        // Hacker News: every row has "by" and "|"; scrolling moves rows up, a new row comes in at the bottom
+        let prev = vec![
+            keyed("e1", "w#dom:a.1", "text", "by", "dom:a.1", 100.0, true),
+            keyed("e2", "w#dom:a.2", "text", "|", "dom:a.2", 100.0, true),
+            keyed("e3", "w#dom:a.3", "text", "by", "dom:a.3", 200.0, true),
+            keyed("e4", "w#dom:a.4", "text", "|", "dom:a.4", 200.0, true),
+        ];
+        // scrolled by 100: row 1 is gone, row 2 moved to where row 1 was, row 3 (new) where row 2 was
+        let mut cur = vec![
+            keyed("", "w#dom:a.3", "text", "by", "dom:a.3", 0.0, true),
+            keyed("", "w#dom:a.4", "text", "|", "dom:a.4", 0.0, true),
+            keyed("", "w#dom:a.5", "text", "by", "dom:a.5", 100.0, true),
+            keyed("", "w#dom:a.6", "text", "|", "dom:a.6", 100.0, true),
+        ];
+        let mut next = 5;
+        assign_refs(&mut cur, &prev, &mut next);
+        let r: Vec<&str> = cur.iter().map(|e| e.r.as_str()).collect();
+        // the old position-based fallback gave the new row e1 / e2 (same label at the same place)
+        assert_eq!(r, ["e3", "e4", "e5", "e6"]);
+        // a DOM node keeps its ref when its text changes (a counter, a field's value)
+        let mut cur2 = vec![keyed("", "w#dom:a.3", "text", "by someone", "dom:a.3", 0.0, true)];
+        assign_refs(&mut cur2, &cur, &mut next);
+        assert_eq!(cur2[0].r, "e3");
+        // a node the page re-created with a label found once on both sides still finds its ref
+        let prev = vec![keyed("e9", "w#dom:a.9", "link", "More", "dom:a.9", 700.0, true)];
+        let mut cur3 = vec![keyed("", "w#dom:b.1", "link", "More", "dom:b.1", 690.0, true)];
+        assign_refs(&mut cur3, &prev, &mut next);
+        assert_eq!(cur3[0].r, "e9");
+    }
+
+    #[test]
+    fn recycled_cells_keep_refs_by_index_path() {
+        // two rows with a "Details" button each; after a scroll the cells (objects) are recycled: the object that showed
+        // row 3 now shows row 5, and row 4's button sits in the object row 3 had
+        let prev = vec![
+            keyed("e1", "c1", "button", "Details", "t:0.3/button0", 100.0, false),
+            keyed("e2", "c2", "button", "Details", "t:0.4/button0", 150.0, false),
+        ];
+        let mut cur = vec![
+            keyed("", "c1", "button", "Details", "t:0.4/button0", 100.0, false),
+            keyed("", "c2", "button", "Details", "t:0.5/button0", 150.0, false),
+        ];
+        let mut next = 3;
+        assign_refs(&mut cur, &prev, &mut next);
+        assert_eq!(cur[0].r, "e2", "row 4 keeps its ref in another cell object");
+        assert_eq!(cur[1].r, "e3", "row 5 is new, even in the object (and at the place) row 4 had");
+        // rows shifted by an insertion: the index path now shows another row (other label): not the same element
+        let prev = vec![keyed("e7", "c1", "text", "Alice", "t:0.0/text0", 0.0, false), keyed("e8", "c2", "text", "Bob", "t:0.1/text0", 40.0, false)];
+        let mut cur = vec![
+            keyed("", "c3", "text", "Zed", "t:0.0/text0", 0.0, false),
+            keyed("", "c1", "text", "Alice", "t:0.1/text0", 40.0, false),
+            keyed("", "c2", "text", "Bob", "t:0.2/text0", 80.0, false),
+        ];
+        let mut next = 9;
+        assign_refs(&mut cur, &prev, &mut next);
+        let r: Vec<&str> = cur.iter().map(|e| e.r.as_str()).collect();
+        assert_eq!(r, ["e9", "e7", "e8"]);
+    }
+
+    #[test]
+    fn spaces_turn_with_the_interface() {
+        assert_eq!(interface_rot(1), 0);
+        assert_eq!(interface_rot(3), 90, "simhid's landscapeLeft: Safari's interface is UIKit's landscape left");
+        assert_eq!(interface_rot(4), 270);
+        assert_eq!(interface_rot(2), 180);
+        let portrait = Space { size: (402.0, 874.0), rot: 0 };
+        let land = portrait.turned(90);
+        assert_eq!(land.size, (874.0, 402.0));
+        assert_eq!(land.turned(270).size, (874.0, 402.0), "the other landscape");
+        assert_eq!(land.turned(0), portrait);
+        // a portrait-only app on a phone held landscape: its points are portrait ones and go to the panel as they are
+        let mut h = hid_for_test(portrait);
+        assert_eq!(h.main_rot, 0);
+        let (x, y) = portrait.norm(100.5, 437.0);
+        assert!((x - 0.25).abs() < 1e-3 && (y - 0.5).abs() < 1e-3);
+        // Safari turned with the phone (landscape left): the top left of its picture is the panel's top right
+        h = hid_for_test(land);
+        assert_eq!(h.main_rot, 90);
+        assert_eq!(hid::unrotate(0.0, 0.0, h.main_rot), (1.0, 0.0));
+        // an element of a window turned another way than the front app (SpringBoard's) is in its own space
+        let snap = Snapshot { screen: (874.0, 402.0), rot: 90, ..Default::default() };
+        let e = El { rot: 0, ..Default::default() };
+        assert_eq!(snap.space_of(&e).size, (402.0, 874.0));
+    }
+
+    #[test]
+    fn geometry_from_the_fixed_space() {
+        assert_eq!(fixed_rot((1.0, 0.0)), 0);
+        assert_eq!(fixed_rot((0.0, 1.0)), 90);
+        assert_eq!(fixed_rot((-1.0, 0.0)), 180);
+        assert_eq!(fixed_rot((0.0, -1.0)), 270);
+        // iPhone Duo unfolded: simfb's display 3, a 2007x2853 framebuffer mounted at 270
+        let g = Geometry { display: Some("x86Sim-display-3".into()), native: 270, fb: (669.0, 951.0) };
+        // SpringBoard there: a wide upright space, fixed = the same (no turn): Hid adds the mount turn
+        let w = json!({"display": "x86Sim-display-3", "screen": [951, 669], "fixed": [1, 0], "fixed_size": [951, 669]});
+        assert_eq!(g.space(&w), Some(Space { size: (951.0, 669.0), rot: 0 }));
+        // a fixed space in the framebuffer's orientation: the turn to it already includes the mount
+        let w = json!({"display": "x86Sim-display-3", "screen": [951, 669], "fixed": [0, -1], "fixed_size": [669, 951]});
+        assert_eq!(g.space(&w).map(|s| s.rot), Some(0));
+        // a window on the folded-away outer screen is not on screen
+        let w = json!({"display": "x86Sim-main-display", "screen": [466, 678], "fixed": [1, 0], "fixed_size": [466, 678]});
+        assert_eq!(g.space(&w), None);
+        // an older reader: the interface orientation
+        let one = Geometry { display: None, native: 0, fb: (402.0, 874.0) };
+        assert_eq!(one.space(&json!({"screen": [874, 402], "orient": 3})).map(|s| s.rot), Some(90));
+    }
+
+    fn hid_for_test(sp: Space) -> Hid {
+        let mut h = Hid::new(Path::new("/nonexistent"));
+        h.main_rot = sp.rot % 360;
+        h
+    }
+
     #[test]
     fn ipad_windows() {
         // iPadOS windowed apps: Safari's window in front of Settings'; SpringBoard's chrome is the window layer
@@ -1904,7 +2297,7 @@ pub fn keyboard(inst: &Instance, what: &str, how: &str, after: After) -> Result<
             if want.is_some_and(|w| w == up()) {
                 format!("software keyboard already {}", if want == Some(true) { "shown" } else { "hidden" })
             } else {
-                hid_for(inst).soft_keyboard_toggle();
+                Hid::new(&inst.sock).soft_keyboard_toggle();
                 std::thread::sleep(Duration::from_millis(600));
                 let now = up();
                 let mut d = format!("toggled the software keyboard: {}", if now { "shown" } else { "hidden" });
