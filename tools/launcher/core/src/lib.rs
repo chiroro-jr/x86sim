@@ -5,6 +5,7 @@ pub mod aot;
 pub mod ax;
 pub mod appcache;
 pub mod apps;
+pub mod dev;
 pub mod discover;
 pub mod dyldcache;
 pub mod features;

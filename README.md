@@ -272,21 +272,35 @@ tvOS, watchOS and visionOS too.
 ## Building and shipping apps
 
 x86Sim runs and tests apps. The other half of iOS development without a Mac, building, signing, installing on a
-real iPhone and publishing, is [omarchy-apple-dev](https://github.com/joshuaswarren/omarchy-apple-dev). The two
-are used together: the same project is built for the simulator, tested with `x86sim install` and `x86sim launch`,
-then built for a device and shipped.
+real iPhone and publishing, is [omarchy-apple-dev](https://github.com/joshuaswarren/omarchy-apple-dev). x86Sim
+carries our fork of it ([x86sim/omarchy-apple-dev](https://github.com/x86sim/omarchy-apple-dev)) in
+`external/omarchy-apple-dev` and in the AppImage, and wraps it as `x86sim dev`, the launcher's **Develop** page and
+the MCP server's `dev_*` tools:
+
+```sh
+x86sim dev status                     # Swift, xtool, the iOS SDK, device tools: what is ready, what to do next
+x86sim dev setup                      # install what is missing (no root): Swift from swift.org if there is none,
+                                      # xtool, rcodesign, ipsw, pymobiledevice3, then a test build
+x86sim dev setup sdk --xip ~/Downloads/Xcode_27.xip   # the iOS SDK, from Apple's Xcode download (free Apple ID)
+x86sim dev new HelloApp               # a SwiftUI app (xtool new), set up for iOS, tvOS, watchOS and visionOS
+x86sim dev run HelloApp --phone QA    # build for that device's platform, install and launch: the edit-run loop
+x86sim dev test HelloApp              # the same, then check it still runs and take a screenshot
+x86sim dev device | ship | ship-mac | convert | auth   # real iPhones, App Store / TestFlight, Xcode projects
+```
 
 - **Build** Swift, SwiftUI, Objective-C, C and C++ apps with Swift and xtool, along with Flutter and Kotlin
-  Multiplatform, as simulator builds for x86Sim or device builds for an iPhone. Linux versions of `actool`,
-  `ibtool`, `momc` and `xcstringstool` are included, and Xcode projects can be converted.
-- **Run on a device**: `device-run.sh` pairs an iPhone, installs and launches the app, attaches LLDB, streams its
-  console and symbolicates crash reports.
-- **Publish**: `ship.sh` builds a release `.ipa`, creates certificates and profiles, signs it and uploads it to App
-  Store Connect and TestFlight. `ship-mac.sh` does the same for macOS apps, with Developer ID signing and optional
-  notarization.
+  Multiplatform, as simulator builds for x86Sim (`ship.sh --simulator`) or device builds for an iPhone. Linux versions
+  of `actool`, `ibtool`, `momc` and `xcstringstool` are included, and Xcode projects can be converted.
+- **Run on a device**: `device-run.sh` (`x86sim dev device`) pairs an iPhone, installs and launches the app, attaches
+  LLDB, streams its console and symbolicates crash reports.
+- **Publish**: `ship.sh` (`x86sim dev ship`) builds a release `.ipa`, creates certificates and profiles, signs it and
+  uploads it to App Store Connect and TestFlight. `ship-mac.sh` does the same for macOS apps, with Developer ID signing
+  and optional notarization.
 
-A free Apple ID is enough to install on your own device; TestFlight and the App Store need a paid developer
-account. On Omarchy, it installs from **Install > Development > iOS**.
+A free Apple ID is enough to download Xcode for the SDK and to install on your own device; TestFlight and the App Store
+need a paid developer account. The toolchain installs into your home directory (`x86sim dev setup` passes the
+installer `--user-only` and never runs sudo; when xtool's build needs system packages, `dev status` prints the
+command for your distribution). `x86sim repos upstream-sync external/omarchy-apple-dev` merges upstream into the fork.
 
 ## How it works
 

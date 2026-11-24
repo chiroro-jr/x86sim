@@ -2879,6 +2879,7 @@ dependencies = [
 name = "x86sim-launcher"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "eframe",
  "egui-phosphor",
  "serde_json",

@@ -98,6 +98,14 @@ Apps (as xcrun simctl install/uninstall/launch)
   io screenshot [out.png] | io recordVideo [--codec h264|hevc] [--secs N] OUT.mp4
                        as simctl io: newest frame / MP4 from the frame ring until Ctrl-C
 
+Develop apps (omarchy-apple-dev, external/omarchy-apple-dev; `x86sim dev help` for all)
+  dev status | setup [all|swift|toolchain|sdk --xip X|repair|verify] [--bg] | job [--follow]
+                       the app toolchain (Swift, xtool, the iOS SDK from Xcode.xip): state, install (no root)
+  dev new NAME | build [DIR] | run [DIR] [--phone P] [--start] | test [DIR] [--phone P]
+                       a new SwiftUI app; build it for the simulator; build + install + launch on a phone in one step
+  dev device | ship | ship-mac | convert | auth
+                       real iPhones (device-run.sh), App Store / TestFlight (ship.sh), Xcode project conversion
+
 Build
   build [target]       make [target] in the repo root (mtlvk, darling, ...; see `make help`)
 
@@ -181,6 +189,10 @@ case $c in
 		if [ $# -ge 1 ] && { [ $# -ge 2 ] || [ "$c" = listapps ]; } && pick_device "$1"; then shift; export X86SIM_DEVICE; fi
 		exec python3 "$L/simctl.py" "$c" "$@" ;;
 	build) exec make -C "$X" "$@" ;;
+	dev)
+		b=$X/tools/launcher/target/release/x86sim-dev
+		[ -x "$b" ] || { echo "x86sim: $b not built (cd tools/launcher && cargo build --release)" >&2; exit 1; }
+		exec "$b" "$@" ;;
 	repos) exec "$L/repos.sh" "$@" ;;
 	upstream-sync) exec "$L/repos.sh" upstream-sync "$@" ;;
 	*) echo "x86sim: unknown command $c" >&2; usage >&2; exit 2 ;;

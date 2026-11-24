@@ -2,6 +2,7 @@
 //! touch and keyboard plus a fold-out panel (features, logs, performance, advanced); global pages for iOS versions,
 //! pre-translation (AOT) and settings. Logic lives in x86sim-core; the GUI repaints only when a frame or a status
 //! changes.
+mod develop;
 mod duo3d;
 mod global;
 mod home;
@@ -57,6 +58,7 @@ pub enum View {
     Aot,
     Settings,
     Setup,
+    Develop,
 }
 
 pub struct AddDialog {
@@ -118,6 +120,7 @@ pub struct App {
     pub disk: host::Disk,
     pub last_slow: Instant,
     pub setup: setup::Setup,
+    pub develop: develop::Develop,
     pub setup_checking: bool,
     pub ctx: egui::Context,
     /// the `?` overlay
@@ -201,6 +204,7 @@ impl App {
             "aot" => View::Aot,
             "settings" => View::Settings,
             "setup" => View::Setup,
+            "develop" => View::Develop,
             v if v.starts_with("phone:") => View::Phone(v[6..].to_string()),
             _ if x86sim_core::setup::needed() => View::Setup,
             _ => View::Home,
@@ -250,6 +254,7 @@ impl App {
             disk: host::disk(&x86sim_core::aot::scratch()),
             last_slow: Instant::now() - Duration::from_secs(60),
             setup: setup::Setup::default(),
+            develop: develop::Develop::default(),
             setup_checking: false,
             ctx: cc.egui_ctx.clone(),
             help: false,
@@ -440,6 +445,8 @@ impl App {
             self.last_slow = Instant::now() - Duration::from_secs(60);
         } else if key(Key::Num5) || ctrl(Key::Num5) {
             self.open_setup(ctx);
+        } else if key(Key::Num6) || ctrl(Key::Num6) {
+            self.view = View::Develop;
         } else if key(Key::N) || ctrl(Key::N) {
             self.open_add_dialog();
         } else if key(Key::Slash) {
@@ -591,7 +598,7 @@ impl App {
             View::Phone(_) => &[("click the screen", "keys go to the device; click outside to get them back"), ("s", "start / stop"), ("r", "restart"), ("o", "its screen in its own window"), ("f  l  p  a", "features, logs, performance, advanced"), ("F2", "rename"), ("Delete", "remove (when off)"), ("F1 – F4", "the device's buttons (see the i tool)"), ("Esc", "back to all devices")],
             View::Ios => &[("j / k", "move between versions"), ("Enter", "download, resume or pre-translate the version"), ("/", "search"), ("Esc", "drop the cursor")],
             View::Aot => &[("Enter", "start, update or finish (the cursor on the status)"), ("c", "cancel the run"), ("j / k", "move between options"), ("/", "search the parts")],
-            View::Settings | View::Setup => &[("j / k", "move between rows"), ("Enter", "flip the switch, press the button, step the choice"), ("Esc", "drop the cursor")],
+            View::Settings | View::Setup | View::Develop => &[("j / k", "move between rows"), ("Enter", "flip the switch, press the button, step the choice"), ("Esc", "drop the cursor")],
         };
         let m = modal("help").show(ctx, |ui| {
             ui.set_width(440.0);
@@ -632,6 +639,7 @@ impl App {
             View::Aot => "aot",
             View::Settings => "settings",
             View::Setup => "setup",
+            View::Develop => "develop",
         }
     }
 
@@ -740,6 +748,9 @@ impl eframe::App for App {
                 if nav_item(ui, icon::WRENCH, "Setup", self.view == View::Setup, "", "5") {
                     self.open_setup(ui.ctx());
                 }
+                if nav_item(ui, icon::HAMMER, "Develop", self.view == View::Develop, "", "6") {
+                    self.view = View::Develop;
+                }
                 // footer: what runs and what it takes, pinned to the bottom (free disk is on Settings, with disk use)
                 let upd_h = match self.updater.phase() {
                     updater::Phase::Available(_) | updater::Phase::Ready(..) => 34.0,
@@ -780,7 +791,7 @@ impl eframe::App for App {
             View::Phone(id) => self.phone_view(ctx, &id),
             _ => {
                 egui::CentralPanel::default().frame(egui::Frame::new().fill(pal().canvas)).show(ctx, |ui| {
-                    egui::ScrollArea::vertical().id_salt(match &view { View::Home => "home", View::Ios => "ios", View::Aot => "aot", View::Setup => "setup", _ => "settings" }).auto_shrink([false, false]).show(ui, |ui| {
+                    egui::ScrollArea::vertical().id_salt(match &view { View::Home => "home", View::Ios => "ios", View::Aot => "aot", View::Setup => "setup", View::Develop => "develop", _ => "settings" }).auto_shrink([false, false]).show(ui, |ui| {
                         // the page owns its margins so the scrollbar sits in the gutter, not on the content
                         egui::Frame::new().inner_margin(egui::Margin { left: S5 as i8, right: S5 as i8, top: S4 as i8, bottom: S5 as i8 }).show(ui, |ui| {
                             ui.set_width(ui.available_width());
@@ -790,6 +801,7 @@ impl eframe::App for App {
                                 View::Aot => self.aot_page(ui),
                                 View::Settings => self.settings_page(ui),
                                 View::Setup => self.setup_page(ui),
+                                View::Develop => self.develop_page(ui),
                                 View::Phone(_) => {}
                             }
                         });
