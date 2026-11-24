@@ -69,7 +69,7 @@ entitlement-gated services) is not counted as an x86Sim gap.
 | Pasteboard | `pbcopy`, `pbpaste`, `pbsync` (Linux clipboard) | same | on phones |
 | Language, region, time zone | `locale`, `timezone` | same (time zone applies at the next boot) | on phones |
 | Keychain | `keychain reset` | close: no `add-cert` / `add-root-cert` | reset checked with a probe app |
-| Audio output | every device has audio devices; heard on Linux (PipeWire) with `X86SIM_AUDIO=1`, silent otherwise | close | sdkcov audio checks with `X86SIM_AUDIO=1` |
+| Audio output | every device has audio devices; heard on Linux (PipeWire) with `X86SIM_AUDIO=1` and in the browser view (`x86sim serve`) | close | sdkcov audio checks with `X86SIM_AUDIO=1` |
 | Microphone | simaudio's microphone | same, or better than a Mac without an input device | sdkcov P12 |
 | Cameras | none | same (Apple's simulator has none) | sdkcov |
 | Accelerometer, gyroscope, Apple Pencil input | none | gap for Pencil input (unverified on Apple's side); motion sensors: unverified on Apple's side | PencilKit canvas checked with a finger stroke |
