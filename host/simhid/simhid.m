@@ -280,6 +280,7 @@ static uint16_t hinge_phase = 2;
 // pose, 0..11), D (stable orientation state, 0..4); -[CMMagicPoseManager createMagicPoseEventFromDeviceStateEvent:]
 // copies them 1:1 into a CMMagicPoseEvent. Hinge state from the strings: 1 Closed, 2 PartiallyOpen, 3 OpenFlat.
 // the angle for the launcher (which screen to show): <SIMULATOR_SHARED_RESOURCES_DIRECTORY>/hinge, degrees
+static int cur_orientation(void);
 static void write_hinge_file(double deg) {
 	const char* d = getenv("SIMULATOR_SHARED_RESOURCES_DIRECTORY");
 	if (!d) return;
@@ -298,8 +299,10 @@ static void post_device_state(double deg) {
 	Class c = NSClassFromString(@"NSDistributedNotificationCenter");
 	id center = c ? ((id (*)(id, SEL))objc_msgSend)((id)c, sel_registerName("defaultCenter")) : nil;
 	if (!center) { slog("hinge: no NSDistributedNotificationCenter"); return; }
-	NSDictionary* info = @{ @"CMDeviceStateEventPropertyAKey": @1, @"CMDeviceStateEventPropertyA0Key": @1,
-		@"CMDeviceStateEventPropertyA1Key": @1, @"CMDeviceStateEventPropertyBKey": @((float)deg),
+	int o = cur_orientation();
+	if (o < 1 || o > 6) o = 1;
+	NSDictionary* info = @{ @"CMDeviceStateEventPropertyAKey": @(o), @"CMDeviceStateEventPropertyA0Key": @(o),
+		@"CMDeviceStateEventPropertyA1Key": @(o), @"CMDeviceStateEventPropertyBKey": @((float)deg),
 		@"CMDeviceStateEventPropertyCKey": @0, @"CMDeviceStateEventPropertyDKey": @2 };
 	((void (*)(id, SEL, id, id, id, BOOL))objc_msgSend)(center, sel_registerName("postNotificationName:object:userInfo:deliverImmediately:"),
 		@"CMDeviceStateEventSendNotification", nil, info, YES);
@@ -344,12 +347,25 @@ static void avp_send(NSDictionary* d) {
 static void avp_send_angle(double deg) {
 	avp_send(@{ @"source": @"hinge-slider-control", @"type": @"range", @"value": @((long)lround(deg)) });
 }
-// the inputs besides the angle the relay waits for: portrait, not in standby
+// the device orientation as the relay's orientation picker names it (Simulator's values; portraitUpsideDown has none)
+static NSString* avp_orientation_name(void) {
+	switch (cur_orientation()) {
+	case 3: return @"landscape-left";
+	case 4: return @"landscape-right";
+	case 5: return @"faceup";
+	case 6: return @"facedown";
+	default: return @"portrait";
+	}
+}
+static void avp_send_orientation(void) {
+	avp_send(@{ @"source": @"orientation-picker-control", @"type": @"enum", @"value": avp_orientation_name() });
+}
+// the inputs besides the angle the relay waits for: the device orientation, not in standby
 static void avp_send_pose(void) {
 	if (!avp_svc.service) return;
 	IOHIDEventRef b = IOHIDEventCreateButtonEvent(kCFAllocatorDefault, mach_absolute_time(), 0, 0, 0);
 	if (b) { IOHIDEventSetIntegerValue(b, (3 << 16) | 2, 0); dispatch_event(&avp_svc, b); }
-	avp_send(@{ @"source": @"orientation-picker-control", @"type": @"enum", @"value": @"portrait" });
+	avp_send_orientation();
 }
 static IOHIDEventSystemRef_ hid_system;
 
@@ -606,6 +622,10 @@ static void write_shared_file(const char* name, const char* text) {
 	fclose(f);
 	rename(t, p);
 }
+// the device orientation (UIDeviceOrientation, 1..6), 1 before BackBoardServices is loaded
+static int cur_orientation(void) {
+	return bk_get_orientation ? bk_get_orientation() : 1;
+}
 static void note_orientation(void) {
 	int o = bk_get_orientation ? bk_get_orientation() : 0;
 	write_shared_file("orientation", orient_names[o >= 0 && o < 7 ? o : 0]);
@@ -630,6 +650,8 @@ static void set_orientation(const char* arg, int rotate) {
 	}
 	if (o > 0) { bks_set_orientation(o); slog("orientation -> %d (%s)", o, orient_names[o]); usleep(50000); }
 	note_orientation();
+	// Models 2: a two-screen phone's relay and device state take the orientation too (a half open landscape pose)
+	if (o > 0 && hinge_svc.service) { avp_send_orientation(); post_device_state(hinge_deg); }
 }
 
 // Biometrics as SimulatorCoreDevicePlugin does them for DeviceHub's Face ID / Touch ID / Optic ID menus and devicectl device
