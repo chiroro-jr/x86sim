@@ -89,6 +89,21 @@ x86sim --phone qa wait-for "Done" --timeout 20        # --gone: until it disappe
 - `type` inserts text as the software keyboard does (any characters, no layout issues). `--keys` sends hardware key
   presses instead (US layout), for games and key handlers. Tap the field first (or it types into the focused one).
 
+### Accessibility checks
+
+```sh
+x86sim --phone qa ax-audit                 # the app in front: findings with ref, frame, severity, fix
+x86sim --phone qa ax-audit --dynamic-type  # also at the largest text size (set for the check, then put back)
+x86sim --phone qa ax-inspect @e7           # every accessibility property of one element
+x86sim --phone qa ax-action increment @e7  # activate | increment | decrement | scroll --dir up | escape | magic_tap
+x86sim --phone qa ax-action custom @e9 --name Archive
+```
+
+Rules: `missing-label`, `label-not-readable` (file / SF Symbol / identifier names), `hit-region` (< 44 pt),
+`contrast` (WCAG 4.5:1, 3:1 large text), `text-clipped`, `dynamic-type`, `duplicate-label`, `hidden-interactive`
+(VoiceOver cannot reach it: no ref, use its frame), `trait-mismatch`. MCP: `ax_audit` (JSON in structuredContent),
+`ax_inspect`, `ax_action`. Fix, rebuild, re-run the audit until it is clean.
+
 ## 4. Screenshots: only when you need to see pixels
 
 A snapshot is a few hundred bytes and 10-35 ms; an image costs far more context. Use screenshots to check layout,
@@ -202,7 +217,7 @@ link: use them only when asked.
 ## MCP
 
 The same features are MCP tools (`x86sim-mcp`, stdio): `snapshot`, `tap`, `type`, `wait_for`, `screenshot`,
-`app_install`, `app_launch`, `xctest_run`, `phone_take`, `share_start`, `sim_ui`, `app_logs`, `dev_run` and the rest (71 tools;
+`app_install`, `app_launch`, `xctest_run`, `phone_take`, `share_start`, `sim_ui`, `app_logs`, `dev_run`, `ax_audit` and the rest (75 tools;
 README.md lists them by group). Every tool takes `phone`.
 
 ```sh

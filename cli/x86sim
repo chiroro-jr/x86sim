@@ -72,6 +72,14 @@ Agents (read the screen as text, act on elements; same core as the MCP server's 
                        until it shows (or goes); wakes on new frames
   press BUTTON | open URL
                        a hardware button / a URL, answering with the screen
+  ax-inspect [TARGET | X Y] [--json]
+                       Accessibility Inspector: an element's properties (label, value, hint, traits, actions, custom
+                       actions, rotors, language, class, view, controller, hierarchy, font / color)
+  ax-audit [PHONE] [--dynamic-type] [--all] [--rules a,b] [--json]
+                       accessibility audit of the app in front: labels, 44 pt targets, WCAG contrast, Dynamic Type,
+                       duplicate labels, controls VoiceOver cannot reach, missing button traits
+  ax-action NAME [TARGET] [--dir D] [--name CUSTOM]
+                       activate | increment | decrement | scroll | escape | magic_tap | custom, as VoiceOver does
   keyboard software on|off|toggle | keyboard hardware connect|disconnect|toggle | keyboard [status]
                        Apple's I/O > Keyboard: Toggle Software Keyboard (Cmd-K: the on-screen keyboard while a hardware
                        keyboard is connected), Connect Hardware Keyboard (Shift-Cmd-K; disconnected, the software
@@ -242,6 +250,12 @@ case $c in
 	view) cmd_view "$@" ;;
 	screenshot|shot) cmd_screenshot "$@" ;;
 	snapshot|snap|find|long-press|scroll|scroll-to|wait-for|press|open) ax "$c" "$@" ;;
+	# the Accessibility Inspector (x86sim-ax inspect / audit / action): a leading phone name as for the device commands
+	ax-audit|ax-inspect|ax-action)
+		if [ $# -ge 1 ] && case $1 in -*) false ;; *) true ;; esac && [ "$c" = ax-audit ]; then
+			p=$1; shift; ax --phone "$p" audit "$@"
+		fi
+		ax "${c#ax-}" "$@" ;;
 	# tap X Y / swipe X1 Y1 X2 Y2 in device pixels (simtouch.py); tap @e3 / tap "General" / swipe up: an element or
 	# direction (x86sim-ax, points)
 	tap) if [ $# -ge 2 ] && num "$1" && num "$2"; then exec python3 "$L/simtouch.py" tap "$@"; else ax tap "$@"; fi ;;

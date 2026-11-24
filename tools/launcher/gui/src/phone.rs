@@ -215,7 +215,13 @@ impl App {
                     }
                     Some(rect)
                 } else {
-                    self.viewer(id).map(|v| v.show(ui, avail, live, placeholder, true, viewer::FULL))
+                    // the Accessibility Inspector (axinspect_ui.rs): touches pause while it inspects, its outlines on top
+                    let ax_on = live && crate::axinspect_ui::is_on(&ctx, id);
+                    let r = self.viewer(id).map(|v| v.show(ui, avail, live, placeholder, !ax_on, viewer::FULL));
+                    if let (true, Some(r)) = (live, r) {
+                        crate::axinspect_ui::overlay(ui, &inst, r.shrink(10.0));
+                    }
+                    r
                 };
                 // Platforms 1: a watch's crown and side button stand off its case's right edge, as on the watch
                 if let (true, Some(case)) = (watch, case) {
@@ -465,6 +471,7 @@ impl App {
                     // Share: this phone in a browser tab (share.rs)
                     if let Some(inst) = self.inst(id).cloned() {
                         self.share_tool(ui, &inst);
+                        crate::axinspect_ui::tool(ui, &inst, live);
                     }
                     if tool(ui, icon::CAMERA, "Save a screenshot to Pictures") {
                         let r = self.viewer(id).map(|v| v.screenshot(&name));
@@ -742,6 +749,15 @@ impl App {
         }
         hline(ui);
 
+        // ---- Accessibility: the inspector's properties and actions, the audit (axinspect_ui.rs)
+        if self.fold_section(ui, "ax", "Accessibility", "", "") {
+            crate::axinspect_ui::section(ui, inst, phase != Phase::Off);
+        } else if crate::axinspect_ui::is_on(ui.ctx(), &id) {
+            // picking an element opens it
+            self.open.insert("ax");
+        }
+        hline(ui);
+
         // ---- Performance
         // no summary: memory and CPU are the tiles at the top
         if self.fold_section(ui, "perf", "Performance", "", "") {
@@ -763,7 +779,7 @@ impl App {
 
     fn fold_section(&mut self, ui: &mut egui::Ui, key: &'static str, title_text: &str, summary: &str, tip: &str) -> bool {
         let open = self.open.contains(key);
-        let hint = match key { "features" => "f", "logs" => "l", "perf" => "p", "share" => "", _ => "a" };
+        let hint = match key { "features" => "f", "logs" => "l", "perf" => "p", "share" | "ax" => "", _ => "a" };
         if fold(ui, title_text, summary, tip, hint, open) != open {
             if open {
                 self.open.remove(key);

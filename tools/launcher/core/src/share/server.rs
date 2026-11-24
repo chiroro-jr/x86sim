@@ -23,6 +23,9 @@ use std::time::{Duration, Instant};
 const INDEX: &str = include_str!("web/index.html");
 const APP_JS: &str = include_str!("web/app.js");
 const APP_CSS: &str = include_str!("web/app.css");
+// the Accessibility Inspector's panel (axapi.rs)
+const AX_JS: &str = include_str!("web/axinspect.js");
+const AX_CSS: &str = include_str!("web/axinspect.css");
 
 pub struct Server {
     pub opts: Options,
@@ -396,6 +399,8 @@ fn handle(srv: &Arc<Server>, mut s: TcpStream, peer: SocketAddr) {
         }
         "/app.js" => return respond(&mut s, 200, "text/javascript; charset=utf-8", &[], APP_JS.as_bytes()),
         "/app.css" => return respond(&mut s, 200, "text/css; charset=utf-8", &[], APP_CSS.as_bytes()),
+        "/axinspect.js" => return respond(&mut s, 200, "text/javascript; charset=utf-8", &[], AX_JS.as_bytes()),
+        "/axinspect.css" => return respond(&mut s, 200, "text/css; charset=utf-8", &[], AX_CSS.as_bytes()),
         "/favicon.ico" => return respond(&mut s, 204, "image/x-icon", &[], b""),
         _ => {}
     }
@@ -549,6 +554,12 @@ fn handle(srv: &Arc<Server>, mut s: TcpStream, peer: SocketAddr) {
                 return;
             }
             session(srv, s, inst, g, &req.query);
+        }
+        // the Accessibility Inspector (axapi.rs)
+        (_, ["api", "phones", id, "ax", what]) if srv.visible(&g, id) => {
+            let Some(inst) = instance::find(id) else { return json_resp(&mut s, 404, &json!({"error": "no such phone"})) };
+            let (code, v) = super::axapi::handle(&req, &inst, what, control);
+            json_resp(&mut s, code, &v)
         }
         _ => json_resp(&mut s, if control { 404 } else { 403 }, &json!({"error": "not found or not allowed"})),
     }

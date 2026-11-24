@@ -15,6 +15,12 @@
 //   scroll oid                   scroll the element's scroll views until it is on screen (accessibilityScrollToVisible)
 //   activate oid                 accessibilityActivate (an element a touch cannot reach)
 //   ax     [on]                  load UIKit's accessibility bundles in this process (on by default at the first tree)
+//   tree full                    the inspector's view (Accessibility Inspector): per element also "more" (language,
+//                                custom actions, rotors, input labels, respondsToUserInteraction, view / controller
+//                                class, container path, text font / color / truncation) and "hidden" (interactive
+//                                views VoiceOver cannot reach), for the audit (host: core/src/axaudit.rs)
+//   action oid name [dir|custom] perform an accessibility action: activate, increment, decrement, scroll, escape,
+//                                magic_tap, custom (by name)
 #include <TargetConditionals.h>
 #if TARGET_OS_WATCH
 // watchOS's headers mark UIKit unavailable (apps use SwiftUI / WatchKit), but UIKitCore runs every watch app
@@ -151,7 +157,15 @@ typedef struct {
 	id focus_item;               // the focus engine's focused item (tvOS: what the remote's select acts on; iPad: keyboard focus)
 	CGRect focus_frame;          // its rect on the screen (CGRectNull: none or unknown)
 	int budget;                  // max nodes visited
+	// full (the inspector): the containers above the element being walked, the views inside an element (covered) or
+	// holding one (holds): what is left of the interactive views is out of VoiceOver's reach
+	BOOL full;
+	NSMutableArray* path;
+	NSMutableSet* covered;
+	NSMutableSet* holds;
 } Walk;
+
+static void more_of(Walk* w, id e, uint64_t t, NSMutableDictionary* d);
 
 // a frame in a window's coordinates -> the screen's (as the agent sees the display)
 static CGRect place(Walk* w, CGRect f) {
@@ -248,6 +262,7 @@ static void emit(Walk* w, id e, int depth, NSString* container) {
 	d[@"depth"] = @(depth);
 	if (container) d[@"in"] = container;
 	d[@"class"] = NSStringFromClass([e class]);
+	if (w->full) more_of(w, e, t, d);
 	[w->out addObject:d];
 }
 
@@ -299,12 +314,27 @@ static void walk(Walk* w, id o, int depth, NSString* container) {
 		}
 	}
 	NSString* here = container;
+	NSString* step = nil;
 	if (!leaf) {
 		NSString* l = nil;
 		@try { l = str([o accessibilityLabel]); } @catch (id ex) { l = nil; }
 		if (l && l.length < 80) here = l;
+		if (w->full) {
+			// the inspector's hierarchy: the levels VoiceOver sees (not every plain UIView between them)
+			NSString* cls = NSStringFromClass([o class]);
+			NSString* ident = nil;
+			@try { ident = [o respondsToSelector:@selector(accessibilityIdentifier)] ? str([o accessibilityIdentifier]) : nil; } @catch (id ex) { ident = nil; }
+			if (l || ident || ![o isKindOfClass:[UIView class]] || [o isKindOfClass:[UIScrollView class]] || [o isKindOfClass:[UIWindow class]] ||
+			    (![cls isEqualToString:@"UIView"] && ![cls hasPrefix:@"_UI"] && ![cls hasSuffix:@"ContainerView"] && ![cls hasSuffix:@"WrapperView"])) {
+				step = cls;
+				if (l) step = [step stringByAppendingFormat:@" \"%@\"", l.length > 40 ? [l substringToIndex:40] : l];
+				if (ident) step = [step stringByAppendingFormat:@" #%@", ident];
+			}
+		}
 	}
+	if (step) [w->path addObject:step];
 	for (id c in kids) walk(w, c, depth + 1, here);
+	if (step) [w->path removeLastObject];
 }
 
 #if SIMAX_WEB
@@ -616,6 +646,260 @@ static NSMutableDictionary* info(void) {
 	return d;
 }
 
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The inspector (tree full): what Xcode's Accessibility Inspector shows of an element beyond the snapshot, and what the
+// audit needs (the text's font, color and truncation; interactive views VoiceOver cannot reach).
+
+// the view an element is (or the nearest view among its containers: a table cell's element -> the cell)
+static UIView* view_of(id e) {
+	for (id o = e; o; ) {
+		if ([o isKindOfClass:[UIView class]]) return o;
+		id c = nil;
+		@try { c = [o respondsToSelector:@selector(accessibilityContainer)] ? [o accessibilityContainer] : nil; } @catch (id ex) { c = nil; }
+		o = c;
+	}
+	return nil;
+}
+
+static UIViewController* controller_of(UIView* v) {
+	for (UIResponder* r = v; r; r = r.nextResponder)
+		if ([r isKindOfClass:[UIViewController class]]) return (UIViewController*)r;
+	return nil;
+}
+
+static NSArray* rgba(UIColor* c, UIView* v) {
+	if (![c isKindOfClass:[UIColor class]]) return nil;
+	@try {
+		if (v && [c respondsToSelector:@selector(resolvedColorWithTraitCollection:)]) c = [c resolvedColorWithTraitCollection:v.traitCollection];
+		CGFloat r = 0, g = 0, b = 0, a = 0, wh = 0;
+		if (![c getRed:&r green:&g blue:&b alpha:&a]) {
+			if (![c getWhite:&wh alpha:&a]) return nil;
+			r = g = b = wh;
+		}
+		return @[ @(lround(MIN(1, MAX(0, r)) * 255)), @(lround(MIN(1, MAX(0, g)) * 255)), @(lround(MIN(1, MAX(0, b)) * 255)), @(round(a * 100) / 100) ];
+	} @catch (id ex) {
+		return nil;
+	}
+}
+
+static NSArray* all_trait_names(uint64_t t) {
+	NSMutableArray* a = [NSMutableArray array];
+	struct { uint64_t bit; const char* name; } map[] = {
+		{ UIAccessibilityTraitButton, "button" }, { UIAccessibilityTraitLink, "link" }, { UIAccessibilityTraitImage, "image" },
+		{ UIAccessibilityTraitSelected, "selected" }, { UIAccessibilityTraitPlaysSound, "playsSound" },
+		{ UIAccessibilityTraitKeyboardKey, "keyboardKey" }, { UIAccessibilityTraitStaticText, "staticText" },
+		{ UIAccessibilityTraitSummaryElement, "summaryElement" }, { UIAccessibilityTraitNotEnabled, "notEnabled" },
+		{ UIAccessibilityTraitUpdatesFrequently, "updatesFrequently" }, { UIAccessibilityTraitSearchField, "searchField" },
+		{ UIAccessibilityTraitStartsMediaSession, "startsMediaSession" }, { UIAccessibilityTraitAdjustable, "adjustable" },
+		{ UIAccessibilityTraitAllowsDirectInteraction, "allowsDirectInteraction" }, { UIAccessibilityTraitCausesPageTurn, "causesPageTurn" },
+		{ UIAccessibilityTraitTabBar, "tabBar" }, { UIAccessibilityTraitHeader, "header" }, { kTraitTextEntry, "textEntry" },
+		{ kTraitIsEditing, "isEditing" },
+	};
+	for (size_t i = 0; i < sizeof(map) / sizeof(map[0]); i++)
+		if (t & map[i].bit) [a addObject:@(map[i].name)];
+	if (@available(iOS 17.0, tvOS 17.0, watchOS 10.0, *)) {
+		if (t & UIAccessibilityTraitToggleButton) [a addObject:@"toggleButton"];
+		if (t & UIAccessibilityTraitSupportsZoom) [a addObject:@"supportsZoom"];
+	}
+	return a;
+}
+
+static NSString* text_of(UIView* v) { @try { return str([v valueForKey:@"text"]); } @catch (id ex) { return nil; } }
+
+// the labels that draw an element's text: the element itself (a label, field, text view), a button's title, else the
+// visible labels inside it (a table cell's title and detail)
+static NSArray<UIView*>* text_views(UIView* v) {
+	if (!v) return @[];
+	if (is(v, @"UILabel") || is(v, @"UITextField") || is(v, @"UITextView")) return @[ v ];
+	if (is(v, @"UIButton")) {
+		UIView* tl = nil;
+		@try { tl = [v valueForKey:@"titleLabel"]; } @catch (id ex) { tl = nil; }
+		if (tl && !tl.hidden && text_of(tl)) return @[ tl ];
+	}
+	NSMutableArray* found = [NSMutableArray array];
+	NSMutableArray* q = [NSMutableArray arrayWithObject:v];
+	for (int n = 0; q.count && n < 80 && found.count < 6; n++) {
+		UIView* x = q[0];
+		[q removeObjectAtIndex:0];
+		if (x != v && view_hidden(x)) continue;
+		if (x != v && is(x, @"UILabel") && text_of(x)) { [found addObject:x]; continue; }
+		[q addObjectsFromArray:x.subviews];
+	}
+	return found;
+}
+
+// a label that does not show all its text (cut with an ellipsis, or lines cut off at the bottom)
+static BOOL label_truncated(UIView* l) {
+	if (!is(l, @"UILabel")) return NO;
+	@try {
+		CGSize b = l.bounds.size;
+		if (b.width < 1 || !text_of(l)) return NO;
+		SEL tr = @selector(textRectForBounds:limitedToNumberOfLines:);
+		CGRect (*rect)(id, SEL, CGRect, NSInteger) = (CGRect(*)(id, SEL, CGRect, NSInteger))objc_msgSend;
+		NSInteger lines = [[l valueForKey:@"numberOfLines"] integerValue];
+		if (lines == 1) {
+			if ([[l valueForKey:@"adjustsFontSizeToFitWidth"] boolValue]) return NO;
+			CGRect one = rect(l, tr, CGRectMake(0, 0, CGFLOAT_MAX, CGFLOAT_MAX), 1);
+			return one.size.width > b.width + 1;
+		}
+		CGRect need = rect(l, tr, CGRectMake(0, 0, b.width, CGFLOAT_MAX), 0);
+		return need.size.height > b.height + 1;
+	} @catch (id ex) {
+		return NO;
+	}
+}
+
+static BOOL gesture_tap(UIView* v) {
+	for (UIGestureRecognizer* g in v.gestureRecognizers) {
+		if (!g.enabled) continue;
+		NSString* c = NSStringFromClass([g class]);
+		if ([c hasPrefix:@"_"]) continue;
+		if ([g isKindOfClass:[UITapGestureRecognizer class]] || [g isKindOfClass:[UILongPressGestureRecognizer class]]) return YES;
+	}
+	return NO;
+}
+
+static NSString* names_of(id o) {
+	@try {
+		if ([o respondsToSelector:@selector(name)]) return str([o name]);
+	} @catch (id ex) {
+	}
+	return nil;
+}
+
+static void more_of(Walk* w, id e, uint64_t t, NSMutableDictionary* d) {
+	NSMutableDictionary* m = [NSMutableDictionary dictionary];
+	@try {
+		m[@"class"] = NSStringFromClass([e class]);
+		m[@"traits_raw"] = @(t);
+		m[@"traits_all"] = all_trait_names(t);
+		NSString* lang = [e respondsToSelector:@selector(accessibilityLanguage)] ? str([e accessibilityLanguage]) : nil;
+		if (lang) m[@"lang"] = lang;
+		NSArray* ca = [e respondsToSelector:@selector(accessibilityCustomActions)] ? [e accessibilityCustomActions] : nil;
+		NSMutableArray* cn = [NSMutableArray array];
+		for (id a in ca) { NSString* n = names_of(a); if (n) [cn addObject:n]; }
+		if (cn.count) m[@"custom_actions"] = cn;
+		NSArray* ro = [e respondsToSelector:@selector(accessibilityCustomRotors)] ? [e accessibilityCustomRotors] : nil;
+		NSMutableArray* rn = [NSMutableArray array];
+		for (id r in ro) {
+			NSString* n = names_of(r);
+			if (!n && [r respondsToSelector:@selector(systemRotorType)]) n = [NSString stringWithFormat:@"system rotor %ld", (long)[r systemRotorType]];
+			if (n) [rn addObject:n];
+		}
+		if (rn.count) m[@"rotors"] = rn;
+		SEL uil = NSSelectorFromString(@"accessibilityUserInputLabels");
+		if ([e respondsToSelector:uil]) {
+			NSArray* ul = ((id(*)(id, SEL))objc_msgSend)(e, uil);
+			if ([ul isKindOfClass:[NSArray class]] && ul.count) m[@"input_labels"] = [ul subarrayWithRange:NSMakeRange(0, MIN(ul.count, 8))];
+		}
+		SEL rui = NSSelectorFromString(@"accessibilityRespondsToUserInteraction");
+		if ([e respondsToSelector:rui]) m[@"interactive"] = @(((BOOL(*)(id, SEL))objc_msgSend)(e, rui));
+		CGPoint ap = [e accessibilityActivationPoint];
+		CGRect apr = place(w, CGRectMake(ap.x, ap.y, 0, 0));
+		m[@"activation"] = @[ @(round(apr.origin.x * 10) / 10), @(round(apr.origin.y * 10) / 10) ];
+		if ([e respondsToSelector:@selector(accessibilityViewIsModal)] && [e accessibilityViewIsModal]) m[@"modal"] = @YES;
+		if ([e respondsToSelector:@selector(accessibilityNavigationStyle)] && [e accessibilityNavigationStyle] != UIAccessibilityNavigationStyleAutomatic)
+			m[@"navigation_style"] = @([e accessibilityNavigationStyle]);
+		UIView* v = view_of(e);
+		if (v) {
+			m[@"view"] = NSStringFromClass([v class]);
+			UIViewController* vc = controller_of(v);
+			if (vc) m[@"controller"] = NSStringFromClass([vc class]);
+			// what the hidden-interactive scan leaves alone: the element's view and what holds it
+			if (e == v) [w->covered addObject:[NSValue valueWithPointer:(__bridge void*)v]];
+			for (UIView* x = v; x; x = x.superview) {
+				NSValue* k = [NSValue valueWithPointer:(__bridge void*)x];
+				if ([w->holds containsObject:k]) break;
+				[w->holds addObject:k];
+			}
+		}
+		if (w->path.count) m[@"path"] = w->path.count > 12 ? [w->path subarrayWithRange:NSMakeRange(w->path.count - 12, 12)] : [w->path copy];
+		if ([e isKindOfClass:[UIView class]]) {
+			UIView* ev = e;
+			if ([ev isKindOfClass:[UIControl class]]) m[@"tap"] = @"control";
+			else if (gesture_tap(ev)) m[@"tap"] = @"gesture";
+		}
+		// the text it draws: font, color, Dynamic Type, cut off
+		UIView* tv0 = [e isKindOfClass:[UIView class]] ? e : ([NSStringFromClass([v class]) containsString:@"Cell"] ? v : nil);
+		NSArray* tvs = text_views(tv0);
+		if (tvs.count) {
+			UIView* tv = tvs[0];
+			UIFont* f = [tv valueForKey:@"font"];
+			if ([f isKindOfClass:[UIFont class]]) {
+				BOOL bold = (f.fontDescriptor.symbolicTraits & UIFontDescriptorTraitBold) != 0;
+				m[@"font"] = @{ @"size": @(round(f.pointSize * 10) / 10), @"bold": @(bold), @"name": f.fontName ?: @"" };
+			}
+			if ([tv respondsToSelector:@selector(adjustsFontForContentSizeCategory)])
+				m[@"dynamic_type"] = @([[tv valueForKey:@"adjustsFontForContentSizeCategory"] boolValue]);
+			NSArray* fg = rgba([tv valueForKey:@"textColor"], tv);
+			if (fg) m[@"fg"] = fg;
+			for (UIView* l in tvs)
+				if (label_truncated(l)) {
+					m[@"truncated"] = text_of(l) ?: @"";
+					break;
+				}
+			m[@"text_class"] = NSStringFromClass([tv class]);
+		}
+	} @catch (id ex) {
+		m[@"error"] = [ex description] ?: @"?";
+	}
+	d[@"more"] = m;
+}
+
+// Interactive views VoiceOver cannot reach: a control or a view with a tap / long press recognizer that is not an
+// element, not inside one and holds none (accessibilityElementsHidden above it, isAccessibilityElement NO with nothing
+// inside). Full-window views (a tap to dismiss the keyboard) and UIKit's own private views are left out.
+static void hidden_scan(Walk* w, NSArray* wins, NSMutableArray* out) {
+	for (int i = 0; i < (int)wins.count; i++) {
+		UIWindow* win = wins[i];
+		if ([NSStringFromClass([win class]) containsString:@"Keyboard"]) continue;
+		w->off = window_origin(win);
+		w->rot = window_rot(win, w->screen.size, &w->portrait);
+		CGRect clip = CGRectIntersection(w->screen, place(w, to_screen(win, win.bounds)));
+		double warea = win.bounds.size.width * win.bounds.size.height;
+		NSMutableArray* stack = [NSMutableArray arrayWithObject:win];
+		int budget = 8000;
+		while (stack.count && budget-- > 0 && out.count < 60) {
+			UIView* v = stack.lastObject;
+			[stack removeLastObject];
+			if (v.hidden || v.alpha < 0.01) continue;
+			NSValue* k = [NSValue valueWithPointer:(__bridge void*)v];
+			if ([w->covered containsObject:k]) continue;   // an element: what is inside it is its business
+			NSString* cls = NSStringFromClass([v class]);
+			BOOL control = [v isKindOfClass:[UIControl class]] && [(UIControl*)v isEnabled];
+			BOOL tap = !control && gesture_tap(v);
+			if ((control || tap) && v.userInteractionEnabled && ![w->holds containsObject:k] && ![v isKindOfClass:[UIWindow class]] &&
+			    ![v isKindOfClass:[UIScrollView class]] && ![cls hasPrefix:@"_"] && v.bounds.size.width * v.bounds.size.height < warea * 0.5) {
+				CGRect f = place(w, to_screen(v, v.bounds));
+				if (CGRectIntersectsRect(f, clip) && f.size.width >= 4 && f.size.height >= 4) {
+					NSString* why = nil;
+					for (UIView* x = v; x; x = x.superview)
+						if (x.accessibilityElementsHidden) {
+							why = x == v ? @"accessibilityElementsHidden is set on it" : [NSString stringWithFormat:@"accessibilityElementsHidden on its ancestor %@", NSStringFromClass([x class])];
+							break;
+						}
+					if (!why) why = @"not an accessibility element (isAccessibilityElement NO) and holds none: VoiceOver skips it";
+					NSMutableDictionary* h = [NSMutableDictionary dictionary];
+					h[@"class"] = cls;
+					h[@"kind"] = control ? @"control" : @"gesture";
+					h[@"frame"] = @[ @(round(f.origin.x * 10) / 10), @(round(f.origin.y * 10) / 10), @(round(f.size.width * 10) / 10), @(round(f.size.height * 10) / 10) ];
+					h[@"why"] = why;
+					h[@"win"] = @(i);
+					h[@"oid"] = hex(v);
+					NSString* l = str(v.accessibilityLabel);
+					if (l) h[@"label"] = l;
+					UIViewController* vc = controller_of(v);
+					if (vc) h[@"controller"] = NSStringFromClass([vc class]);
+					[out addObject:h];
+					continue;
+				}
+			}
+			[stack addObjectsFromArray:v.subviews];
+		}
+	}
+}
+
 // the focused item's rect on the screen (CGRectNull: unknown)
 static CGRect focus_frame_of(id item) {
 	CGRect ff = CGRectNull;
@@ -658,6 +942,12 @@ static void tree(NSDictionary* req, void (^reply)(NSDictionary*)) {
 	w.all = [req[@"all"] boolValue];
 	w.focus = first_responder();
 	w.budget = 20000;
+	if ([req[@"full"] boolValue]) {
+		w.full = YES;
+		w.path = [NSMutableArray array];
+		w.covered = [NSMutableSet set];
+		w.holds = [NSMutableSet set];
+	}
 	NSArray* wins = visible_windows();
 	w.focus_item = focused_item(wins);
 	w.focus_frame = focus_frame_of(w.focus_item);
@@ -679,6 +969,11 @@ static void tree(NSDictionary* req, void (^reply)(NSDictionary*)) {
 		@try { fl = str([w.focus_item accessibilityLabel]); } @catch (id ex) { fl = nil; }
 		if (fl) fd[@"label"] = fl;
 		d[@"focus_item"] = fd;
+	}
+	if (w.full) {
+		NSMutableArray* hidden = [NSMutableArray array];
+		hidden_scan(&w, wins, hidden);
+		if (hidden.count) d[@"hidden"] = hidden;
 	}
 	int budget = 5000;
 	for (UIWindow* win in wins)
@@ -835,6 +1130,170 @@ static UIWindow* window_of(id e) {
 	return nil;
 }
 
+
+// ---------------------------------------------------------------------------------------------------------------------
+// action: what VoiceOver does to an element (Accessibility Inspector's actions): activate, increment / decrement (an
+// adjustable), scroll (accessibilityScroll: up its containers, as a three-finger swipe), escape (accessibilityPerformEscape
+// up the responder chain, as the two-finger Z), magic_tap (the two-finger double tap, up to the app delegate), custom
+// (one of accessibilityCustomActions by name).
+
+// the next object up: an element's container, a view's next responder (its controller, superview, the window, the
+// application, its delegate)
+static id up_of(id o) {
+	id c = nil;
+	if (![o isKindOfClass:[UIResponder class]]) {
+		@try { c = [o respondsToSelector:@selector(accessibilityContainer)] ? [o accessibilityContainer] : nil; } @catch (id ex) { c = nil; }
+		return c;
+	}
+	c = [(UIResponder*)o nextResponder];
+	if (!c && o == UIApplication.sharedApplication) c = UIApplication.sharedApplication.delegate;
+	return c;
+}
+
+static NSDictionary* perform_action(NSDictionary* req) {
+	NSString* name = req[@"name"] ?: @"activate";
+	NSString* oid = req[@"oid"];
+	id e = nil;
+	if (oid.length) {
+		NSRange hash = [oid rangeOfString:@"#"];
+		if (hash.location != NSNotFound) return @{ @"error": @"web content: no accessibility actions through the DOM (tap it)" };
+		e = find_oid(oid);
+		if (!e) return @{ @"error": @"element gone" };
+	}
+	BOOL chain = [name isEqualToString:@"escape"] || [name isEqualToString:@"magic_tap"];
+	if (!e && chain) {
+		e = first_responder();
+		if (!e) e = visible_windows().lastObject.rootViewController.view ?: visible_windows().lastObject;
+	}
+	if (!e) return @{ @"error": @"no element (oid)" };
+	NSMutableDictionary* r = [NSMutableDictionary dictionaryWithDictionary:@{ @"name": name }];
+	BOOL ok = NO;
+	NSString* by = nil;
+	if ([name isEqualToString:@"activate"]) {
+		ok = [e accessibilityActivate];
+		by = NSStringFromClass([e class]);
+	} else if ([name isEqualToString:@"increment"] || [name isEqualToString:@"decrement"]) {
+		if (!([e accessibilityTraits] & UIAccessibilityTraitAdjustable)) r[@"note"] = @"not adjustable (no adjustable trait): VoiceOver would not offer it";
+		NSString* before = str([e accessibilityValue]);
+		if ([name isEqualToString:@"increment"]) [e accessibilityIncrement];
+		else [e accessibilityDecrement];
+		NSString* after = str([e accessibilityValue]);
+		ok = !(before == after || [before isEqualToString:after]);
+		by = NSStringFromClass([e class]);
+	} else if ([name isEqualToString:@"scroll"]) {
+		NSDictionary* dirs = @{ @"up": @(UIAccessibilityScrollDirectionUp), @"down": @(UIAccessibilityScrollDirectionDown),
+			@"left": @(UIAccessibilityScrollDirectionLeft), @"right": @(UIAccessibilityScrollDirectionRight),
+			@"next": @(UIAccessibilityScrollDirectionNext), @"previous": @(UIAccessibilityScrollDirectionPrevious) };
+		NSNumber* dn = dirs[req[@"dir"] ?: @"down"];
+		if (!dn) return @{ @"error": @"dir: up, down, left, right, next or previous" };
+		int n = 0;
+		for (id o = e; o && n < 60 && !ok; o = up_of(o), n++) {
+			if (![o respondsToSelector:@selector(accessibilityScroll:)]) continue;
+			@try { ok = [o accessibilityScroll:(UIAccessibilityScrollDirection)dn.integerValue]; } @catch (id ex) { ok = NO; }
+			if (ok) by = NSStringFromClass([o class]);
+		}
+		// no container takes it (UIKit's scroll views do once the accessibility bundles are in): the nearest scroll view
+		// moves a page, as VoiceOver's fallback
+		if (!ok) {
+			for (UIView* p = view_of(e); p; p = p.superview) {
+				if (![p isKindOfClass:[UIScrollView class]]) continue;
+				UIScrollView* sv = (UIScrollView*)p;
+				CGPoint o = sv.contentOffset;
+				CGSize b = sv.bounds.size, c = sv.contentSize;
+				UIEdgeInsets in = sv.adjustedContentInset;
+				switch (dn.integerValue) {
+				// VoiceOver's directions are the swipe's: up shows what is below
+				case UIAccessibilityScrollDirectionUp: case UIAccessibilityScrollDirectionNext: o.y = MIN(o.y + b.height * 0.8, c.height - b.height + in.bottom); break;
+				case UIAccessibilityScrollDirectionDown: case UIAccessibilityScrollDirectionPrevious: o.y = MAX(o.y - b.height * 0.8, -in.top); break;
+				case UIAccessibilityScrollDirectionLeft: o.x = MIN(o.x + b.width * 0.8, c.width - b.width + in.right); break;
+				default: o.x = MAX(o.x - b.width * 0.8, -in.left); break;
+				}
+				if (CGPointEqualToPoint(o, sv.contentOffset)) continue;
+				[sv setContentOffset:o animated:YES];
+				ok = YES;
+				by = [NSStringFromClass([sv class]) stringByAppendingString:@" (content offset)"];
+				break;
+			}
+		}
+	} else if (chain) {
+		BOOL esc = [name isEqualToString:@"escape"];
+		SEL s = esc ? @selector(accessibilityPerformEscape) : @selector(accessibilityPerformMagicTap);
+		int n = 0;
+		for (id o = e; o && n < 80 && !ok; o = up_of(o), n++) {
+			if (![o respondsToSelector:s]) continue;
+			@try { ok = ((BOOL(*)(id, SEL))objc_msgSend)(o, s); } @catch (id ex) { ok = NO; }
+			if (ok) by = NSStringFromClass([o class]);
+		}
+		// escape on a navigation stack nobody answered for: what UIKit's own handler does (pop, else dismiss). Without a
+		// focused element (SwiftUI's NavigationStack): the front window's deepest navigation controller that can go back
+		if (!ok && esc && !oid.length) {
+			UIViewController* best = nil;
+			NSMutableArray* q = [NSMutableArray array];
+			UIViewController* root = visible_windows().lastObject.rootViewController;
+			if (root) [q addObject:root];
+			for (int n = 0; q.count && n < 400; n++) {
+				UIViewController* c = q[0];
+				[q removeObjectAtIndex:0];
+				if (c.presentedViewController) [q addObject:c.presentedViewController];
+				[q addObjectsFromArray:c.childViewControllers];
+				if ([c isKindOfClass:[UINavigationController class]] && ((UINavigationController*)c).viewControllers.count > 1 && c.viewIfLoaded.window)
+					best = c;
+			}
+			if (best) {
+				[(UINavigationController*)best popViewControllerAnimated:YES];
+				ok = YES;
+				by = [NSStringFromClass([best class]) stringByAppendingString:@" (pop)"];
+			}
+		}
+		if (!ok && esc) {
+			UIViewController* vc = controller_of(view_of(e));
+			UINavigationController* nav = vc.navigationController ?: ([vc isKindOfClass:[UINavigationController class]] ? (UINavigationController*)vc : nil);
+			if (vc.presentedViewController == nil && nav && nav.viewControllers.count > 1) {
+				[nav popViewControllerAnimated:YES];
+				ok = YES;
+				by = @"UINavigationController (pop)";
+			} else if (vc.presentingViewController) {
+				[vc dismissViewControllerAnimated:YES completion:nil];
+				ok = YES;
+				by = @"UIViewController (dismiss)";
+			}
+		}
+	} else if ([name isEqualToString:@"custom"]) {
+		NSString* want = req[@"custom"] ?: @"";
+		NSArray* ca = [e respondsToSelector:@selector(accessibilityCustomActions)] ? [e accessibilityCustomActions] : nil;
+		UIAccessibilityCustomAction* hit = nil;
+		for (int pass = 0; pass < 2 && !hit; pass++)
+			for (UIAccessibilityCustomAction* a in ca) {
+				NSString* n = names_of(a) ?: @"";
+				if (pass == 0 ? [n caseInsensitiveCompare:want] == NSOrderedSame : [n.lowercaseString containsString:want.lowercaseString]) { hit = a; break; }
+			}
+		NSMutableArray* names = [NSMutableArray array];
+		for (id a in ca) { NSString* n = names_of(a); if (n) [names addObject:n]; }
+		if (!hit) return @{ @"error": [NSString stringWithFormat:@"no custom action \"%@\" (it has: %@)", want, names.count ? [names componentsJoinedByString:@", "] : @"none"] };
+		@try {
+			if ([hit respondsToSelector:@selector(actionHandler)] && hit.actionHandler) ok = hit.actionHandler(hit);
+			else if (hit.target && hit.selector) {
+				NSMethodSignature* sig = [hit.target methodSignatureForSelector:hit.selector];
+				if (sig.numberOfArguments > 2) ok = ((BOOL(*)(id, SEL, id))objc_msgSend)(hit.target, hit.selector, hit);
+				else ok = ((BOOL(*)(id, SEL))objc_msgSend)(hit.target, hit.selector);
+			}
+		} @catch (id ex) {
+			return @{ @"error": [NSString stringWithFormat:@"the custom action threw: %@", ex] };
+		}
+		by = names_of(hit);
+	} else {
+		return @{ @"error": @"name: activate, increment, decrement, scroll, escape, magic_tap or custom" };
+	}
+	r[@"ok"] = @(ok);
+	if (by) r[@"by"] = by;
+	@try {
+		NSString* v = str([e accessibilityValue]);
+		if (v) r[@"value"] = v;
+	} @catch (id ex) {
+	}
+	return r;
+}
+
 static void handle(NSDictionary* req, void (^reply)(NSDictionary*)) {
 	NSString* op = req[@"op"];
 	if ([op isEqualToString:@"tree"]) { tree(req, reply); return; }
@@ -855,6 +1314,7 @@ static void handle(NSDictionary* req, void (^reply)(NSDictionary*)) {
 	}
 	if ([op isEqualToString:@"ax"]) { load_ax(); reply(@{ @"ax": @YES }); return; }
 	if ([op isEqualToString:@"type"]) { reply(type_text(req)); return; }
+	if ([op isEqualToString:@"action"]) { reply(perform_action(req)); return; }
 	if ([op isEqualToString:@"scrollby"]) {
 		// scroll the largest visible scroll view by a part of its height / width (visionOS: no touches reach a window
 		// from the host; the content moves as a scroll gesture would move it, without momentum)

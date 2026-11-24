@@ -91,6 +91,10 @@ pub struct El {
     pub oid: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub container: Option<String>,
+    /// the inspector's extras (SnapOpts::full; simax `more`): language, custom actions, rotors, view / controller
+    /// class, container path, text font / color / truncation (axinspect.rs, axaudit.rs)
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub more: Option<Value>,
 }
 
 impl El {
@@ -170,6 +174,9 @@ pub struct Snapshot {
     /// a process turned accessibility on for this request (its elements may lack labels yet): snapshot() asks again
     #[serde(skip)]
     pub ax_fresh: bool,
+    /// SnapOpts::full: interactive views VoiceOver cannot reach (simax `hidden`, with `app` and `pid` added)
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub hidden: Vec<Value>,
 }
 
 impl Snapshot {
@@ -411,6 +418,12 @@ fn ask_fg(inst: &Instance, req: &Value, timeout: Duration, stuck: &HashSet<u32>)
     })
 }
 
+/// One request to one process of the phone (its reader's socket by pid): the inspector's actions
+pub fn ask_pid(inst: &Instance, pid: u32, req: &Value, timeout: Duration) -> Result<Value> {
+    let sock = sock_of_pid(inst, pid).ok_or_else(|| anyhow!("process {pid} is gone"))?;
+    ask(&sock, req, timeout)?.ok_or_else(|| anyhow!("process {pid} did not answer"))
+}
+
 fn pid_of_sock(p: &Path) -> u32 {
     p.file_stem().and_then(|s| s.to_str()).and_then(|s| s.rsplit('-').next()).and_then(|s| s.parse().ok()).unwrap_or(0)
 }
@@ -517,6 +530,8 @@ fn assign_refs(cur: &mut [El], prev: &[El], next: &mut u32) {
 
 #[derive(Clone, Copy, Default)]
 pub struct SnapOpts {
+    /// the inspector's view: El::more and Snapshot::hidden (slower: the audit and the inspector ask for it)
+    pub full: bool,
     /// also elements scrolled out of view (in scroll views the app has loaded)
     pub all: bool,
     /// per process answer timeout
@@ -639,7 +654,7 @@ pub fn snapshot(inst: &Instance, opt: SnapOpts) -> Result<Snapshot> {
 
 fn snapshot_once(inst: &Instance, opt: SnapOpts) -> Result<Snapshot> {
     let t0 = Instant::now();
-    let req = json!({"op": "tree", "fg": true, "all": opt.all});
+    let req = json!({"op": "tree", "fg": true, "all": opt.all, "full": opt.full});
     let timeout = Duration::from_millis(if opt.timeout_ms > 0 { opt.timeout_ms } else { 6000 });
     let mut st = load_refs(inst);
     let answers = ask_fg(inst, &req, timeout, &st.stuck);
@@ -736,7 +751,15 @@ fn snapshot_once(inst: &Instance, opt: SnapOpts) -> Result<Snapshot> {
                 window,
                 oid: e["oid"].as_str().unwrap_or("").to_string(),
                 container: s(&e["in"]),
+                more: e.get("more").cloned(),
             });
+        }
+        for h in v["hidden"].as_array().into_iter().flatten() {
+            let mut h = h.clone();
+            h["app"] = json!(bundle);
+            h["pid"] = json!(pid);
+            h["window"] = json!(wins.get(h["win"].as_u64().unwrap_or(0) as usize).cloned().unwrap_or_default());
+            snap.hidden.push(h);
         }
         if !is_shell(&bundle) && has_app_content {
             fronts.push((pid, bundle.clone(), state == "active"));
