@@ -384,6 +384,7 @@ function phoneView(id) {
     side.replaceChildren(...parts);
   }
   function keyHelp(p) {
+    if (p === "xros") return [h("h4", { text: "Keys" }), ...[["Mouse", "the system pointer: hover, click, drag"], ["Wheel", "scroll where it points"], ["Keys", "the keyboard (click the screen first)"], ["Ctrl+V", "paste"]].map(([a, b]) => h("div", {}, h("b", { text: a }), " " + b))];
     const l = [["Click / drag", "touch"], ["Alt + drag", "pinch / rotate"], ["Shift + drag", "two-finger pan"], ["Wheel", p === "watchos" ? "Digital Crown" : p === "tvos" ? "swipe the remote" : "scroll"], ["Keys", "the phone's keyboard (click the screen first)"], ["Ctrl+V", "paste"], ["F1 / F2 / F3 / F4", p === "tvos" ? "TV / play / vol" : "home / lock / vol"]];
     if (p === "tvos") l.splice(0, 3, ["Arrows, Enter, Esc", "remote: move, select, back"], ["Click", "select"]);
     return [h("h4", { text: "Keys" }), ...l.map(([a, b]) => h("div", {}, h("b", { text: a }), " " + b))];
@@ -431,6 +432,9 @@ function phoneView(id) {
     return [Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height))];
   };
   const isTv = () => info?.platform === "tvos";
+  // Vision Pro: the mouse is the system pointer (hover, click where it points); touches reach nothing there
+  const isXr = () => info?.platform === "xros";
+  let xrLast = 0;
   const pts = new Map(); // pointerId -> [x, y]
   let mode = null; // "one" | "two" (real fingers) | "pinch" | "pan" | "tv"
   let anchor = null, cur = null;
@@ -461,6 +465,7 @@ function phoneView(id) {
     canvas.setPointerCapture(e.pointerId);
     const p = norm(e);
     if (isTv()) { if (!mode) { mode = "tv"; send({ t: "key", u: 0x28, d: true }); } return; }
+    if (isXr()) { if (e.button === 0 && !mode) { mode = "xr"; send({ t: "pointer", a: "at", x: p[0], y: p[1] }); send({ t: "pointer", a: "down" }); } return; }
     if (e.pointerType === "touch" || e.pointerType === "pen") {
       pts.set(e.pointerId, p);
       if (pts.size === 1) { mode = "one"; send({ t: "touch", p: "down", x: p[0], y: p[1] }); }
@@ -478,6 +483,15 @@ function phoneView(id) {
     else { mode = "one"; send({ t: "touch", p: "down", x: p[0], y: p[1] }); }
   });
   canvas.addEventListener("pointermove", (e) => {
+    if (control && isXr()) {
+      // hover moves the pointer too (at most 60 a second); dragging with the button down drags
+      const now = performance.now();
+      if (now - xrLast < 16) return;
+      xrLast = now;
+      const p = norm(e);
+      send({ t: "pointer", a: "at", x: p[0], y: p[1] });
+      return;
+    }
     if (!control || !mode || mode === "tv") return;
     const p = norm(e);
     if (e.pointerType === "touch" || e.pointerType === "pen") {
@@ -495,6 +509,7 @@ function phoneView(id) {
   function up(e) {
     if (!control || !mode) return;
     if (mode === "tv") { mode = null; send({ t: "key", u: 0x28, d: false }); return; }
+    if (mode === "xr") { mode = null; const p = norm(e); send({ t: "pointer", a: "at", x: p[0], y: p[1] }); send({ t: "pointer", a: "up" }); return; }
     const p = norm(e);
     if (e.pointerType === "touch" || e.pointerType === "pen") {
       if (!pts.has(e.pointerId)) return;
@@ -523,7 +538,9 @@ function phoneView(id) {
     const scale = e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? 400 : 1;
     const dx = e.deltaX * scale, dy = e.deltaY * scale;
     const p = info?.platform;
-    if (p === "watchos" || p === "xros") { send({ t: "crown", d: dy * 1.2 }); return; }
+    if (p === "watchos") { send({ t: "crown", d: dy * 1.2 }); return; }
+    // Vision Pro: the wheel scrolls where the pointer is (the crown has its buttons)
+    if (p === "xros") { send({ t: "pointer", a: "scroll", dx, dy }); return; }
     if (p === "tvos") {
       wheelAcc[0] += dx; wheelAcc[1] += dy;
       while (Math.abs(wheelAcc[0]) >= 40 || Math.abs(wheelAcc[1]) >= 40) {

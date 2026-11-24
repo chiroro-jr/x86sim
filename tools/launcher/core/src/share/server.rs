@@ -760,6 +760,19 @@ impl Input {
                 }
             }
             "crown" => self.hid.crown(f("d").clamp(-2000.0, 2000.0)),
+            // the system pointer (Vision Pro: the mouse is the pointer there, touches reach nothing; an iPad's mouse):
+            // a place on the screen as shown (0..1), the button, a scroll
+            "pointer" => {
+                let line = match v["a"].as_str().unwrap_or("") {
+                    "at" => format!("pointer at {:.5} {:.5}", f("x").clamp(0.0, 1.0), f("y").clamp(0.0, 1.0)),
+                    "down" => "pointer button down".into(),
+                    "up" => "pointer button up".into(),
+                    "click" => "pointer click".into(),
+                    "scroll" => format!("pointer scroll {:.2} {:.2}", f("dx").clamp(-2000.0, 2000.0), f("dy").clamp(-2000.0, 2000.0)),
+                    a => return Err(format!("pointer: at, down, up, click or scroll, not {a:?}")),
+                };
+                self.hid.send(&line);
+            }
             "rotate" => self.hid.rotate(v["dir"].as_str() == Some("left")),
             "shake" => self.hid.shake(),
             "hinge" => {

@@ -23,15 +23,18 @@ use std::time::{Duration, Instant};
 
 const SPRINGBOARD: &str = "com.apple.springboard";
 /// The system shells that are not apps, per platform: SpringBoard (iOS / iPadOS), PineBoard (tvOS's SpringBoard:
-/// alerts), Carousel (watchOS: the watch face, app grid, alerts), visionOS's SurfBoard (the Home View, alerts);
-/// tvOS's Home Screen is HeadBoard and its status / system UI TVSystemUIService
+/// alerts), Carousel (watchOS: the app grid, the time over apps), visionOS's SurfBoard; the homes that are apps of
+/// their own: tvOS's HeadBoard (TVSystemUIService: its clock corner), a watch face (com.apple.clockface), visionOS's
+/// Home View (RealityLauncher; RealityHUD: the Home / Control Center buttons)
 const SHELLS: &[&str] = &[SPRINGBOARD, "com.apple.PineBoard", "com.apple.Carousel", "com.apple.SurfBoard"];
 const TV_HOME: &str = "com.apple.HeadBoard";
 const WATCH_FACE: &str = "com.apple.clockface";
+const XR_HOME: &str = "com.apple.RealityLauncher";
+const XR_HUD: &str = "com.apple.RealityHUD";
 const TV_SYSTEM_UI: &str = "com.apple.TVSystemUIService";
 
 fn is_shell(bundle: &str) -> bool {
-    SHELLS.contains(&bundle) || bundle == TV_HOME || bundle == TV_SYSTEM_UI || bundle == WATCH_FACE
+    SHELLS.contains(&bundle) || [TV_HOME, TV_SYSTEM_UI, WATCH_FACE, XR_HOME, XR_HUD].contains(&bundle)
 }
 
 fn is_false(b: &bool) -> bool {
@@ -143,6 +146,9 @@ fn quote(s: &str) -> String {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Snapshot {
     pub phone: String,
+    /// ios, tvos, watchos, xros
+    #[serde(skip_serializing_if = "String::is_empty", default)]
+    pub platform: String,
     /// screen size in points (the interface orientation's)
     pub screen: (f64, f64),
     /// apps on screen (bundle ids), front-most first; SpringBoard means the home screen
@@ -192,10 +198,14 @@ impl Snapshot {
     /// The compact text form an agent reads.
     pub fn text(&self) -> String {
         let mut out = format!(
-            "phone {} · {:.0}x{:.0} pt · front {}{}\n",
+            "phone {} · {} · front {}{}\n",
             self.phone,
-            self.screen.0,
-            self.screen.1,
+            if self.platform == "xros" {
+                // windows float in the room: no display coordinates (tap acts through accessibility)
+                "Vision Pro: (x,y) are points in each app's own window".to_string()
+            } else {
+                format!("{:.0}x{:.0} pt", self.screen.0, self.screen.1)
+            },
             if self.front.is_empty() { "?".into() } else { self.front.join(", ") },
             if self.overlay { " · system overlay on top" } else { "" }
         );
@@ -518,6 +528,13 @@ fn layer_of(bundle: &str, window: &str, class: &str, id: &str) -> &'static str {
     if class.starts_with("STUIStatusBar") || class.starts_with("UIStatusBar") || class.contains("StatusBar") || window.contains("StatusBar") {
         return "status";
     }
+    // visionOS: the Home View is RealityLauncher's; RealityHUD's Control Center / Home buttons are its status corner
+    if bundle == XR_HOME {
+        return "home";
+    }
+    if bundle == XR_HUD {
+        return "status";
+    }
     // watchOS: the watch face (com.apple.clockface) and Carousel's app grid / list (its CSLSecureWindow) are home
     if bundle == WATCH_FACE || (bundle == "com.apple.Carousel" && window == "CSLSecureWindow") {
         return "home";
@@ -630,7 +647,7 @@ fn snapshot_once(inst: &Instance, opt: SnapOpts) -> Result<Snapshot> {
     if answers.is_empty() {
         bail!("{}: no app answers (is the phone running and booted to the home screen? its reader is host/simax)", inst.name);
     }
-    let mut snap = Snapshot { phone: inst.name.clone(), ..Default::default() };
+    let mut snap = Snapshot { phone: inst.name.clone(), platform: inst.platform.clone(), ..Default::default() };
     let mut fronts: Vec<(u32, String, bool)> = Vec::new();
     // each app's main window on the display (simax offsets an iPadOS window by its scene's place)
     let mut app_rects: HashMap<String, [f64; 4]> = HashMap::new();
@@ -1058,6 +1075,9 @@ pub fn tap(inst: &Instance, target: &str, hold_ms: u64, after: After) -> Result<
     if inst.platform == "tvos" {
         return tv_select(inst, target, hold_ms, after);
     }
+    if inst.platform == "xros" {
+        return xr_activate(inst, target, hold_ms, after);
+    }
     let (x, y, what, before) = match parse_target(target) {
         Target::Point(x, y) => (x, y, format!("({x:.0},{y:.0})"), last(inst)),
         _ => {
@@ -1174,6 +1194,58 @@ fn tv_select(inst: &Instance, target: &str, hold_ms: u64, after: After) -> Resul
     let verb = if hold_ms >= 500 { "long-pressed select on" } else { "selected" };
     let did = format!("{verb} @{} {} {} (focus moved with {presses} remote press{})", e.r, e.role, e.label.as_deref().map(quote).unwrap_or_default(), if presses == 1 { "" } else { "es" });
     Ok(outcome(inst, did, before, after))
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// visionOS: windows float in a rendered room. An element's frame is in its window's own points, and where that window
+// is on the display depends on its place in 3D and the eyes' pose, so a point on the display cannot be computed from
+// it. Elements are acted on through accessibility instead (what VoiceOver does): accessibilityActivate for a tap,
+// the scroll view's offset for a scroll. sim_pointer still drives the system pointer by display position.
+
+fn xr_activate(inst: &Instance, target: &str, hold_ms: u64, after: After) -> Result<Outcome> {
+    if matches!(parse_target(target), Target::Point(..)) {
+        bail!("Vision Pro: a point is in a window's own coordinates, not the display's: tap an element (@ref, id:, text), or move the system pointer with sim_pointer (at x y on the display) and click");
+    }
+    anyhow::ensure!(hold_ms < 500, "Vision Pro: no long press through accessibility (use sim_pointer down / up)");
+    let (mut e, mut snap) = resolve(inst, target)?;
+    if e.offscreen {
+        scroll_into_view(inst, &e)?;
+        snap = snapshot(inst, SnapOpts::default())?;
+        e = find(&snap, &format!("@{}", e.r)).cloned().or_else(|_| find(&snap, target).cloned())?;
+    }
+    anyhow::ensure!(!e.web, "Vision Pro: web content cannot be activated through accessibility yet (sim_pointer)");
+    let sock = sock_of_pid(inst, e.pid).ok_or_else(|| anyhow!("{} is gone", e.app))?;
+    let r = ask(&sock, &json!({"op": "activate", "oid": e.oid, "tap": true}), Duration::from_secs(4))?.ok_or_else(|| anyhow!("{} is gone", e.app))?;
+    if let Some(err) = r["error"].as_str() {
+        bail!("cannot activate @{}: {err}", e.r);
+    }
+    let did = if r["tapped"].as_bool() == Some(true) {
+        format!("activated @{} {} {} (Vision Pro: a tap made in the app at its activation point, as VoiceOver does when accessibilityActivate is not enough)", e.r, e.role, e.label.as_deref().map(quote).unwrap_or_default())
+    } else if r["ok"].as_bool() == Some(true) {
+        format!("activated @{} {} {} (Vision Pro: accessibilityActivate, as VoiceOver)", e.r, e.role, e.label.as_deref().map(quote).unwrap_or_default())
+    } else {
+        format!("@{} {} {} did not take accessibilityActivate (nothing happened; try sim_pointer)", e.r, e.role, e.label.as_deref().map(quote).unwrap_or_default())
+    };
+    let before = Some(snap);
+    if did.starts_with("activated") && (e.role == "icon" || e.app == "com.apple.RealityLauncher") {
+        wait_front_change(inst, before.as_ref().map(|b| b.front.clone()).unwrap_or_default(), Duration::from_secs(10));
+    }
+    Ok(outcome(inst, did, before, after))
+}
+
+/// visionOS: scroll the front app's main scroll view (simax scrollby)
+fn xr_scroll(inst: &Instance, direction: &str, amount: f64, after: After) -> Result<Outcome> {
+    let before = last(inst);
+    let snap = snapshot(inst, SnapOpts::default())?;
+    let front = snap.front.first().cloned().unwrap_or_default();
+    let pid = snap.elements.iter().find(|e| e.app == front).map(|e| e.pid).ok_or_else(|| anyhow!("no app in front to scroll"))?;
+    let sock = sock_of_pid(inst, pid).ok_or_else(|| anyhow!("{front} is gone"))?;
+    let r = ask(&sock, &json!({"op": "scrollby", "dir": direction, "amount": amount.clamp(0.05, 2.0)}), Duration::from_secs(3))?.ok_or_else(|| anyhow!("{front} is gone"))?;
+    if let Some(err) = r["error"].as_str() {
+        bail!("cannot scroll {direction}: {err}");
+    }
+    let moved = r["moved"].as_bool().unwrap_or(false);
+    Ok(outcome(inst, format!("scrolled {front}'s {} {direction}{}", r["view"].as_str().unwrap_or("scroll view"), if moved { "" } else { " (already at the end)" }), before, after))
 }
 
 /// Waits (on new frames) until `bundle` is in front, showing something
@@ -1344,6 +1416,10 @@ pub fn key(inst: &Instance, combo: &str, after: After) -> Result<Outcome> {
 /// up), `amount` in screens (1 = most of a screen), from the middle of the screen or of an element. No fling.
 pub fn scroll(inst: &Instance, direction: &str, amount: f64, at: Option<&str>, after: After) -> Result<Outcome> {
     let before = last(inst);
+    if inst.platform == "xros" {
+        let _ = at;
+        return xr_scroll(inst, direction, amount, after);
+    }
     if inst.platform == "tvos" {
         // an Apple TV scrolls by moving the focus: arrow presses (about 4 per screen), from the focus, not a point
         let k = tv_arrow(direction)?;
@@ -1403,6 +1479,22 @@ fn tv_arrow(direction: &str) -> Result<u32> {
 }
 
 pub fn swipe_dir(inst: &Instance, direction: &str, after: After) -> Result<Outcome> {
+    if inst.platform == "xros" {
+        // a flick moves the content with the finger: swipe up shows what is below
+        let d = match direction {
+            "up" => "down",
+            "down" => "up",
+            "left" => "right",
+            "right" => "left",
+            "home" => {
+                let before = last(inst);
+                Hid::new(&inst.sock).press_for("home", 100);
+                return Ok(outcome(inst, "pressed the Digital Crown (Vision Pro: Home View)".into(), before, after));
+            }
+            o => bail!("direction {o:?} on a Vision Pro: up down left right home"),
+        };
+        return xr_scroll(inst, d, 0.8, after);
+    }
     if inst.platform == "tvos" {
         // a swipe on the Siri Remote's touch surface moves the focus one step that way (content follows the focus)
         let before = last(inst);

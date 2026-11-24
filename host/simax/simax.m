@@ -37,6 +37,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <stdatomic.h>
+#include <mach/mach_time.h>
 
 static const char kSystemRoot[] = "/Volumes/SystemRoot";
 static char g_path[256];
@@ -746,6 +747,94 @@ static NSDictionary* type_text(NSDictionary* req) {
 	return d;
 }
 
+// ---------------------------------------------------------------------------------------------------------------------
+// A tap made inside the process (visionOS: the host cannot place a touch on a window floating in the room). The way
+// in-process UI test tools (KIF) do it: a UITouch at a point of the window, with an IOHIDEvent digitizer event behind
+// it, through UIApplication sendEvent: (gesture recognizers, SwiftUI buttons and links see an ordinary tap).
+typedef struct __IOHIDEvent* SimaxHIDEventRef;
+
+static SimaxHIDEventRef hid_touch_event(CGPoint p, BOOL down) {
+	static SimaxHIDEventRef (*hand)(CFAllocatorRef, uint64_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, double, double, double,
+		double, double, Boolean, Boolean, uint32_t);
+	static SimaxHIDEventRef (*finger)(CFAllocatorRef, uint64_t, uint32_t, uint32_t, uint32_t, double, double, double, double, double, double,
+		double, double, double, double, Boolean, Boolean, uint32_t);
+	static void (*append)(SimaxHIDEventRef, SimaxHIDEventRef, uint32_t);
+	static void (*setint)(SimaxHIDEventRef, uint32_t, long);
+	if (!hand) {
+		hand = dlsym(RTLD_DEFAULT, "IOHIDEventCreateDigitizerEvent");
+		finger = dlsym(RTLD_DEFAULT, "IOHIDEventCreateDigitizerFingerEventWithQuality");
+		append = dlsym(RTLD_DEFAULT, "IOHIDEventAppendEvent");
+		setint = dlsym(RTLD_DEFAULT, "IOHIDEventSetIntegerValue");
+	}
+	if (!hand || !finger || !append || !setint) return NULL;
+	uint64_t t = mach_absolute_time();
+	// a hand (transducer 3) with one finger: range + touch while down, then lifted
+	SimaxHIDEventRef h = hand(kCFAllocatorDefault, t, 3, 0, 0, 2 /* touch */, 0, 0, 0, 0, 0, 0, false, down, 0);
+	setint(h, 0xB0019 /* DigitizerIsDisplayIntegrated */, 1);
+	SimaxHIDEventRef f = finger(kCFAllocatorDefault, t, 1, 2, 3 /* range | touch */, p.x, p.y, 0, 0, 0, 5, 5, 1, 1, 1, down, down, 0);
+	append(h, f, 0);
+	CFRelease(f);
+	return h;
+}
+
+static BOOL send_touch(UITouch* touch, UITouchPhase phase, CGPoint p) {
+	UIApplication* app = UIApplication.sharedApplication;
+	SEL te = NSSelectorFromString(@"_touchesEvent");
+	if (![app respondsToSelector:te]) return NO;
+	UIEvent* ev = ((id(*)(id, SEL))objc_msgSend)(app, te);
+	SimaxHIDEventRef hid = hid_touch_event(p, phase != UITouchPhaseEnded);
+	if (!hid) return NO;
+	((void (*)(id, SEL, NSInteger))objc_msgSend)(touch, NSSelectorFromString(@"setPhase:"), phase);
+	((void (*)(id, SEL, NSTimeInterval))objc_msgSend)(touch, NSSelectorFromString(@"setTimestamp:"), NSProcessInfo.processInfo.systemUptime);
+	if ([touch respondsToSelector:NSSelectorFromString(@"_setHidEvent:")])
+		((void (*)(id, SEL, void*))objc_msgSend)(touch, NSSelectorFromString(@"_setHidEvent:"), hid);
+	((void (*)(id, SEL))objc_msgSend)(ev, NSSelectorFromString(@"_clearTouches"));
+	((void (*)(id, SEL, void*))objc_msgSend)(ev, NSSelectorFromString(@"_setHIDEvent:"), hid);
+	((void (*)(id, SEL, id, BOOL))objc_msgSend)(ev, NSSelectorFromString(@"_addTouch:forDelayedDelivery:"), touch, NO);
+	[app sendEvent:ev];
+	CFRelease(hid);
+	return YES;
+}
+
+// a tap at a point of a window (its own points)
+static BOOL synth_tap(UIWindow* win, CGPoint p) {
+	for (NSString* sel in @[ @"_touchesEvent" ])
+		if (![UIApplication.sharedApplication respondsToSelector:NSSelectorFromString(sel)]) return NO;
+	UIView* hit = [win hitTest:p withEvent:nil];
+	if (!hit) return NO;
+	UITouch* t = [[UITouch alloc] init];
+	@try {
+		((void (*)(id, SEL, id))objc_msgSend)(t, NSSelectorFromString(@"setWindow:"), win);
+		((void (*)(id, SEL, id))objc_msgSend)(t, NSSelectorFromString(@"setView:"), hit);
+		((void (*)(id, SEL, CGPoint, BOOL))objc_msgSend)(t, NSSelectorFromString(@"_setLocationInWindow:resetPrevious:"), p, YES);
+		if ([t respondsToSelector:NSSelectorFromString(@"_setIsFirstTouchForView:")])
+			((void (*)(id, SEL, BOOL))objc_msgSend)(t, NSSelectorFromString(@"_setIsFirstTouchForView:"), YES);
+		if ([t respondsToSelector:NSSelectorFromString(@"setIsTap:")]) ((void (*)(id, SEL, BOOL))objc_msgSend)(t, NSSelectorFromString(@"setIsTap:"), YES);
+		if ([t respondsToSelector:NSSelectorFromString(@"setTapCount:")]) ((void (*)(id, SEL, NSUInteger))objc_msgSend)(t, NSSelectorFromString(@"setTapCount:"), 1);
+		if ([t respondsToSelector:NSSelectorFromString(@"setGestureView:")]) ((void (*)(id, SEL, id))objc_msgSend)(t, NSSelectorFromString(@"setGestureView:"), hit);
+		if (!send_touch(t, UITouchPhaseBegan, p)) return NO;
+		// the lift comes a moment later on the main queue, as a finger's would (recognizers see a press, then an end)
+		dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 80 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+			@try { send_touch(t, UITouchPhaseEnded, p); } @catch (id ex) { alog("touch end: %s", [[ex description] UTF8String]); }
+		});
+	} @catch (id ex) {
+		alog("synth tap: %s", [[ex description] UTF8String]);
+		return NO;
+	}
+	return YES;
+}
+
+// the window an accessibility element is in (its view's, or its containers' up to a view)
+static UIWindow* window_of(id e) {
+	for (id o = e; o; ) {
+		if ([o isKindOfClass:[UIView class]]) return ((UIView*)o).window;
+		id c = nil;
+		@try { c = [o respondsToSelector:@selector(accessibilityContainer)] ? [o accessibilityContainer] : nil; } @catch (id ex) { c = nil; }
+		o = c;
+	}
+	return nil;
+}
+
 static void handle(NSDictionary* req, void (^reply)(NSDictionary*)) {
 	NSString* op = req[@"op"];
 	if ([op isEqualToString:@"tree"]) { tree(req, reply); return; }
@@ -766,13 +855,60 @@ static void handle(NSDictionary* req, void (^reply)(NSDictionary*)) {
 	}
 	if ([op isEqualToString:@"ax"]) { load_ax(); reply(@{ @"ax": @YES }); return; }
 	if ([op isEqualToString:@"type"]) { reply(type_text(req)); return; }
+	if ([op isEqualToString:@"scrollby"]) {
+		// scroll the largest visible scroll view by a part of its height / width (visionOS: no touches reach a window
+		// from the host; the content moves as a scroll gesture would move it, without momentum)
+		NSString* dir = req[@"dir"] ?: @"down";
+		double amount = req[@"amount"] ? [req[@"amount"] doubleValue] : 0.5;
+		UIScrollView* best = nil;
+		double area = 0;
+		NSMutableArray* stack = [NSMutableArray arrayWithArray:visible_windows()];
+		while (stack.count) {
+			UIView* v = stack.lastObject;
+			[stack removeLastObject];
+			if (view_hidden(v)) continue;
+			if ([v isKindOfClass:[UIScrollView class]] && v.window) {
+				UIScrollView* sv = (UIScrollView*)v;
+				BOOL can = [dir isEqualToString:@"down"] || [dir isEqualToString:@"up"] ? sv.contentSize.height > sv.bounds.size.height + 1
+					: sv.contentSize.width > sv.bounds.size.width + 1;
+				double a = sv.bounds.size.width * sv.bounds.size.height;
+				if (can && sv.scrollEnabled && a > area) { best = sv; area = a; }
+			}
+			[stack addObjectsFromArray:v.subviews];
+		}
+		if (!best) { reply(@{ @"error": @"no scroll view that scrolls that way" }); return; }
+		CGPoint o = best.contentOffset;
+		UIEdgeInsets in = best.adjustedContentInset;
+		CGSize b = best.bounds.size, c = best.contentSize;
+		if ([dir isEqualToString:@"down"]) o.y = MIN(o.y + b.height * amount, c.height - b.height + in.bottom);
+		else if ([dir isEqualToString:@"up"]) o.y = MAX(o.y - b.height * amount, -in.top);
+		else if ([dir isEqualToString:@"right"]) o.x = MIN(o.x + b.width * amount, c.width - b.width + in.right);
+		else o.x = MAX(o.x - b.width * amount, -in.left);
+		BOOL moved = !CGPointEqualToPoint(o, best.contentOffset);
+		[best setContentOffset:o animated:NO];
+		reply(@{ @"ok": @YES, @"moved": @(moved), @"view": NSStringFromClass([best class]) });
+		return;
+	}
 	if ([op isEqualToString:@"scroll"] || [op isEqualToString:@"activate"]) {
 		NSString* oid = req[@"oid"];
 		NSRange hash = [oid rangeOfString:@"#"];
 		id e = find_oid(hash.location == NSNotFound ? oid : [oid substringToIndex:hash.location]);
 		if (!e) { reply(@{ @"error": @"element gone" }); return; }
 		BOOL ok = NO;
-		if ([op isEqualToString:@"activate"]) ok = [e accessibilityActivate];
+		if ([op isEqualToString:@"activate"]) {
+			ok = [e accessibilityActivate];
+			// what VoiceOver does when an element does not activate itself: a tap at its activation point (SwiftUI's
+			// list rows / links). "tap": do that in the process
+			if (!ok && [req[@"tap"] boolValue]) {
+				UIWindow* win = window_of(e);
+				CGPoint sp = [e accessibilityActivationPoint];
+				CGPoint wp = sp;
+				if (win.windowScene) wp = [win convertPoint:sp fromCoordinateSpace:win.windowScene.coordinateSpace];
+				BOOL tapped = win && synth_tap(win, wp);
+				reply(@{ @"ok": @(tapped), @"tapped": @(tapped), @"at": @[ @(wp.x), @(wp.y) ] });
+				return;
+			}
+		}
 		else {
 			SEL s = NSSelectorFromString(@"accessibilityScrollToVisible");
 			if ([e respondsToSelector:s]) ok = ((BOOL(*)(id, SEL))objc_msgSend)(e, s);
