@@ -528,8 +528,29 @@ function phoneView(id) {
     parts.push(h("div", {}, h("h4", { text: "Stream" }), h("div", { class: "btns" }, qSel, cSel, fSel), stats));
     if (control) parts.push(h("div", { class: "kbd" }, ...keyHelp(p)));
     if (control) parts.push(group("Share", btn("Share this phone…", "", () => openShare(id))));
+    if (control && p !== "watchos") parts.push(webPanel());
     parts.push(h("div", { class: "btns" }, h("a", { class: "btn small", href: "#/", text: "← All phones" })));
     side.replaceChildren(...parts);
+  }
+  // Web Inspector: the phone's inspectable pages (Safari, WKWebViews with isInspectable), each with an Inspect link
+  // (share/inspect.rs). Asked for on a click only: the first ask starts the phone's webinspectord.
+  function webPanel() {
+    const list = h("div", { class: "webpages" });
+    const find = async () => {
+      list.replaceChildren(h("div", { class: "muted", text: "Looking…" }));
+      try {
+        const r = await fetch(withToken(`/api/web/${encodeURIComponent(id)}`));
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || r.status);
+        const pages = j.apps.flatMap((a) => a.pages.map((pg) => ({ ...pg, app: a.name || a.bundle })));
+        if (j.ui_error) list.append(h("div", { class: "muted", text: j.ui_error }));
+        if (!pages.length) { list.replaceChildren(h("div", { class: "muted", text: "No inspectable pages: open one in Safari, or an app whose WKWebView sets isInspectable." })); return; }
+        list.replaceChildren(...pages.map((pg) => h("div", { class: "webpage" },
+          j.ui_error ? null : h("a", { class: "btn small", href: pg.href, target: "_blank", rel: "noopener", text: "Inspect" }),
+          h("span", { text: ` ${pg.title || "(untitled)"} · ${pg.app}`, title: pg.url }))));
+      } catch (e) { list.replaceChildren(h("div", { class: "muted", text: "Web Inspector: " + e.message })); }
+    };
+    return h("div", {}, h("h4", { text: "Web Inspector" }), h("div", { class: "btns" }, btn("Web pages…", "Safari's pages and apps' inspectable web views, to open in WebKit's Web Inspector", find)), list);
   }
   function keyHelp(p) {
     if (p === "xros") return [h("h4", { text: "Keys" }), ...[["Mouse", "the system pointer: hover, click, drag"], ["Wheel", "scroll where it points"], ["Keys", "the keyboard (click the screen first)"], ["Ctrl+V", "paste"]].map(([a, b]) => h("div", {}, h("b", { text: a }), " " + b))];

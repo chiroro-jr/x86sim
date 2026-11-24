@@ -479,6 +479,7 @@ else the configured one. Erase, clone and keychain reset need it.
 | Capture | `sim_screenshot` (a PNG file), `sim_record_video` |
 | Pool | `pool_status`, `phone_take`, `phone_release` |
 | Sharing | `share_start`, `share_stop`, `share_status`, `share_link` (they return the URLs) |
+| Web content | `web_targets`, `web_eval`, `web_console`, `web_dom`, `web_network` (Safari's pages and inspectable WKWebViews, see [Web Inspector](#web-inspector)) |
 | Develop | `dev_status`, `dev_setup`, `dev_setup_cancel`, `dev_new`, `dev_projects`, `dev_build`, `dev_run`, `dev_test`, `dev_device`, `dev_ship`, `dev_convert` |
 
 ### In a browser (local or remote)
@@ -522,6 +523,33 @@ included, needs the token in the link. `--ttl` makes the printed links expire. I
 beside a device's screen opens it in the browser, and its Share section turns tunnels on and off, copies links and
 stops sharing. Tailscale must be logged in, with Serve (and Funnel) enabled for the tailnet; `x86sim serve` shows
 the admin link when they are not.
+
+### Web Inspector
+
+Safari's pages and apps' web views can be inspected as from Safari's Develop menu on a Mac: WebKit's own Web
+Inspector (Elements, Console, Network, Sources, Timelines, Storage, ...) opens in your browser.
+
+```sh
+x86sim inspect                      # the running phone's pages, and the inspector page in the browser
+x86sim inspect qa --url example.com # straight to the inspector on the first page whose URL or title has it
+x86sim inspect qa --list            # only list them (id, app, kind, title, URL)
+```
+
+The viewer of `x86sim serve` has the same under **Web pages…** (control links only: an inspector runs code in the
+page). Agents get MCP tools that need no browser: `web_targets` (pages per app), `web_eval` (JavaScript, its value;
+promises are awaited), `web_console` (the page's messages, then new ones for `follow_s`), `web_dom` (outerHTML of a
+CSS selector or the document) and `web_network` (every request since the page loaded, then live ones). WebKit keeps
+a page's console messages only from its first inspection on; `reload: true` reloads the page and collects its load's
+console messages or requests (with status codes).
+
+- Safari's pages are always inspectable. An app's `WKWebView` (or `JSContext`) is listed only when the app sets
+  `isInspectable = true`, as in Apple's simulator.
+- The phone side is the runtime's `webinspectord`, started on demand at the first inspect (the `webinspector`
+  feature, on by default; nothing runs until then). Its socket is `/run/user/<uid>/x86sim-rwi-<UDID>.sock` and speaks
+  Apple's Remote Web Inspector protocol (`tools/launcher/core/src/rwi.rs`).
+- The frontend is the one WebKitGTK ships (webkit2gtk-4.1 or webkitgtk-6.0 must be installed; it is extracted once
+  into `~/.cache/x86sim/webinspector`), or a WebInspectorUI directory given with `X86SIM_INSPECTOR_UI`. It is a
+  newer or older WebKit than the phone's, so a panel may miss a command now and then. The MCP tools work without it.
 
 ## Building and shipping apps
 

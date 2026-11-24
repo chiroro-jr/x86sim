@@ -559,6 +559,10 @@ fn handle(srv: &Arc<Server>, mut s: TcpStream, peer: SocketAddr) {
     let Some(g) = srv.grant(&req) else {
         return json_resp(&mut s, 401, &json!({"error": "a token is needed: open the link x86sim serve printed (…?t=…)"}));
     };
+    // Web Inspector (inspect.rs): its pages, frontend files and sockets, control role only
+    if super::inspect::wants(&p) {
+        return super::inspect::handle(srv, s, req, g);
+    }
     // a page elsewhere can't post here: state changes need our header (a cross-origin request with it is preflighted
     // and refused) or a WebSocket from our own origin
     if req.method == "POST" && req.headers.get("x-x86sim").is_none() {

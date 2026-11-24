@@ -6,6 +6,8 @@
 /// the Accessibility Inspector's routes (/api/phones/<id>/ax/...)
 pub mod axapi;
 pub mod audio;
+/// Web Inspector routes (control role): x86sim inspect, the viewer's Inspect button
+pub mod inspect;
 pub mod server;
 pub mod tunnel;
 pub mod video;
