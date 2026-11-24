@@ -231,6 +231,9 @@ void h_sigaltstack(GuestThread &t, u32 i);
 void deliver_signals(GuestThread &t);
 // Guest handlers for synchronous signals (signals.cpp). Darwin signal numbers.
 bool guest_sig_action_set(int dsig);       // a handler or SIG_IGN
+// host.cpp: after the guest's sigaction() of a signal whose Linux handler is libarm64jit's (SIGSEGV, SIGBUS: on_fault;
+// SIGABRT: on_abrt; SIGUSR1: on_usr1), puts it back over the sigexc_handler Darling's sigaction() installed.
+void retake_host_signal(int dsig);
 bool guest_sig_handled(GuestThread &t, int dsig);  // a handler that may run now (not blocked by its own handler)
 // Records a synchronous signal for the handler (pc: the faulting instruction) and halts the Jit: delivered when Run()
 // returns. False if the guest has no handler that may run now.
