@@ -22,11 +22,26 @@ if ! getent hosts archive.ubuntu.com >/dev/null && [ -d /run/systemd/resolve ]; 
 	for i in 1 2 3 4 5; do getent hosts archive.ubuntu.com >/dev/null && break; sleep 2; done
 	getent hosts archive.ubuntu.com || echo "deps: archive.ubuntu.com still does not resolve"
 fi
-# GitHub's runners fetch Ubuntu through azure.archive.ubuntu.com (mirror list /etc/apt/apt-mirrors.txt); when it does
-# not answer (2026-11-11: every request timed out for an hour), use Ubuntu's own archive
-if [ -f /etc/apt/apt-mirrors.txt ] && ! curl -fsS --max-time 15 -o /dev/null http://azure.archive.ubuntu.com/ubuntu/dists/noble/InRelease; then
-	echo "deps: azure.archive.ubuntu.com not answering; using archive.ubuntu.com"
-	printf 'http://archive.ubuntu.com/ubuntu/\tpriority:1\n' > /etc/apt/apt-mirrors.txt
+# GitHub's runners fetch Ubuntu through a mirror list (/etc/apt/apt-mirrors.txt: azure.archive.ubuntu.com, since
+# 2026-11 us-east-2.ec2.archive.ubuntu.com). A dead mirror (2026-11-11) and a slow one (2026-11-24: ~50 kB/s, the
+# Packages step timed out on every run) both stall the build; apt only fails over on errors, not on slowness. So time
+# a ~1.5 MB download from the runner's mirrors and a few others and put the fastest first.
+if [ -f /etc/apt/apt-mirrors.txt ]; then
+	best= best_speed=0
+	for m in $(cut -f1 /etc/apt/apt-mirrors.txt) http://archive.ubuntu.com/ubuntu/ http://azure.archive.ubuntu.com/ubuntu/ \
+		http://us.archive.ubuntu.com/ubuntu/ http://mirrors.edge.kernel.org/ubuntu/; do
+		case $m in */) ;; *) m=$m/ ;; esac
+		s=$(curl -fsS --max-time 10 -o /dev/null -w '%{speed_download}' "${m}dists/noble/main/binary-amd64/Packages.gz" \
+			2>/dev/null) || s=0
+		s=${s%.*}
+		echo "deps: mirror $m: $((s / 1024)) kB/s"
+		[ "${s:-0}" -gt "$best_speed" ] && best=$m best_speed=$s
+	done
+	if [ -n "$best" ]; then
+		echo "deps: using $best"
+		{ printf '%s\tpriority:1\n' "$best"; printf '%s\tpriority:2\n' http://archive.ubuntu.com/ubuntu/; } \
+			> /etc/apt/apt-mirrors.txt
+	fi
 fi
 apt-get update -q
 # Darling's own list (external/darling/debian/control), minus i386 (TARGET_i386=OFF), plus what our pieces and the

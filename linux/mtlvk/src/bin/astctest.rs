@@ -2,9 +2,29 @@
 //! GPU through metal2vulkan, over a region of an ASTC 4x4 KTX file, and write the result as raw RGBA8.
 //! Compare with a CPU decoder (tools/debug/astccmp.py). Usage:
 //!   astctest <MTLSimDriver default.metallib> <file.ktx> <bx0> <by0> <blocks_w> <blocks_h> <out.rgba>
-use metal2vulkan::metal::{PixelFormat, TextureUsage};
-use metal2vulkan::pipeline::{ComputePipelineDescriptor, StageSource};
-use metal2vulkan_runtime::{Device, PipelineOptions, Region, ResourceOptions, Size, TextureDescriptor};
+use metal2vulkan::library::Library;
+use metal2vulkan::metal::{PixelFormat, TextureType, TextureUsage};
+use metal2vulkan::pipeline::{ComputePipelineDescriptor, FunctionDescriptor, StageSource};
+use metal2vulkan_runtime::{
+    Buffer, Device, DeviceOptions, DispatchType, IndexClass, Instance, MemoryClass, Region, StorageMode, TextureDescriptor,
+};
+
+/// The first device above the runtime's floor.
+fn device() -> Device {
+    let instance = Instance::new(&[]).unwrap();
+    let p = instance.physical_devices().unwrap().into_iter().find(|p| p.check().is_ok()).expect("no device above the floor");
+    let d = Device::new(&p, DeviceOptions::default()).unwrap();
+    d.grant_indices(IndexClass::Texture, 1, 16).unwrap();
+    d
+}
+
+fn buffer_with(dev: &Device, bytes: &[u8]) -> Buffer {
+    let block = dev.take_block(MemoryClass::Shared, bytes.len() as u64).unwrap();
+    let b = dev.new_buffer(block.id, 0, bytes.len() as u64, None).unwrap();
+    // SAFETY: a Shared buffer of bytes.len() bytes.
+    unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), b.contents().unwrap().as_ptr(), bytes.len()) };
+    b
+}
 
 fn hash52(mut p: u32) -> u32 {
     p ^= p >> 15;
@@ -105,38 +125,38 @@ fn main() {
     params[13] = 4;
     let pbytes: Vec<u8> = params.iter().flat_map(|v| v.to_le_bytes()).collect();
 
-    let dev = Device::system_default().unwrap();
-    let lib = dev.new_library_with_data(&lib_bytes).unwrap();
-    let f = lib.new_function_with_name("astc").unwrap();
-    let desc = ComputePipelineDescriptor::new(StageSource::Function(f.function_descriptor()));
-    let pso = dev.new_compute_pipeline_state(&desc, &PipelineOptions::default()).unwrap();
-    let opts = ResourceOptions::shared();
+    let dev = device();
+    let lib = Library::parse(&lib_bytes).unwrap();
+    let f = FunctionDescriptor::new(lib.function("astc").unwrap());
+    let desc = ComputePipelineDescriptor::new(StageSource::Function(f));
+    let pso = dev.new_compute_pipeline_state(&desc, |s| Ok(vec![0; s.len()])).unwrap();
     let ioff: usize = std::env::var("INPUT_OFFSET").ok().and_then(|s| s.parse().ok()).unwrap_or(0);
     let mut padded = vec![0xA5u8; ioff];
     padded.extend_from_slice(&input);
-    let bin = dev.new_buffer_with_bytes(&padded, opts).unwrap();
-    let btab = dev.new_buffer_with_bytes(&tables, opts).unwrap();
-    let bzero = dev.new_buffer_with_bytes(&zero, opts).unwrap();
+    let bin = buffer_with(&dev, &padded);
+    let btab = buffer_with(&dev, &tables);
+    let bzero = buffer_with(&dev, &zero);
     let pf = if params[11] == 1 { PixelFormat::RGBA16Float } else { PixelFormat::RGBA8Unorm };
-    let mut td = TextureDescriptor::texture_2d(pf, (bw * 4) as u64, (bh * 4) as u64, false);
+    let mut td = TextureDescriptor::new(TextureType::Type2D, pf, (bw * 4) as u32, (bh * 4) as u32);
     td.usage = TextureUsage::try_from(3u32).unwrap();
-    let tex = dev.new_texture(&td).unwrap();
-    let q = dev.new_command_queue().unwrap();
+    td.storage_mode = StorageMode::Shared;
+    let tex = dev.new_texture(&td, Some(1)).unwrap();
+    let q = dev.new_command_queue(64).unwrap();
     let cb = q.command_buffer().unwrap();
-    let mut ce = cb.compute_command_encoder().unwrap();
+    let mut ce = cb.compute_command_encoder(DispatchType::Serial).unwrap();
     ce.set_compute_pipeline_state(&pso).unwrap();
     ce.set_buffer(Some(&bin), ioff as u64, 0).unwrap();
     ce.set_buffer(Some(&btab), 0, 1).unwrap();
     ce.set_bytes(&pbytes, 2).unwrap();
     ce.set_buffer(Some(&bzero), 0, 3).unwrap();
     ce.set_texture(Some(&tex), 0).unwrap();
-    ce.dispatch_threads(Size::new(bw as u64, bh as u64, 1), Size::new(8, 8, 1)).unwrap();
-    ce.end_encoding().unwrap();
+    ce.dispatch_threads([bw as u32, bh as u32, 1], [8, 8, 1]).unwrap();
+    ce.end_encoding();
     cb.commit().unwrap();
     cb.wait_until_completed().unwrap();
     let bpp = if params[11] == 1 { 8 } else { 4 };
     let mut out = vec![0u8; bw * 4 * bh * 4 * bpp];
-    tex.get_bytes(&mut out, (bw * 4 * bpp) as u64, 0, Region::new_2d(0, 0, (bw * 4) as u64, (bh * 4) as u64), 0, 0).unwrap();
+    tex.get_bytes(&mut out, (bw * 4 * bpp) as u64, 0, Region { origin: [0; 3], size: [(bw * 4) as u32, (bh * 4) as u32, 1] }, 0, 0).unwrap();
     std::fs::write(&a[6], out).unwrap();
     println!("status {:?}", cb.status());
 }
