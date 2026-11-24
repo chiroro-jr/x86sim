@@ -1,0 +1,142 @@
+# x86Sim and Apple's Simulator
+
+How x86Sim compares with what Apple ships for its simulators on a Mac: Xcode, `xcrun simctl` and Simulator.app.
+Both run the same simulator runtimes (iOS, iPadOS, tvOS, watchOS and visionOS 27.x, downloaded from Apple's
+catalogue), so the question is what surrounds the runtime: the host, the tools and the hardware stand-ins.
+
+Ratings: **same** (works as on a Mac), **close** (works, with a difference named), **gap** (missing or not working),
+**better** (x86Sim does something Apple's tools don't). "Verified" names how it was checked; **unverified** means
+nobody has compared it yet, on one side or both.
+
+The bar is Apple's *simulator*, not hardware: what Apple's simulator cannot do (cameras, most sensors,
+entitlement-gated services) is not counted as an x86Sim gap.
+
+## How it was verified
+
+- **sdkcov** (`tests/apps/sdkcov`): one app built for all four simulator platforms that exercises every public
+  framework of the 27.2 SDK with real assertions, run on x86Sim and on Apple's simulator on a Mac mini
+  (`ref-mac.sh`). In the last full regression pass (2026-11-15) PASS / SKIP / FAIL were identical to Apple's on all
+  four: iOS 248/18/0, tvOS 203/7/0, watchOS 143/5/0, visionOS 208/11/0. Later rounds added checks; their state per
+  framework, and every remaining difference, is in
+  [COVERAGE-GAPS.md](../tests/apps/sdkcov/COVERAGE-GAPS.md).
+- **Input checks** (`tests/apps/sdkcov/inputs.sh`): shake, orientation, biometrics, game controller, memory warning,
+  push, context menus, pickers, widgets, Control Center and others driven on both sides.
+- **The regression apps** in `tests/apps` (UIKit, SwiftUI, networking, Core Data, Metal, SpriteKit, audio).
+- The agent, sharing, device-build, pool, `x86sim dev` and simctl-parity features were each tried on running phones
+  when they were written (see their commits); they have no automated test suite yet.
+
+## Running apps
+
+| Feature | x86Sim | Rating | Verified |
+|---|---|---|---|
+| Install a simulator `.app` | `x86sim install`, MCP `app_install`, drop on the launcher | same | regression apps, sdkcov |
+| Install a device build (`.ipa`, `.xcarchive`, device `.app`) | converted on install: Mach-O platform retagged, `Info.plist` platform keys, ad-hoc re-sign keeping entitlements | better (simctl installs simulator builds only) | `tests/apps/build-ipa.sh` fixture (embedded fat framework, entitlements) |
+| App Store downloads | refused: FairPlay-encrypted | same (neither runs them) | refused in code (`LC_ENCRYPTION_INFO` cryptid 1) |
+| Launch with arguments, environment, `--console`, `--terminate-running-process` | `x86sim launch` (`SIMCTL_CHILD_*` too) | same | regression apps |
+| Wait for a debugger (`-w`) | the app waits | close: there is no debugger to attach (below) | unverified end to end |
+| Terminate, uninstall, `listapps`, `get_app_container` | yes | same | regression apps |
+| Build apps | `x86sim dev` (omarchy-apple-dev: Swift, xtool, the iOS SDK from Xcode's `.xip`; Flutter, Kotlin Multiplatform; Xcode project conversion) | close: no Xcode IDE, no Interface Builder canvas, no SwiftUI previews; `actool`, `ibtool`, `momc`, `xcstringstool` have Linux versions | `x86sim dev test` on a phone |
+| Debugger (LLDB attach to a simulator app) | none | gap (`device-run.sh` attaches LLDB on a *real* iPhone) | no debugserver in the repo |
+| XCTest / XCUITest runs (`xcodebuild test`) | none: the runtime's `xctest` is present but nothing runs test bundles | gap (unverified whether `x86sim spawn` can run an `xctest` bundle) | no test runner in the repo |
+| Safari Web Inspector | none (the runtime's `webinspectord` is there, no host side) | gap | |
+| Instruments, Memory Graph, view debugger | none | gap | |
+| Crash reports | `x86sim logs BUNDLEID`: the last crash, symbolicated against the dyld cache and the app | close: the translator's guest backtrace, not Apple's `.ips` report | on phones |
+| App `os_log` / `Logger` | stored by `logd`, read back with `OSLogStore`; `x86sim log stream --app`, `x86sim logs BUNDLEID` | close: the runtime's own processes do not log; one app or process at a time | sdkcov `OSLog` check |
+| Sandboxing | simulator processes are not sandboxed | gap (sandbox extensions are dummy tokens; see [WORKAROUNDS.md](WORKAROUNDS.md)) | |
+
+## Simulated hardware and system features
+
+| Feature | x86Sim | Rating | Verified |
+|---|---|---|---|
+| Touch, multi-touch, edge gestures | mouse in the launcher; real multi-touch in the browser; `tap` / `swipe` / `pinch` / `pan2` from the CLI | same | inputs.sh |
+| Hardware keyboard, paste | yes; Ctrl+V types the Linux clipboard | same | |
+| Buttons (Home, Lock, side, volume, Siri, Action, Apple Pay) | `x86sim button`, MCP `sim_button` | same | inputs.sh |
+| Shake, rotate, orientation, memory warning | `shake`, `rotate`, `orientation`, `memwarn`; MCP `sim_shake`, `sim_orientation`, `sim_memory_warning` | same | inputs.sh |
+| Face ID / Touch ID / Optic ID | `biometric enroll\|unenroll\|match\|nomatch`, MCP `sim_biometric` | same | inputs.sh |
+| Location (point, route, scenarios) | `x86sim location`, as `simctl location` | same | sdkcov location checks |
+| Push notifications | `x86sim push` | same | inputs.sh push |
+| Privacy grants | `x86sim privacy` | same | |
+| Game controller | `x86sim gamepad`, MCP `sim_gamepad` | same | inputs.sh |
+| iPad pointer and trackpad | `pointer`, `trackpad on\|off`, MCP `sim_pointer`, `sim_system` | close: trackpad gestures are not simulated (as Apple's "Simulate Trackpad"; pinch / pan2 instead) | GCMouse input unreachable on Apple's side too |
+| Digital Crown, watch side button, hand gestures | `crown`, `button side`, `gesture doubletap\|wristflick` | same | |
+| Apple TV Siri Remote | on-screen remote; arrows, Return, Escape; `button select\|menu\|playpause\|tv` | close: the keyboard stands in for the remote's services | |
+| Vision Pro look and pinch | mouse, `pointer`, `crown` | close: Apple's Mac simulator was not available for comparison (no Simulator.app on the reference Mac) | unverified |
+| iPhone Duo hinge | slider and DeviceHub poses; MCP `sim_fold` | same | on phones |
+| Appearance, Dynamic Type, Increase Contrast, Reduce Transparency / Motion | `x86sim ui`, MCP `sim_ui` | same | on phones |
+| Status bar overrides | `x86sim status_bar`, MCP `sim_status_bar` | same | on phones (dark at 9:41) |
+| Pasteboard | `pbcopy`, `pbpaste`, `pbsync` (Linux clipboard) | same | on phones |
+| Language, region, time zone | `locale`, `timezone` | same (time zone applies at the next boot) | on phones |
+| Keychain | `keychain reset` | close: no `add-cert` / `add-root-cert` | reset checked with a probe app |
+| Audio output | every device has audio devices; heard on Linux (PipeWire) with `X86SIM_AUDIO=1`, silent otherwise | close | sdkcov audio checks with `X86SIM_AUDIO=1` |
+| Microphone | simaudio's microphone | same, or better than a Mac without an input device | sdkcov P12 |
+| Cameras | none | same (Apple's simulator has none) | sdkcov |
+| Accelerometer, gyroscope, Apple Pencil input | none | gap for Pencil input (unverified on Apple's side); motion sensors: unverified on Apple's side | PencilKit canvas checked with a finger stroke |
+| External displays, CarPlay | one built-in display | gap (Simulator.app: I/O > External Displays) | |
+| Networking, DNS | Linux's network | same | regression apps, sdkcov |
+| Bonjour | on the device itself (apps on one phone find each other) | gap across the network: no multicast DNS on the host's LAN | sdkcov MultipeerConnectivity, on-device Bonjour |
+| Network conditioning | none | gap (unverified what Xcode 27 offers here) | |
+| Maps | the app runs | close: tiles need GeoServicesData fetched from a Mac (`fetch-macos-host.sh`), not in a release | |
+| Siri | the Siri button and feature toggle exist | unverified | |
+| Apple Intelligence (FoundationModels) | through a Mac with Apple Intelligence (`X86SIM_FM_RELAY`) | same requirement as Apple's simulator; without a Mac: "not ready" | sdkcov with the relay (iPad = Apple) |
+| Pairing a watch with an iPhone | not supported | gap | |
+| GPU (Metal) | translated to Vulkan (`mtlvk`); software fallback | close: coverage is what metal2vulkan translates ([METAL.md](METAL.md)); some Metal features abort on Apple's simulator too | sdkcov graphics checks |
+| iCloud sync | none | gap | |
+
+## simctl commands
+
+| `xcrun simctl` | x86Sim | Rating |
+|---|---|---|
+| `list` | `x86sim-aot sim status`, `x86sim device list`, MCP `phones_list` / `sim_devices` | same |
+| `create` | `x86sim device create --model M [NAME]`, MCP `sim_add_device` | same |
+| `boot`, `shutdown` | `x86sim-aot --device NAME sim start\|stop\|restart`, MCP `sim_start` / `sim_stop` / `sim_restart` | same (start returns at once: wait with `x86sim wait home`) |
+| `delete`, `rename` | the launcher only | close |
+| `erase`, `clone` | `x86sim erase NAME`, `x86sim clone NAME NEW`, MCP `sim_erase` / `sim_clone` (phone off, named explicitly) | same |
+| `install`, `uninstall`, `launch`, `terminate`, `listapps`, `get_app_container` | same names | same (plus device builds) |
+| `openurl`, `addmedia`, `push`, `privacy`, `location`, `spawn` | same names | same |
+| `ui`, `status_bar`, `pbcopy`, `pbpaste`, `pbsync` | same names | same |
+| `keychain` | `reset` only | close |
+| `io screenshot`, `io recordVideo` | same (`--codec h264\|hevc`) | same; no `io enumerate` |
+| `spawn ... log stream` | `x86sim log stream --app\|--process` | close (one app or process) |
+| `runtime list / add / delete` | `x86sim runtime list\|fetch\|delete` (downloads from Apple's catalogue) | same |
+| `appinfo`, `getenv`, `install_app_data`, `icloud_sync`, `diagnose`, `logverbose`, `monitor`, `upgrade`, `darwinup` | none | gap |
+| `pair`, `unpair`, `pair_activate` | none | gap |
+| (none) | `locale`, `timezone`, `fidelity`, `logs BUNDLEID`, `biometric`, `shake`, `rotate`, `gamepad`, `button`, `crown` | better: Simulator.app menu items as commands |
+
+## For agents
+
+| Feature | x86Sim | Rating |
+|---|---|---|
+| The screen as text | `x86sim snapshot`, MCP `snapshot`: the app's accessibility elements (UIKit, SwiftUI), web content, SpringBoard alerts, home screen, status bar, with stable refs and diffs | better: simctl has none; XCUITest reads the same tree only inside a test bundle |
+| Act on elements | `tap`, `type`, `key`, `scroll`, `scroll_to`, `swipe`, `long_press`, `press`, `wait_for` by ref, identifier, label or point; each answers with the settled screen | better |
+| Screenshot in points | MCP `screenshot` (default) | better: coordinates match the snapshot |
+| MCP server | `x86sim-mcp`, 70 tools | unverified against what Xcode 27 ships for agents |
+| Device pool with leases | `x86sim pool`, MCP `phone_take` / `phone_release` | better |
+| Build-install-launch in one call | `x86sim dev run`, MCP `dev_run` | close to `xcodebuild` + `simctl` |
+| Watch or drive a device from a browser, share it | `x86sim serve`, MCP `share_*`, Tailscale / cloudflared | better: Apple has no browser streaming |
+
+Element snapshots are verified on iPhone and iPad; the reader is built for tvOS, watchOS and visionOS but has had
+little use there.
+
+## Multi-device
+
+| Feature | x86Sim | Rating |
+|---|---|---|
+| Several devices booted at once | yes, each in its own container | same |
+| Different OS versions side by side | yes (`device create --ios`) | same |
+| Memory per device | measured idle (2026-11-15): iPhone ~0.9 GB, Apple TV ~0.5 GB, Apple Watch ~0.7 GB, Vision Pro ~1.2 GB | unverified against a Mac |
+| Trimming a device | feature sets (Full, Lean, Minimal) with each part's memory cost; per-device memory cap; idle clean-up | better |
+| Shared memory between devices | KSM opt-in for pool devices (`x86sim pool ksm`) | better (Linux only) |
+| Fast copies | reflink clones (`clone`, pool members) | same as APFS clones on a Mac |
+| Watch paired to an iPhone | no | gap |
+
+## Speed
+
+x86Sim translates the runtime's arm64 code to x86-64 (ahead of time into a pre-translated image, the rest just in
+time) and Metal to Vulkan; a Mac with Apple silicon runs both natively. Measured on the development machine in the
+2026-11-15 regression pass, with an up-to-date pre-translated image: boot to the home screen in about 14 s (iPhone),
+11 s (Apple TV), 17 s (Apple Watch) and 14-17 s (Vision Pro). The first boot of a new runtime waits for
+pre-translation (once per runtime). An element snapshot takes 10-35 ms.
+
+No side-by-side benchmark against Apple's simulator on a Mac has been made: app CPU speed, frame rates and launch
+times relative to a Mac are **unverified**. Compute-heavy app code runs translated and is expected to be slower than
+on Apple silicon. `x86sim fidelity fast` draws a 3x iPhone at 2x with reduced effects for more frame rate on a weak GPU.

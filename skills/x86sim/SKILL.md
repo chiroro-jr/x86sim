@@ -1,0 +1,181 @@
+---
+name: x86sim
+description: Drive x86Sim's simulated iPhones, iPads, Apple TVs, Apple Watches and Vision Pros on Linux from a shell - start or take a phone, install a .app / .ipa, launch it, read the screen as text, tap and type by element, wait for results, take screenshots, read logs and crash reports, run the build-install-launch loop, share a phone with a human in a browser. Use when testing, automating or debugging an iOS / iPadOS / tvOS / watchOS / visionOS app on x86Sim, or when asked to look at or operate a simulated Apple device on this machine.
+---
+
+# Driving x86Sim phones
+
+x86Sim runs Apple's simulator runtimes on x86-64 Linux. Every device is called a *phone* (also iPads, TVs, watches,
+Vision Pros) and is named by its name (`ram2`), folder (`device-a64-ram2`) or path.
+
+**Commands.** In a checkout: `cli/x86sim` and `tools/launcher/target/release/x86sim-aot`. From the AppImage:
+`./x86sim-*.AppImage x86sim ...` and `./x86sim-*.AppImage aot ...`. Below, `x86sim` and `x86sim-aot` stand for those.
+`x86sim help`, `x86sim pool help`, `x86sim dev help`, `x86sim serve --help` print the exact flags.
+
+**Always name the phone** (`x86sim --phone NAME <command>`). Without it the CLI uses `X86SIM_DEVICE` from
+`x86sim.env`, and the MCP tools use the only running phone or the configured one: not necessarily yours, and other
+agents or the user may be using other phones.
+
+## 1. Get a phone
+
+```sh
+x86sim-aot sim status                         # every phone: model, OS, off/starting/running, MB, CPU, "home"
+x86sim device models                          # models; then: x86sim device create --model "iPhone 17 Pro" qa
+x86sim-aot --device qa sim start              # boots in the background (stop / restart likewise)
+x86sim --phone qa wait home 300               # returns once the home screen is drawn
+```
+
+Or take a booted one from a pool (someone ran `x86sim pool up N`):
+
+```sh
+phone=$(x86sim pool take --ttl 1800)          # atomic; prints the name; reset + freed at release or TTL
+...                                           # x86sim pool renew "$phone" --ttl 1800 for long jobs
+x86sim pool release "$phone"                  # uninstalls what you installed (default --reset apps)
+```
+
+`--hold-parent` ties the lease to the calling shell. If each of your commands runs in a fresh shell, that shell exits
+at once and the lease ends with it: use `--ttl` (or `--pid` of a process that lives as long as your job).
+
+## 2. Install and launch
+
+```sh
+x86sim install qa build/MyApp.app             # simulator build; .ipa / .xcarchive / device .app are converted
+x86sim launch qa com.example.myapp -flag value   # --console: stream stdout/stderr; --env K=V; -w waits for a debugger
+x86sim terminate qa com.example.myapp
+x86sim listapps qa --json
+x86sim get_app_container qa com.example.myapp data   # a Linux path: read the app's files directly
+x86sim privacy qa grant photos com.example.myapp     # skip the permission prompt (as simctl privacy)
+```
+
+FairPlay-encrypted App Store downloads and binaries without arm64 are refused; `x86sim-devapp inspect X.ipa` says why.
+
+## 3. The loop: snapshot, act, read the answer
+
+```sh
+x86sim --phone qa snapshot
+```
+```
+phone qa · 402x874 pt · front com.apple.Preferences
+app com.apple.Preferences:
+@e17 button "General" id=com.apple.settings.general (201,319)
+@e28 searchfield "Search" (201,822)
+status bar: 2:23 AM | ...
+```
+
+One line per accessibility element: ref, role, label, `value=`, `id=`, states, centre point in points. It covers the
+app in front (UIKit, SwiftUI), web content (DOM), SpringBoard alerts, the home screen and the status bar.
+
+```sh
+x86sim --phone qa tap @e17                    # by ref
+x86sim --phone qa tap "General"               # by label: exact, then prefix, then substring; alerts win
+x86sim --phone qa tap id:com.apple.settings.general
+x86sim --phone qa find "Wi"                   # what a target would match, best first (no action)
+x86sim --phone qa type "me@example.com" --submit      # into the focused field; --clear empties it first
+x86sim --phone qa key cmd+a                   # return tab escape delete up down ... or combos
+x86sim --phone qa scroll down 1 --at @e5      # precise, in screens; scroll-to TARGET scrolls until it shows
+x86sim --phone qa swipe back                  # up/down/left/right, home, notifications, controlcenter, back
+x86sim --phone qa long-press @e9 --ms 800
+x86sim --phone qa press home                  # hardware button; open URL opens a URL / deep link
+x86sim --phone qa wait-for "Done" --timeout 20        # --gone: until it disappears; wakes on new frames
+```
+
+- **Every action answers with the next screen**, after it has settled (no new frames, no transition running). Read
+  that answer instead of taking a new snapshot. `--after diff` gives only the changes (`+` new, `-` gone, `~`
+  changed), `--after none` nothing. `snapshot --diff` diffs against the last snapshot.
+- **Refs are stable**: an element keeps its ref while it stays on screen, across snapshots and separate commands, so
+  a ref seen a few steps back still works. They reset when the phone reboots.
+- An element the app has loaded but scrolled out of view is scrolled in before a tap. `snapshot --all` lists those.
+- Prefer `id:` targets for your own app (set `accessibilityIdentifier`), labels for system UI.
+- `type` inserts text as the software keyboard does (any characters, no layout issues). `--keys` sends hardware key
+  presses instead (US layout), for games and key handlers. Tap the field first (or it types into the focused one).
+
+## 4. Screenshots: only when you need to see pixels
+
+A snapshot is a few hundred bytes and 10-35 ms; an image costs far more context. Use screenshots to check layout,
+colours, images, rendering, or when the snapshot shows too little (games, Metal views, canvas content).
+
+```sh
+x86sim --phone qa screenshot out.png 3        # newest frame; the number divides the size (3 on a 3x phone = points)
+x86sim --phone qa io recordVideo --secs 10 out.mp4
+```
+
+Without a divisor the PNG is full device pixels, while snapshot coordinates are points. The MCP `screenshot` tool
+returns points by default.
+
+## 5. Clean, repeatable screenshots
+
+```sh
+x86sim --phone qa ui appearance dark          # content_size large|extra-large|accessibility-medium...,
+                                              # increase_contrast / reduce_transparency / reduce_motion enabled|disabled
+x86sim --phone qa status_bar override --time 9:41 --batteryLevel 100 --batteryState charged --cellularBars 4 --wifiBars 3
+x86sim --phone qa locale --language fr-CA --locale fr_CA   # apps pick it up at their next start
+x86sim --phone qa timezone Europe/Paris       # next boot
+x86sim --phone qa pbcopy "text"               # pbpaste; --host uses the Linux clipboard
+x86sim --phone qa location set 48.8584,2.2945
+x86sim --phone qa push com.example.myapp payload.json
+```
+
+`x86sim fidelity fast|high` trades looks for speed (fast: a 3x iPhone drawn at 2x plus reduced effects; next boot).
+
+## 6. Logs and crashes
+
+```sh
+x86sim --phone qa logs com.example.myapp      # its os_log + the last crash report, symbolicated
+x86sim --phone qa logs com.example.myapp --relaunch   # restart it with os_log recorded and follow
+x86sim --phone qa log stream --app com.example.myapp --match ERROR
+x86sim --phone qa launch --console com.example.myapp  # stdout / stderr here
+x86sim --phone qa logs                        # the phone's service logs; logs LABEL tails one
+```
+
+## 7. Build, run, repeat (omarchy-apple-dev)
+
+```sh
+x86sim dev status                             # Swift, xtool, iOS SDK: what is ready, what to run next
+x86sim dev new HelloApp                       # SwiftUI app for iOS / tvOS / watchOS / visionOS
+x86sim dev run HelloApp --phone qa --start    # build for the phone's platform, install, launch (--start boots it)
+x86sim dev test HelloApp --phone qa --shot out.png    # run, wait, fail if it died, screenshot
+```
+
+## 8. Show a phone to a human
+
+```sh
+x86sim serve --bg                             # http://127.0.0.1:7380: every phone in a browser
+x86sim serve --bg --tailscale                 # HTTPS on the tailnet; --funnel / --cloudflared: public
+x86sim serve link --phone qa --control --ttl 1h       # a link to give out (without --control: watch only)
+x86sim serve status | x86sim serve stop
+```
+
+Links off this machine carry a token; `--ttl` makes them expire. Public tunnels expose a phone to anyone with the
+link: use them only when asked.
+
+## Gotchas
+
+- **Destructive commands need an explicit phone, which must be off**: `x86sim erase qa`, `x86sim clone qa qa2`
+  (positional name; `--phone` is not enough). `keychain reset` deletes every item. Never erase a phone you did not
+  create or take.
+- **Coordinates**: `x86sim tap X Y` and `swipe X1 Y1 X2 Y2` with plain numbers are *device pixels* (the old input
+  path). Snapshot points go through refs, text or `id:`; the MCP `tap` takes `x`/`y` in points.
+- The **first snapshot** of a running process turns on accessibility automation (as XCUITest does) and loads UIKit's
+  accessibility bundles: it is 0.1-0.2 s slower, and the setting stays on in that phone.
+- An empty or thin snapshot means the screen has no accessibility elements (a game, a Metal view, a custom-drawn
+  control): fall back to a screenshot and `tap X Y` in device pixels.
+- Snapshots work on iPhone and iPad; tvOS, watchOS and visionOS are built but less exercised. On Apple TV, move focus
+  with `key up|down|left|right` and select with `key return` (escape is back).
+- Settings changes (`ui`, `status_bar`, `locale`) on a phone that is off apply at its next boot.
+- Stop a phone with `x86sim-aot --device NAME sim stop` (or MCP `sim_stop`), never by signalling processes; kill only
+  PIDs you started, never `pkill -f`.
+- A boot reaches the home screen in roughly 10-20 s with an up-to-date pre-translated image, longer on a phone's
+  first boot; `sim start` returns at once, so always `wait home` (or poll `sim status` for `home`).
+
+## MCP
+
+The same features are MCP tools (`x86sim-mcp`, stdio): `snapshot`, `tap`, `type`, `wait_for`, `screenshot`,
+`app_install`, `app_launch`, `phone_take`, `share_start`, `sim_ui`, `app_logs`, `dev_run` and the rest (70 tools;
+README.md lists them by group). Every tool takes `phone`.
+
+```sh
+claude mcp add x86sim -- /path/to/x86sim-*.AppImage mcp       # AppImage
+claude mcp add x86sim -- /path/to/x86sim/tools/launcher/target/release/x86sim-mcp   # checkout
+```
+
+`phone_take` leases are held by the MCP server's process: they end with the session or at `ttl_s`.

@@ -7,7 +7,7 @@
 [![Latest release](https://img.shields.io/github/v/release/x86sim/x86sim?label=release)](https://github.com/x86sim/x86sim/releases/latest)
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
 
-[Download](https://github.com/x86sim/x86sim/releases/latest) · [Quick start](#quick-start) · [Usage](#usage) · [Building apps](#building-and-shipping-apps) · [Architecture](docs/ARCHITECTURE.md) · [Developing](docs/DEVELOPMENT.md)
+[Download](https://github.com/x86sim/x86sim/releases/latest) · [Quick start](#quick-start) · [Usage](#usage) · [For AI agents](#for-ai-agents) · [Building apps](#building-and-shipping-apps) · [vs Apple's Simulator](docs/PARITY.md) · [Architecture](docs/ARCHITECTURE.md) · [Developing](docs/DEVELOPMENT.md)
 
 <img src="docs/screens/launcher-devices.webp" alt="The x86Sim launcher with several simulated devices running side by side" width="100%">
 
@@ -19,8 +19,27 @@ Apple ships its device simulators only for Macs. x86Sim runs the same arm64 simu
 ordinary x86-64 Linux PC. It downloads a runtime from Apple onto your machine, runs it on a macOS-compatible system
 layer, translates its arm64 code to x86-64 and draws its Metal graphics with Vulkan.
 
-It comes with a desktop launcher, a `simctl`-style command line and an MCP server, so devices can be used by hand,
-from scripts or by an AI agent. No Mac and no Apple ID are needed.
+It comes with a desktop launcher, a `simctl`-style command line, a browser view and an MCP server, so devices can be
+used by hand, from scripts or by an AI agent. No Mac and no Apple ID are needed. [PARITY.md](docs/PARITY.md)
+compares it with Apple's Simulator feature by feature, gaps included.
+
+## For AI agents
+
+A coding agent can run an app on a device and check it the way a tester would, without screenshots for every step:
+
+- **The screen as text.** `x86sim snapshot` (MCP `snapshot`) lists the accessibility elements on screen, each with a
+  stable ref; `tap`, `type`, `scroll-to`, `wait-for` and the other actions take a ref, an identifier or label text
+  and answer with the screen after it settled. See [Agents](#agents-reading-the-screen-and-acting-on-it).
+- **Devices on demand.** A pool keeps devices booted; an agent takes one with a lease and gives it back
+  ([Device pool](#device-pool)). Simulator and device builds (`.ipa`) install the same way.
+- **The whole loop.** `x86sim dev run` builds an app, installs and launches it; `x86sim logs BUNDLEID` returns its
+  `os_log` and its last crash, symbolicated ([Building and shipping apps](#building-and-shipping-apps)).
+- **A human in the loop.** `x86sim serve` puts a device in a browser, shareable over Tailscale or cloudflared
+  ([In a browser](#in-a-browser-local-or-remote)).
+
+Agents that work from a shell: [skills/x86sim/SKILL.md](skills/x86sim/SKILL.md) is a skill file that teaches the
+loop (copy it to `.claude/skills/x86sim/` or your agent's equivalent). Agents that speak MCP:
+`claude mcp add x86sim -- /path/to/x86sim-*.AppImage mcp` ([MCP server](#mcp-server)).
 
 ## Features
 
@@ -75,7 +94,11 @@ from scripts or by an AI agent. No Mac and no Apple ID are needed.
 - An app's logs in one command: its `os_log` and the crash report of its last run, symbolicated.
 - A fidelity setting per device: Fast draws a 3x iPhone at 2x with Reduce Transparency and Reduce Motion on, High
   keeps the native scale and every effect.
-- Scripted input: tap, swipe, pinch, type, hardware keys, Digital Crown.
+- Scripted input: tap, swipe, pinch, type, hardware keys, Digital Crown; shake, rotation, Face ID / Touch ID / Optic
+  ID, a game controller, an iPad's pointer, memory warnings.
+- The screen as text: accessibility elements with stable refs, and actions on them, for agents and tests.
+- Every device in a browser, locally or shared over Tailscale or cloudflared, with touch, keyboard and buttons.
+- Build apps on Linux and run them on a device in one step (`x86sim dev`, from omarchy-apple-dev).
 - Per-service logs for every device, with filtering. Installed apps' `os_log` / `Logger` output is stored and can be
   read back with `OSLogStore`.
 
@@ -188,6 +211,10 @@ The launcher is what the AppImage opens. Its pages:
 - **Settings**: appearance (System, Dark or Light), graphics (GPU or software), screen scaling, memory cap and
   clean-up, disk use, and updates.
 - **Setup**: the first-run steps, which stay available afterwards as a check of the computer.
+- **Develop**: the app toolchain (see [Building and shipping apps](#building-and-shipping-apps)): what is installed,
+  install / repair, recent projects with Build and Run.
+
+The Devices page also shows device pools (see [Device pool](#device-pool)).
 
 Arrow keys or `hjkl` move between devices and rows, Enter opens, the number keys switch pages, `?` lists every
 shortcut and `q` quits. Closing the launcher leaves running devices running.
@@ -230,8 +257,134 @@ x86sim screenshot shot.png
 x86sim io recordVideo --secs 10 out.mp4
 ```
 
-`x86sim help` lists every command. A second tool, `x86sim-aot` (`./x86sim-*.AppImage aot`), starts and stops
-devices, edits feature sets and builds the pre-translated image from a terminal.
+`x86sim help` lists every command; `--phone NAME` (a name, folder or path) before a command picks the device, and
+most simctl-style commands also take it as their first argument. A second tool, `x86sim-aot`
+(`./x86sim-*.AppImage aot`), starts and stops devices (`x86sim-aot --device work sim start|stop|restart`, `sim status`
+lists them), edits feature sets and builds the pre-translated image from a terminal.
+
+### Device builds
+
+`x86sim install` (and the MCP tool `app_install`, and a drop on the launcher) also takes what you would install on an
+iPhone: an `.ipa`, an `.xcarchive` or a device `.app`. The arm64 code is the same either way, so the conversion is
+metadata, on a copy (the input is never changed):
+
+- every Mach-O in the bundle (app, frameworks, app extensions, a watch app) is retagged to the simulator platform
+  (`LC_BUILD_VERSION`, or an old `LC_VERSION_MIN_*` rewritten as one); a fat file keeps its arm64 slice;
+- each bundle's `Info.plist` names the simulator (`CFBundleSupportedPlatforms`, `DTPlatformName`, `DTSDKName`);
+- the app is re-signed ad hoc, each binary keeping the entitlements its signature had (rcodesign).
+
+App Store downloads are encrypted with FairPlay (`LC_ENCRYPTION_INFO` cryptid 1) for the device they were bought
+on and are refused with a message saying so; export a development, ad-hoc or enterprise build instead. Binaries
+without an arm64 slice (armv7, arm64e only, x86_64) are refused too. `x86sim-devapp inspect X.ipa` shows what a
+bundle holds; `tests/apps/build-ipa.sh` builds a small device `.ipa` (an embedded fat framework, entitlements) on a
+Mac as a fixture.
+
+### Device pool
+
+For agents and CI, a pool keeps devices booted at their home screen; a caller takes one, uses it and gives it back.
+
+```sh
+x86sim pool up 3 --model "iPhone 17 Pro"      # pool-1..pool-3, booted one at a time while memory allows
+phone=$(x86sim pool take --ttl 900 --hold-parent)   # a free booted device, held by this shell, at most 15 min
+x86sim install "$phone" MyApp.ipa && x86sim launch "$phone" com.example.myapp
+x86sim pool release "$phone"                  # reset in the background, then free again
+x86sim pool status                            # who holds what, memory per device, room for more
+x86sim pool down --delete
+```
+
+- **Leases** end at their TTL (`--ttl`, default 30 min; `pool renew`) or when the holder process exits (`--pid`,
+  `--hold-parent`; the MCP server holds with its own process, so a session that ends frees its devices). Any pool
+  command reaps them. Taking is atomic across processes (a lock around the pool's state in `var/pool/`).
+- **Reset on release** (`--reset` at take or release): `apps` (default: uninstall the apps installed during the
+  lease, with their data, then Home), `restart` (a fresh boot), `erase` (re-cloned from the template), `none`.
+- **Fast creation**: members are clones of `<pool>-template`, a device of the pool's model booted once and stopped,
+  copied with `cp --reflink=auto` (instant and sharing disk on btrfs / XFS) and given their own paths and UDID.
+- **Memory**: `pool up` boots a device only while available memory stays above a reserve (3 GB, `--reserve-mb`)
+  after the measured cost of one device; it stops short rather than risk the out-of-memory killer (`--force`).
+- **KSM**: pool devices opt in to kernel same-page merging (`PR_SET_MEMORY_MERGE`, no root). KSM itself is off
+  until root turns it on: `x86sim pool ksm` shows the two commands, `x86sim pool ksm on` runs them with sudo on a
+  terminal, in the open.
+- `--pool NAME` keeps several pools (one model each). The launcher's Devices page shows each pool and can release a
+  device; the MCP tools are `pool_status`, `phone_take` and `phone_release`.
+
+### Agents: reading the screen and acting on it
+
+An agent drives a running phone through the screen as text. `snapshot` lists the accessibility elements on screen:
+the app in front (UIKit and SwiftUI), web pages it shows (links, buttons, fields, headings and text from the DOM),
+and SpringBoard (alerts and other system UI on top, the home screen, the status bar). Each element gets a ref, its
+role, label, value, identifier, states, and the point to touch:
+
+```
+phone ram2 · 402x874 pt · front com.apple.Preferences
+app com.apple.Preferences:
+@e17 button "General" id=com.apple.settings.general (201,319)
+@e18 button "Accessibility" id=com.apple.settings.accessibility (201,371)
+@e28 searchfield "Search" (201,822)
+status bar: 2:23 AM | Cellular: No signal | 100% battery power: Not charging
+```
+
+- **Refs are stable.** An element keeps its ref for as long as it is on screen, across snapshots and CLI calls,
+  so an agent can act on a ref it saw a few steps back. `snapshot diff=true` shows only what changed (`+` new,
+  `-` gone, `~` a label, value or state changed).
+- **Actions answer with the result.** `tap`, `long_press`, `type`, `key`, `scroll`, `scroll_to`, `swipe`,
+  `press`, `open_url`, `app_launch` and `app_terminate` wait until the screen has settled (no new frames and no
+  transition still running) and answer with the next snapshot, or only the changes (`after: "diff"`), or nothing
+  (`after: "none"`).
+- **Targets**: a ref (`@e3`), an accessibility identifier (`id:com.apple.settings.general`), label text (exact,
+  then prefix, then substring, with an alert over the app before the app beneath it), or `x`/`y` in points. An
+  element the app has loaded but scrolled out of view is scrolled into view before it is tapped.
+- **Typing** inserts text into the focused field as the software keyboard does, so any characters work (`clear`
+  empties the field first, `submit` presses return). `keys=true` presses hardware keys instead.
+- **`wait_for`** returns when a target appears (or, with `gone`, disappears). It checks again on every new
+  frame rather than polling on a timer.
+- **`screenshot`** returns the screen as an image, one pixel per point by default, so its coordinates match the
+  snapshot's.
+
+Each of these MCP tools takes `phone` (a name, a folder or a path). The same commands are on the command line:
+
+```sh
+x86sim --phone ram2 snapshot [--diff] [--all] [--json]
+x86sim --phone ram2 tap @e17                 # or: tap "General", tap id:com.apple.settings.general
+x86sim --phone ram2 type "hello@example.com" --submit
+x86sim --phone ram2 scroll-to "Privacy & Security"
+x86sim --phone ram2 wait-for "Wi-Fi" --timeout 10
+x86sim --phone ram2 screenshot shot.png 3    # device pixels divided by 3: points on a 3x phone
+```
+
+On the command line, `tap X Y` and `swipe X1 Y1 X2 Y2` with plain numbers are device pixels, as before; targets
+(refs, `id:`, text) are the way to use a snapshot's points. `find TARGET` shows what a target would match without
+acting. [skills/x86sim/SKILL.md](skills/x86sim/SKILL.md) puts it together for coding agents.
+
+Snapshots come from host/simax, a reader loaded into every process that has UIKit
+([docs/protocols/SIMAX.md](docs/protocols/SIMAX.md)). On an iPhone 17, a snapshot that has settled takes about 10 ms in Settings, about 15 ms on the
+home screen, and 25-35 ms for a long web page (about 130 elements). It works on iPhone and iPad, and is built for
+tvOS, watchOS and visionOS too.
+
+### MCP server
+
+`x86sim-mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server over stdio for AI agents and
+other MCP clients.
+
+```sh
+claude mcp add x86sim -- /path/to/x86sim-*.AppImage mcp    # AppImage
+claude mcp add x86sim -- /path/to/x86sim-mcp               # built from source (tools/launcher/target/release)
+```
+
+Tools that act on a device take `phone` (a name, a folder or a path); without it they use the only running device,
+else the configured one. Erase, clone and keychain reset need it.
+
+| Group | Tools |
+|---|---|
+| Devices | `phones_list` (`sim_status` is the same), `sim_devices`, `sim_add_device`, `sim_start`, `sim_stop`, `sim_restart`, `runtime_delete`, `aot_status` |
+| Feature sets | `features_list`, `feature_get`, `feature_set`, `features_preset` |
+| Apps | `app_install` (simulator or device builds), `app_uninstall`, `app_launch`, `app_terminate`, `app_list`, `app_logs` |
+| Screen as text and actions | `snapshot`, `tap`, `long_press`, `type`, `key`, `scroll`, `scroll_to`, `swipe`, `wait_for`, `press`, `open_url`, `screenshot` |
+| Hardware | `sim_button`, `sim_crown`, `sim_fold`, `sim_shake`, `sim_orientation`, `sim_biometric`, `sim_gamepad`, `sim_pointer`, `sim_system`, `sim_memory_warning` |
+| Settings (as simctl) | `sim_ui`, `sim_status_bar`, `sim_pasteboard`, `sim_keychain_reset`, `sim_locale`, `sim_timezone`, `sim_fidelity`, `sim_erase`, `sim_clone` |
+| Capture | `sim_screenshot` (a PNG file), `sim_record_video` |
+| Pool | `pool_status`, `phone_take`, `phone_release` |
+| Sharing | `share_start`, `share_stop`, `share_status`, `share_link` (they return the URLs) |
+| Develop | `dev_status`, `dev_setup`, `dev_setup_cancel`, `dev_new`, `dev_projects`, `dev_build`, `dev_run`, `dev_test`, `dev_device`, `dev_ship`, `dev_convert` |
 
 ### In a browser (local or remote)
 
@@ -266,116 +419,6 @@ included, needs the token in the link. `--ttl` makes the printed links expire. I
 beside a device's screen opens it in the browser, and its Share section turns tunnels on and off, copies links and
 stops sharing. Tailscale must be logged in, with Serve (and Funnel) enabled for the tailnet; `x86sim serve` shows
 the admin link when they are not.
-
-#### Device builds
-
-`x86sim install` (and the MCP tool `app_install`, and a drop on the launcher) also takes what you would install on an
-iPhone: an `.ipa`, an `.xcarchive` or a device `.app`. The arm64 code is the same either way, so the conversion is
-metadata, on a copy (the input is never changed):
-
-- every Mach-O in the bundle (app, frameworks, app extensions, a watch app) is retagged to the simulator platform
-  (`LC_BUILD_VERSION`, or an old `LC_VERSION_MIN_*` rewritten as one); a fat file keeps its arm64 slice;
-- each bundle's `Info.plist` names the simulator (`CFBundleSupportedPlatforms`, `DTPlatformName`, `DTSDKName`);
-- the app is re-signed ad hoc, each binary keeping the entitlements its signature had (rcodesign).
-
-App Store downloads are encrypted with FairPlay (`LC_ENCRYPTION_INFO` cryptid 1) for the device they were bought
-on and are refused with a message saying so; export a development, ad-hoc or enterprise build instead. Binaries
-without an arm64 slice (armv7, arm64e only, x86_64) are refused too. `x86sim-devapp inspect X.ipa` shows what a
-bundle holds; `tests/apps/build-ipa.sh` builds a small device `.ipa` (an embedded fat framework, entitlements) on a
-Mac as a fixture.
-
-#### Device pool
-
-For agents and CI, a pool keeps devices booted at their home screen; a caller takes one, uses it and gives it back.
-
-```sh
-x86sim pool up 3 --model "iPhone 17 Pro"      # pool-1..pool-3, booted one at a time while memory allows
-phone=$(x86sim pool take --ttl 900 --hold-parent)   # a free booted device, held by this shell for 15 min
-x86sim install "$phone" MyApp.ipa && x86sim launch "$phone" com.example.myapp
-x86sim pool release "$phone"                  # reset in the background, then free again
-x86sim pool status                            # who holds what, memory per device, room for more
-x86sim pool down --delete
-```
-
-- **Leases** end at their TTL (`--ttl`, default 30 min; `pool renew`) or when the holder process exits (`--pid`,
-  `--hold-parent`; the MCP server holds with its own process, so a session that ends frees its devices). Any pool
-  command reaps them. Taking is atomic across processes (a lock around the pool's state in `var/pool/`).
-- **Reset on release** (`--reset` at take or release): `apps` (default: uninstall the apps installed during the
-  lease, with their data, then Home), `restart` (a fresh boot), `erase` (re-cloned from the template), `none`.
-- **Fast creation**: members are clones of `<pool>-template`, a device of the pool's model booted once and stopped,
-  copied with `cp --reflink=auto` (instant and sharing disk on btrfs / XFS) and given their own paths and UDID.
-- **Memory**: `pool up` boots a device only while available memory stays above a reserve (3 GB, `--reserve-mb`)
-  after the measured cost of one device; it stops short rather than risk the out-of-memory killer (`--force`).
-- **KSM**: pool devices opt in to kernel same-page merging (`PR_SET_MEMORY_MERGE`, no root). KSM itself is off
-  until root turns it on: `x86sim pool ksm` shows the two commands, `x86sim pool ksm on` runs them with sudo on a
-  terminal, in the open.
-- `--pool NAME` keeps several pools (one model each). The launcher's Devices page shows each pool and can release a
-  device; the MCP tools are `pool_status`, `phone_take` and `phone_release`.
-
-### MCP server
-
-`x86sim-mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server over stdio for AI agents and
-other MCP clients. Its tools list, create, start, stop and restart devices, fold the iPhone Duo, read and change
-feature sets, install (simulator or device builds), launch, list and uninstall apps, take and release pool devices,
-report the state of the pre-translated image, and share devices in a browser (`share_start`, `share_stop`,
-`share_status`, `share_link`: they return the URLs). They also cover the device settings above (appearance, status
-bar, pasteboard, keychain, language, time zone, fidelity), erase and clone, an app's logs and crash report,
-screenshots and video recording, and deleting an OS version. Agents can also read the screen as text and act on its
-elements (below).
-
-```sh
-claude mcp add x86sim -- /path/to/x86sim.AppImage mcp      # AppImage
-claude mcp add x86sim -- /path/to/x86sim-mcp               # built from source
-```
-
-#### Agents: reading the screen and acting on it
-
-An agent drives a running phone through the screen as text. `snapshot` lists the accessibility elements on screen:
-the app in front (UIKit and SwiftUI), web pages it shows (links, buttons, fields, headings and text from the DOM),
-and SpringBoard (alerts and other system UI on top, the home screen, the status bar). Each element gets a ref, its
-role, label, value, identifier, states, and the point to touch:
-
-```
-phone ram2 · 402x874 pt · front com.apple.Preferences
-app com.apple.Preferences:
-@e17 button "General" id=com.apple.settings.general (201,319)
-@e18 button "Accessibility" id=com.apple.settings.accessibility (201,371)
-@e28 searchfield "Search" (201,822)
-status bar: 2:23 AM | Cellular: No signal | 100% battery power: Not charging
-```
-
-- **Refs are stable.** An element keeps its ref for as long as it is on screen, across snapshots and CLI calls,
-  so an agent can act on a ref it saw a few steps back. `snapshot diff=true` shows only what changed (`+` new,
-  `-` gone, `~` a label, value or state changed).
-- **Actions answer with the result.** `tap`, `long_press`, `type`, `key`, `scroll`, `scroll_to`, `swipe`,
-  `press`, `open_url`, `app_launch` and `app_terminate` wait until the screen has settled (no new frames and no
-  transition still running) and answer with the next snapshot, or only the changes (`after: "diff"`), or nothing
-  (`after: "none"`).
-- **Targets**: a ref (`@e3`), an accessibility identifier (`id:com.apple.settings.general`), label text (exact,
-  then prefix, then substring, with an alert over the app before the app beneath it), or `x`/`y` in points. An
-  element the app has loaded but scrolled out of view is scrolled into view before it is tapped.
-- **Typing** inserts text into the focused field as the software keyboard does, so any characters work (`clear`
-  empties the field first, `submit` presses return). `keys=true` presses hardware keys instead.
-- **`wait_for`** returns when a target appears (or, with `gone`, disappears). It checks again on every new
-  frame rather than polling on a timer.
-- **`screenshot`** returns the screen as an image, one pixel per point by default, so its coordinates match the
-  snapshot's.
-
-Every tool takes `phone` (a name, a folder or a path). The same commands are on the command line:
-
-```sh
-x86sim --phone ram2 snapshot [--diff] [--all] [--json]
-x86sim --phone ram2 tap @e17                 # or: tap "General", tap id:com.apple.settings.general
-x86sim --phone ram2 type "hello@example.com" --submit
-x86sim --phone ram2 scroll-to "Privacy & Security"
-x86sim --phone ram2 wait-for "Wi-Fi" --timeout 10
-x86sim --phone ram2 screenshot shot.png      # points; --scale 1 for device pixels
-```
-
-Snapshots come from host/simax, a reader loaded into every process that has UIKit
-([docs/protocols/SIMAX.md](docs/protocols/SIMAX.md)). On an iPhone 17, a snapshot that has settled takes about 10 ms in Settings, about 15 ms on the
-home screen, and 25-35 ms for a long web page (about 130 elements). It works on iPhone and iPad, and is built for
-tvOS, watchOS and visionOS too.
 
 ## Building and shipping apps
 
@@ -449,16 +492,21 @@ are built by `build/release/` and GitHub Actions; see [RELEASE.md](docs/RELEASE.
 x86Sim is young software. The runtimes boot to their home screens, stock and third-party apps run, and the tools
 above work. These are the known gaps:
 
-- **Apps** must be arm64 simulator builds. Device builds, such as App Store apps, do not run on a simulator runtime.
+- **Apps** need arm64 code: simulator builds, or device builds that are converted on install. FairPlay-encrypted App
+  Store downloads do not run.
+- **Debugging and testing**: no debugger attaches to a simulator app, and XCTest / XCUITest bundles are not run; there
+  is no Web Inspector or Instruments.
 - **Maps** shows no map tiles: the map data comes from a Mac and is not part of a release.
-- **Audio** is experimental and off by default.
-- **Sensors and accessories**: no rotation, shake, accelerometer, Apple Pencil or game controllers.
+- **Audio** is silent unless `X86SIM_AUDIO=1` sends it to PipeWire; apps always see audio devices.
+- **Sensors and accessories**: no accelerometer, Apple Pencil, external displays or CarPlay.
 - **Pairing** an Apple Watch with an iPhone is not supported.
-- **Networking**: ordinary DNS and sockets work; Bonjour (multicast DNS) does not.
+- **Networking**: ordinary DNS and sockets work; Bonjour works between apps on one device but not with the network
+  (no multicast DNS on the host).
 - **Sandboxing**: simulator processes are not sandboxed.
 - **System logging**: `logd` runs for installed apps only; the runtime's own processes do not log. `x86sim log stream`
   covers one app or process at a time.
 
+[PARITY.md](docs/PARITY.md) compares every area with Apple's Simulator and says what was verified.
 [WORKAROUNDS.md](docs/WORKAROUNDS.md) lists everything that is approximated and what a faithful version would need.
 
 ## License and credits
