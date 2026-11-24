@@ -802,15 +802,23 @@ static Handler timebase_handler(const std::string &n) {
 // waited out the timeout: Settings showed a black screen for ~17 s. Only calls from libAccessibility's code: launchd_sim's
 // domain is uid 0, and a non-root launchd refused to bootstrap any job. X86SIM_A64_AX_EUID overrides (0: as before).
 static u64 g_ax_lo, g_ax_hi;
-void ax_euid_prepare(const std::string &cache) {
+static bool g_nonroot_euid = false;
+void ax_euid_prepare(const std::string &cache, const std::string &exe) {
     cache_exports(cache, "/usr/lib/libAccessibility.dylib", nullptr, &g_ax_lo, &g_ax_hi);
+    const size_t slash = exe.rfind('/');
+    const char *base = slash == std::string::npos ? exe.c_str() : exe.c_str() + slash + 1;
+    // fileproviderd denies all IPCs when geteuid() == 0 ("Running as euid 0. We will keep running, but deny all IPCs."),
+    // which breaks PHPicker item transfer (Cocoa 4099 / 0-byte reads) and FileProvider domains under Darling.
+    g_nonroot_euid = strcmp(base, "fileproviderd") == 0;
 }
 static void h_geteuid(GuestThread &t, u32) {
     static const u64 ax = [] { const char *e = getenv("X86SIM_A64_AX_EUID"); return e ? strtoull(e, nullptr, 10) : 501ull; }();
     static auto *dgeteuid = (uid_t (*)())dsym("geteuid");
     const u64 lr = t.x(30);
     if (ax && lr >= g_ax_lo && lr < g_ax_hi) { t.set_x(0, ax); return; }
-    t.set_x(0, dgeteuid ? (u64)dgeteuid() : 0);
+    const u64 real = dgeteuid ? (u64)dgeteuid() : 0;
+    if (ax && g_nonroot_euid && real == 0) { t.set_x(0, ax); return; }
+    t.set_x(0, real);
 }
 
 // Special handlers that don't use g_thunks[i].native (everything else does)

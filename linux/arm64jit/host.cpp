@@ -1487,7 +1487,7 @@ extern "C" __attribute__((visibility("default"))) int a64_host_main(int argc, ch
     native_objc_prepare(cache);
     astc_prepare(cache);  // Speed 31: libate's ASTC decode entry (astc.cpp)
     lzfse_prepare(cache);  // Speed 32: libcompression's LZFSE buffer decode entries (lzfse.cpp)
-    ax_euid_prepare(cache);  // libAccessibility's root check (handlers.cpp h_geteuid)
+    ax_euid_prepare(cache, exe);  // libAccessibility & fileproviderd root check (handlers.cpp h_geteuid)
     jitcache_prepare(cache, exe);
     read_const_mappings(cache);
     load_cached_paths(cache, root);  // Perf 1: on-disk copies of cache images hidden from dyld_sim
