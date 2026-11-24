@@ -470,13 +470,15 @@ std::string region_info(u64 a) {
     u64 next = ~0ull;
     std::string r;
     while (fgets(line, sizeof line, m)) {
-        unsigned long lo, hi; char perm[8] = "";
-        if (sscanf(line, "%lx-%lx %7s", &lo, &hi, perm) != 3) continue;
+        unsigned long lo, hi; char perm[8] = "", path[512] = "";
+        if (sscanf(line, "%lx-%lx %7s %*s %*s %*s %511[^\n]", &lo, &hi, perm, path) < 3) continue;
         if (a >= lo && a < hi) {
             std::string p;
             if (perm[0] == 'r') p += 'r';
             if (perm[1] == 'w') p += 'w';
-            if (perm[2] == 'x') p += 'x';
+            // guest code is never host-executable (map_macho, the dyld cache): a readable file mapping (a Mach-O, the
+            // cache, the memfd stub dylibs) counts as code for lldb (return addresses, unwinding)
+            if (perm[2] == 'x' || (perm[0] == 'r' && path[0] == '/')) p += 'x';
             r = fmt("start:%lx;size:%lx;permissions:%s;", lo, hi - lo, p.c_str());
             break;
         }
