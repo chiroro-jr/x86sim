@@ -68,7 +68,7 @@ static void h_key_delete(GuestThread &t, u32 i) {
 // Threads the guest creates start in thread_start(): pthread_exit on them unwinds back here (longjmp) and the thread
 // returns from its start routine instead. Darling's own pthread_exit killed the whole process (SIGABRT) when called
 // from a thread running guest code (backboardd).
-struct StartArg { u64 fn, arg, stack; };
+struct StartArg { u64 fn, arg, stack, serial; };
 // __builtin_setjmp/longjmp: glibc's fortified longjmp (__longjmp_chk) aborted on Darling's thread stacks
 using ExitJmp = void *[5];
 static thread_local ExitJmp *t_exit_jmp;
@@ -80,24 +80,35 @@ static thread_local u64 t_exit_value;
 // repeatedly occurred"). Each child publishes its guest stack here as soon as it has one (thread_start, after
 // ensure_stack); h_pthread_create marks the handle pending first, and a query about a pending child waits for it to
 // publish (it is already running toward that point; bounded, then Darling's answer as before).
+// Each start has a serial (StartArg): a pthread_t is reused once its thread is gone, and an entry a thread left behind
+// (it ended without passing stack_forget) must not answer for the new thread with that handle. The parent's pending
+// mark replaces any entry but the one its own child already published (same serial).
 namespace {
-struct KnownStack { bool ready = false; u64 top = 0, reported = 0; };
+struct KnownStack { bool ready = false; u64 top = 0, reported = 0, serial = 0; };
 std::mutex g_stacks_mu;
 std::condition_variable g_stacks_cv;
 std::unordered_map<u64, KnownStack> g_stacks;
+std::atomic<u64> g_start_serial{0};
+thread_local u64 t_start_serial;  // this thread's serial (0: not started by thread_start)
 u64 native_self() { static auto *self = (u64 (*)())dsym("pthread_self"); return self(); }
-void stack_pending(u64 handle) {
+void stack_pending(u64 handle, u64 serial) {
     std::lock_guard<std::mutex> l(g_stacks_mu);
-    g_stacks.try_emplace(handle);  // the child may have published already
+    auto &e = g_stacks[handle];
+    if (e.serial != serial) e = {false, 0, 0, serial};  // a stale entry of an earlier thread with this handle goes
 }
 void stack_publish(const GuestThread &g) {
-    { std::lock_guard<std::mutex> l(g_stacks_mu); g_stacks[native_self()] = {true, g.stack_base + g.stack_size, g.stack_reported}; }
+    { std::lock_guard<std::mutex> l(g_stacks_mu); g_stacks[native_self()] = {true, g.stack_base + g.stack_size, g.stack_reported, t_start_serial}; }
     g_stacks_cv.notify_all();
 }
+// idempotent; only this thread's own entry (by serial) is removed
 void stack_forget() {
     std::lock_guard<std::mutex> l(g_stacks_mu);
-    g_stacks.erase(native_self());
+    auto it = g_stacks.find(native_self());
+    if (it != g_stacks.end() && it->second.serial == t_start_serial) g_stacks.erase(it);
 }
+// thread_start's outer frame: forgets the stack however the thread ends (a normal return, the pthread_exit longjmp,
+// or a forced unwind such as cancellation that passes no code of ours). Kept out of the setjmp frame (see below).
+struct StackForget { ~StackForget() { stack_forget(); } };
 // the child's published stack, waiting up to a second for a pending one; false: not a thread the guest started
 bool stack_of(u64 handle, KnownStack &out) {
     std::unique_lock<std::mutex> l(g_stacks_mu);
@@ -121,6 +132,7 @@ struct ExitFrame { ExitJmp jb; ExitJmp *outer; };
 __attribute__((noinline)) static u64 thread_body(void *p) {
     StartArg a = *(StartArg *)p;
     delete (StartArg *)p;
+    t_start_serial = a.serial;
     GuestThread &g = GuestThread::self();
     g.ensure_stack(a.stack);
     stack_publish(g);
@@ -134,7 +146,7 @@ __attribute__((noinline)) static u64 thread_unwound() {
     if (g_trace) logf("thread_start: new Jit, returning %#lx", (unsigned long)r);
     return r;
 }
-static void *thread_start(void *p) {
+__attribute__((noinline)) static void *thread_start_jmp(void *p) {
     ExitFrame f;
     f.outer = t_exit_jmp;
     t_exit_jmp = &f.jb;
@@ -145,36 +157,45 @@ static void *thread_start(void *p) {
     } else {
         r = thread_unwound();
     }
-    stack_forget();
     return (void *)r;
 }
+static void *thread_start(void *p) {
+    StackForget forget;
+    return thread_start_jmp(p);
+}
 // the attr's stack size (Darling's pthread_attr_t: the guest's pthread_attr_* calls are native), 0 without an attr
-static void *start_arg(u64 fn, u64 arg, u64 attr) {
+static StartArg *start_arg(u64 fn, u64 arg, u64 attr) {
     size_t ss = 0;
     if (attr) {
         static auto *get = (int (*)(u64, size_t *))dsym("pthread_attr_getstacksize");
         if (!get || get(attr, &ss) != 0) ss = 0;
     }
-    return new StartArg{fn, arg, ss};
+    return new StartArg{fn, arg, ss, ++g_start_serial};
 }
 // pthread_create(thread, attr, start, arg) and the variants with the same arguments
 // A created thread's handle is marked pending (see g_stacks) unless it starts suspended: that one may not run for a
 // long time, and asking about it falls back to Darling's answer at once.
-static void created(u64 out, int r, bool suspended) {
-    if (r == 0 && out && !suspended) stack_pending(*(const u64 *)out);
+static void created(u64 out, int r, bool suspended, u64 serial) {
+    if (r == 0 && out && !suspended) stack_pending(*(const u64 *)out, serial);
 }
 static void h_pthread_create(GuestThread &t, u32 i) {
     auto *fn = (int (*)(u64, u64, void *(*)(void *), void *))g_thunks[i].native;
     const u64 out = t.x(0);
-    const int r = fn(out, t.x(1), thread_start, start_arg(t.x(2), t.x(3), t.x(1)));
-    created(out, r, g_thunks[i].name == "_pthread_create_suspended_np");
+    StartArg *a = start_arg(t.x(2), t.x(3), t.x(1));
+    const u64 serial = a->serial;  // the child may have freed `a` by the time create returns
+    const int r = fn(out, t.x(1), thread_start, a);
+    if (r != 0) delete a;
+    created(out, r, g_thunks[i].name == "_pthread_create_suspended_np", serial);
     t.set_x(0, (u32)r);
 }
 static void h_pthread_create_with_workgroup(GuestThread &t, u32) {  // (thread, workgroup, attr, start, arg)
     static auto *fn = (int (*)(u64, u64, void *(*)(void *), void *))dsym("pthread_create");
     const u64 out = t.x(0);
-    const int r = fn(out, t.x(2), thread_start, start_arg(t.x(3), t.x(4), t.x(2)));
-    created(out, r, false);
+    StartArg *a = start_arg(t.x(3), t.x(4), t.x(2));
+    const u64 serial = a->serial;
+    const int r = fn(out, t.x(2), thread_start, a);
+    if (r != 0) delete a;
+    created(out, r, false, serial);
     t.set_x(0, (u32)r);
 }
 

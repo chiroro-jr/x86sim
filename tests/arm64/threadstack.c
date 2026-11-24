@@ -16,6 +16,10 @@ static void *fn(void *a) {
     while (!go) usleep(1000);
     return 0;
 }
+static void *fn_exit(void *a) {
+    fn(a);
+    pthread_exit(0);
+}
 int main(void) {
     int bad = 0;
     for (int k = 0; k < 2; k++) {
@@ -34,6 +38,24 @@ int main(void) {
         bad += !in_parent + !in_self;
         go = 1; pthread_join(t, 0);
     }
+    // A pthread_t is reused once its thread is joined: the parent's view of the new thread must be the new thread's
+    // stack, never what an earlier thread with that handle left in the translator's table (half of them end through
+    // pthread_exit, the longjmp path). Sizes alternate so a stale answer shows.
+    int reused = 0, wrong = 0; pthread_t prev = 0;
+    for (int k = 0; k < 40; k++) {
+        pthread_t t; pthread_attr_t at; pthread_attr_init(&at);
+        pthread_attr_setstacksize(&at, (k & 1 ? 2 : 6) << 20);
+        go = 0; child_sp = 0;
+        pthread_create(&t, &at, k & 2 ? fn_exit : fn, 0);
+        reused += t == prev;
+        uintptr_t pa = (uintptr_t)pthread_get_stackaddr_np(t); size_t ps = pthread_get_stacksize_np(t);
+        while (!child_sp) usleep(1000);
+        wrong += !(child_sp < pa && child_sp >= pa - ps) || ps != (size_t)((k & 1 ? 2 : 6) << 20);
+        go = 1; pthread_join(t, 0);
+        prev = t;
+    }
+    printf("handle reuse: %d of 40 creations reused the previous handle, %d wrong parent views %s\n", reused, wrong, wrong ? "WRONG" : "OK");
+    bad += wrong;
     puts(bad ? "FAIL" : "PASS");
     return bad != 0;
 }
