@@ -339,8 +339,10 @@ static void avp_send(NSDictionary* d) {
 	CFRelease(data);
 	dispatch_event(&avp_svc, e);
 }
+// whole degrees: IOCFSerialize takes integer CFNumbers only (a fractional angle failed to serialize and was dropped,
+// so a move whose steps were not whole degrees, 0 -> 90 in 1.5 degree steps, reached the relay half the time)
 static void avp_send_angle(double deg) {
-	avp_send(@{ @"source": @"hinge-slider-control", @"type": @"range", @"value": @(deg) });
+	avp_send(@{ @"source": @"hinge-slider-control", @"type": @"range", @"value": @((long)lround(deg)) });
 }
 // the inputs besides the angle the relay waits for: portrait, not in standby
 static void avp_send_pose(void) {
