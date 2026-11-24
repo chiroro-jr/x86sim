@@ -334,7 +334,9 @@ pub fn clone_phone(tpl: &Instance, name: &str) -> Result<PathBuf> {
     std::fs::write(dst.join("name"), format!("{name}\n"))?;
     let root = repo_root();
     // without it the clone's apps would run in the template's containers: a failure is fatal
-    let out = Command::new("python3").arg(root.join("cli/libexec/arm64/device-repath.py")).arg(&dst).arg(&tpl.dir).output()?;
+    // --force: the copy has never booted (a fresh dir, or the erased phone after wait_gone), and the script's own
+    // "booted" check also matches any shell whose command line mentions the dir
+    let out = Command::new("python3").arg(root.join("cli/libexec/arm64/device-repath.py")).arg(&dst).arg(&tpl.dir).arg("--force").output()?;
     if !out.status.success() {
         let _ = std::fs::remove_dir_all(&dst);
         bail!("device-repath.py {name}: {}", String::from_utf8_lossy(&out.stderr).trim());
@@ -394,6 +396,9 @@ fn phone_procs(dev: &Path) -> usize {
         .flatten()
         .flatten()
         .filter(|e| e.file_name().to_string_lossy().bytes().all(|b| b.is_ascii_digit()))
+        // not shells, interpreters or tools whose command line merely mentions the path (a script running
+        // `grep ... <dev>/data/...` is not the phone: device-repath.py's own check took one for a booted phone)
+        .filter(|e| !matches!(std::fs::read_to_string(e.path().join("comm")).unwrap_or_default().trim(), "bash" | "sh" | "dash" | "zsh" | "fish" | "python3" | "python" | "grep" | "find" | "cp" | "rm" | "x86sim-pool" | "x86sim-mcp" | "timeout" | "sleep" | "tail"))
         .filter(|e| std::fs::read(e.path().join("cmdline")).is_ok_and(|c| c.windows(key.len()).any(|w| w == key.as_bytes())))
         .count()
 }
