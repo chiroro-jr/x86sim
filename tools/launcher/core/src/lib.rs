@@ -3,6 +3,9 @@
 //! the egui launcher.
 pub mod aot;
 pub mod ax;
+/// Accessibility Inspector: properties, element at a point, accessibility actions; the audit
+pub mod axaudit;
+pub mod axinspect;
 pub mod appcache;
 pub mod apps;
 pub mod dev;

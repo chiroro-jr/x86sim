@@ -54,6 +54,7 @@ carries `pid`, `bundle`, `process`, `state` (`active`, `inactive`, `background`,
 | `scrollby` | `dir` (up down left right), `amount` (part of the view) | scrolls the largest visible scroll view that scrolls that way: `ok`, `moved`, `view` |
 | `probe` | | every scene (`state`) and window (hidden or not) of the process, for debugging |
 | `ax` | | loads the accessibility bundles |
+| `action` | `oid`, `name` (`increment`, `decrement`, `scroll` with `dir`, `escape`, `magic_tap`, `custom` with `custom`: the action's name) | `ok`, `by` (the class that took it), `value` (the element's value after it), `note` |
 
 An element contains `oid` (the object's address in hex; web elements use `<webview oid>#<n>`), `role`,
 `label`, `value`, `id`, `hint`, `frame` `[x, y, w, h]` in screen points (an iPadOS window's elements offset by
@@ -70,6 +71,34 @@ plain view provides its subviews. Hidden views and `accessibilityElementsHidden`
 Roles: `textfield`, `searchfield`, `switch`, `adjustable`, `key`, `tabbar`, `link`, `button`, `heading`,
 `image`, `text`, `icon` (SpringBoard), `element` (anything else with a label, value or identifier), and the web
 roles below.
+
+### The inspector (`tree` with `full`)
+
+The Accessibility Inspector (`tools/launcher/core/src/axinspect.rs`, the audit `axaudit.rs`) asks `tree` with
+`full`. Every element then has `more`: `class`, `traits_raw` and `traits_all` (every trait's name, private text entry
+and editing bits too), `lang` (`accessibilityLanguage`), `custom_actions` and `rotors` (their names), `input_labels`,
+`interactive` (`accessibilityRespondsToUserInteraction`), `activation` (the activation point on the screen), `modal`,
+`view` and `controller` (the view the element is, or the nearest one among its containers, and that view's view
+controller), `path` (the containers above it as VoiceOver sees them: classes with their label or identifier, plain
+`UIView`s and UIKit's private wrappers left out, the last 12), `tap` (`control`: a `UIControl`; `gesture`: a view with
+a tap or long press recognizer), and for the text it draws (a label, field, text view, a button's title, a cell's
+labels) `font` (`size`, `bold`, `name`), `dynamic_type` (`adjustsFontForContentSizeCategory`), `fg` (the text color
+resolved for the view's traits, RGBA 0-255 and alpha) and `truncated` (the text of a label cut off: one line wider than
+its bounds, or more lines than its height shows). The answer also has `hidden`: interactive views VoiceOver cannot
+reach, that is controls and views with a tap or long press recognizer that are not an element, not inside one and hold
+none, with `class`, `kind`, `frame`, `why` (`accessibilityElementsHidden` on it or an ancestor, or
+`isAccessibilityElement` NO with nothing inside), `oid` and `controller`. Views as large as half the window (a tap to
+dismiss the keyboard), scroll views, windows and UIKit's private classes are left out. A full tree costs roughly twice a
+plain one.
+
+`action` is what VoiceOver does to an element: `increment` / `decrement` call `accessibilityIncrement` /
+`accessibilityDecrement` (`ok` when the value changed); `scroll` calls `accessibilityScroll:` on the element and up its
+containers and responders until one takes it (VoiceOver's three-finger swipe directions: `up` shows what is below,
+`next`, `previous`), else moves the nearest scroll view by most of a page; `escape` and `magic_tap` call
+`accessibilityPerformEscape` / `accessibilityPerformMagicTap` up the responder chain to the application's delegate
+(without an `oid`: from the first responder or the front window), and an escape nobody takes pops the navigation stack
+or dismisses the presented controller, as UIKit's own handler does; `custom` runs the custom action with that name
+(exact, then a part of it, case blind). Activate stays the `activate` op.
 
 `animating` is true while a one-shot Core Animation animation runs in one of the process's windows, such as a push,
 a sheet or an alert appearing. Looping animations, such as spinners or the caret, do not count. The host waits

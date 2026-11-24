@@ -30,6 +30,9 @@ A coding agent can run an app on a device and check it the way a tester would, w
 - **The screen as text.** `x86sim snapshot` (MCP `snapshot`) lists the accessibility elements on screen, each with a
   stable ref; `tap`, `type`, `scroll-to`, `wait-for` and the other actions take a ref, an identifier or label text
   and answer with the screen after it settled. See [Agents](#agents-reading-the-screen-and-acting-on-it).
+- **Accessibility audits.** `x86sim ax-audit` (MCP `ax_audit`) checks the screen as Xcode's Accessibility Inspector
+  does and answers with findings and fixes; `ax_inspect` and `ax_action` inspect an element and perform its
+  accessibility actions ([Accessibility Inspector](#accessibility-inspector)).
 - **Devices on demand.** A pool keeps devices booted; an agent takes one with a lease and gives it back
   ([Device pool](#device-pool)). Simulator and device builds (`.ipa`) install the same way.
 - **The whole loop.** `x86sim dev run` builds an app, installs and launches it; `x86sim logs BUNDLEID` returns its
@@ -419,6 +422,37 @@ Per platform:
   its activation point, as VoiceOver does); `scroll` / `swipe` move the front app's scroll view; `press home` (the
   Digital Crown) opens the Home View. `pointer` drives the system pointer by display position.
 
+### Accessibility Inspector
+
+What Xcode's Accessibility Inspector does, for any app on a phone:
+
+- **Inspection.** In the browser viewer (`x86sim serve`) and the launcher's phone page, *Inspect* outlines the element
+  under the mouse; a click shows its properties: label, value, hint, traits, identifier, frame, activation point,
+  actions and custom actions, custom rotors, input labels, language, whether it responds to user interaction, its
+  class, view and view controller, the accessibility hierarchy above it, and its text's font, color and whether it is
+  cut off. `x86sim ax-inspect [TARGET | X Y]` (MCP `ax_inspect`) prints the same.
+- **Audit.** `x86sim ax-audit [PHONE]` (MCP `ax_audit`, the viewer's and the launcher's *Run audit*) checks the app in
+  front: controls and images without a label, labels that are file names, SF Symbol names or identifiers, touch
+  targets under 44 x 44 pt (60 on Vision Pro), text contrast under WCAG 4.5:1 (3:1 for large text: the app's text
+  color against the background sampled from the screen), text cut off, Dynamic Type (`--dynamic-type`: the screen
+  again at the largest accessibility text size, which is set for the check and put back), duplicate labels, controls
+  and tap targets VoiceOver cannot reach, and views that take taps without the button trait. Each finding has a
+  severity, the element's ref and frame and a fix; `--json` for tools.
+- **Actions.** `x86sim ax-action NAME [TARGET]` (MCP `ax_action`, the inspector's buttons) does what VoiceOver does:
+  activate, increment, decrement, scroll (`--dir`), escape, magic tap, and custom actions by name. They need no
+  point on the screen, which helps on Apple TV and Vision Pro.
+
+```sh
+x86sim ax-audit qa                       # the app in front on phone qa
+x86sim --phone qa ax-audit --dynamic-type --json
+x86sim --phone qa ax-inspect "Message from Anna"
+x86sim --phone qa ax-action custom "Message from Anna" --name Reply
+```
+
+`tests/apps/x86a11ybad` is a screen that breaks each rule on purpose. The data comes from simax's full tree
+([docs/protocols/SIMAX.md](docs/protocols/SIMAX.md)). Font, color and truncation are read from UIKit labels; for
+SwiftUI text the contrast comes from the pixels alone, and clipping is not seen.
+
 ### MCP server
 
 `x86sim-mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server over stdio for AI agents and
@@ -439,6 +473,7 @@ else the configured one. Erase, clone and keychain reset need it.
 | Apps | `app_install` (simulator or device builds), `app_uninstall`, `app_launch`, `app_terminate`, `app_list`, `app_logs` |
 | Tests | `xctest_run` (XCTest / XCUITest: an `.xctestrun` or bundles; per-test results, see [Tests](#tests-xctest-xcuitest)) |
 | Screen as text and actions | `snapshot`, `tap`, `long_press`, `type`, `key`, `scroll`, `scroll_to`, `swipe`, `wait_for`, `press`, `open_url`, `screenshot` |
+| Accessibility Inspector | `ax_inspect`, `ax_audit`, `ax_action` |
 | Hardware | `sim_button`, `sim_crown`, `sim_fold`, `sim_shake`, `sim_orientation`, `sim_biometric`, `sim_gamepad`, `sim_pointer`, `sim_system`, `sim_keyboard`, `sim_memory_warning` |
 | Settings (as simctl) | `sim_ui`, `sim_status_bar`, `sim_pasteboard`, `sim_keychain_reset`, `sim_locale`, `sim_timezone`, `sim_fidelity`, `sim_erase`, `sim_clone` |
 | Capture | `sim_screenshot` (a PNG file), `sim_record_video` |

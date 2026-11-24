@@ -26,6 +26,16 @@ const USAGE: &str = "usage: x86sim-ax [--phone NAME] <command> [args]
                                        Keyboard (Shift-Cmd-K; kept across boots)
   open URL | launch BUNDLEID [ARGS] | terminate BUNDLEID
   screenshot [OUT.png] [--scale N]     N: divisor (default: the device scale, a picture in points)
+  inspect [TARGET | X Y] [--json]      Accessibility Inspector: every property of an element (label, value, hint,
+                                       traits, actions, custom actions, rotors, language, class, view, controller,
+                                       hierarchy, font / color); no target: the screen + views VoiceOver cannot reach
+  audit [--dynamic-type] [--all] [--rules a,b] [--json]
+                                       accessibility audit of the app in front (labels, 44 pt targets, contrast,
+                                       Dynamic Type, duplicates, hidden controls, traits); --dynamic-type: re-check at
+                                       the largest text size (the phone's setting is put back)
+  action NAME [TARGET] [--dir up|down|left|right|next|previous] [--name CUSTOM]
+                                       an accessibility action: activate increment decrement scroll escape magic_tap
+                                       custom
 Actions print what they did and the screen after it (--after diff: only changes, --after none: nothing; --json).
 The phone: --phone NAME (name, folder or path), else $X86SIM_DEVICE, else the only running phone.";
 
@@ -69,6 +79,7 @@ fn run() -> Result<()> {
     let clear = flag("--clear");
     let submit = flag("--submit");
     let keys = flag("--keys");
+    let dynamic_type = flag("--dynamic-type");
     let mut opt = |name: &str| -> Option<String> {
         let i = args.iter().position(|a| a == name)?;
         if i + 1 >= args.len() {
@@ -86,6 +97,8 @@ fn run() -> Result<()> {
     let max = opt("--max");
     let timeout = opt("--timeout");
     let scale = opt("--scale");
+    let rules = opt("--rules");
+    let aname = opt("--name");
     if args.is_empty() || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
         println!("{USAGE}");
         return Ok(());
@@ -124,6 +137,43 @@ fn run() -> Result<()> {
             if !json {
                 eprintln!("({} elements, {} ms)", s.elements.len(), s.ms);
             }
+        }
+        "inspect" => {
+            let s = x86sim_core::axinspect::inspect(&inst, all)?;
+            let n: Vec<f64> = args.iter().filter_map(|a| a.parse().ok()).collect();
+            let el = if n.len() == 2 && args.len() == 2 {
+                Some(x86sim_core::axinspect::element_at(&s, n[0], n[1]).ok_or_else(|| anyhow!("no element at {} {}", n[0], n[1]))?)
+            } else if !rest.is_empty() {
+                Some(ax::find(&s, &rest)?)
+            } else {
+                None
+            };
+            match (el, json) {
+                (Some(e), true) => println!("{}", serde_json::to_string_pretty(&x86sim_core::axinspect::element_json(e))?),
+                (Some(e), false) => print!("{}", x86sim_core::axinspect::describe(e)),
+                (None, true) => println!("{}", serde_json::to_string_pretty(&s)?),
+                (None, false) => {
+                    print!("{}", s.text());
+                    for h in &s.hidden {
+                        println!("not reachable by VoiceOver: {} {} {} {}", h["app"].as_str().unwrap_or(""), h["class"].as_str().unwrap_or(""), h["frame"], h["why"].as_str().unwrap_or(""));
+                    }
+                }
+            }
+        }
+        "audit" => {
+            let o = x86sim_core::axaudit::AuditOpts { dynamic_type, all, rules: rules.map(|r| r.split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect()).unwrap_or_default() };
+            let r = x86sim_core::axaudit::audit(&inst, &o)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&r)?);
+            } else {
+                print!("{}", r.text());
+            }
+        }
+        "action" => {
+            let name = args.first().cloned().ok_or_else(|| anyhow!("action: {}", x86sim_core::axinspect::ACTIONS.join(" | ")))?;
+            let target = args[1..].join(" ");
+            let arg = dir.as_deref().or(aname.as_deref());
+            print(x86sim_core::axinspect::action(&inst, (!target.is_empty()).then_some(target.as_str()), &name, arg, after)?)
         }
         "find" => {
             need("a target")?;

@@ -2,6 +2,8 @@
 //! touch and keyboard plus a fold-out panel (features, logs, performance, advanced); global pages for iOS versions,
 //! pre-translation (AOT) and settings. Logic lives in x86sim-core; the GUI repaints only when a frame or a status
 //! changes.
+/// Accessibility Inspector: overlay, properties, actions, audit
+mod axinspect_ui;
 mod develop;
 mod devctl_ui;
 mod duo3d;
@@ -219,7 +221,7 @@ impl App {
         };
         let mut open = HashSet::new();
         for k in std::env::var("X86SIM_LAUNCHER_OPEN").unwrap_or_default().split(',') {
-            for key in ["features", "logs", "perf", "adv", "share", "sim"] {
+            for key in ["features", "logs", "perf", "adv", "share", "sim", "ax"] {
                 if k == key {
                     open.insert(key);
                 }

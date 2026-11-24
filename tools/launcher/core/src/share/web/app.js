@@ -193,6 +193,8 @@ function phoneView(id) {
   const stage = h("div", { class: "stage" }, wrap);
   const side = h("aside", { class: "side" });
   main.append(h("div", { class: "phone" }, stage, side));
+  // the Accessibility Inspector (axinspect.js): its overlay on the screen, its panel in the side bar
+  const axi = window.AXI ? AXI.attach({ id, wrap, side, control, api, h, toast }) : null;
   const stats = h("div", { class: "stats" });
   const prefs = JSON.parse(localStorageGet("x86sim_prefs") || "{}");
   const canH264 = "VideoDecoder" in window && window.isSecureContext;
@@ -351,6 +353,7 @@ function phoneView(id) {
   function buildSide() {
     const p = info.platform;
     const parts = [];
+    if (axi) parts.push(axi.panel());
     if (control) {
       if (p === "tvos") {
         parts.push(h("div", {}, h("h4", { text: "Siri Remote" }), h("div", { class: "remote" },
@@ -629,6 +632,7 @@ function phoneView(id) {
   api("/api/phones").then((ps) => { const p = ps.find((x) => x.id === id || x.name === id); if (p) { info = { ...p, ...info }; lastW = wantWidth(); } }).catch(() => {});
   return () => {
     alive = false;
+    if (axi) axi.close();
     releaseAll();
     if (rec) rec.stop();
     if (ws) { ws.onclose = null; ws.close(); }

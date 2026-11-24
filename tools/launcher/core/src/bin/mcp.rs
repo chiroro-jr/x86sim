@@ -13,6 +13,9 @@ mod mcp_simctl;
 // ---- XCTest (feat/ap-xctest): xctest_run ----
 #[path = "mcp_parts/xctest.rs"]
 mod mcp_xctest;
+// ---- Accessibility Inspector (feat/r2-axinspect): ax_inspect, ax_audit, ax_action ----
+#[path = "mcp_parts/axinspect.rs"]
+mod mcp_axinspect;
 
 fn tools() -> Value {
     let phone = json!({"type": "string", "description": "the phone: its name (as in the hub, e.g. \"QA\"), folder (device-a64-qa) or path. Default: the only running phone, else the configured one"});
@@ -108,6 +111,10 @@ fn tools() -> Value {
     if let Value::Array(v) = &mut t {
         v.extend(mcp_xctest::tools(&phone));
     }
+    // ---- Accessibility Inspector ----
+    if let Value::Array(v) = &mut t {
+        v.extend(mcp_axinspect::tools(&phone));
+    }
     t
 }
 
@@ -171,6 +178,9 @@ fn call_json(name: &str, a: &Value) -> anyhow::Result<Answer> {
     }
     if let Some(r) = mcp_xctest::call(name, a, &|| phone_of(a, &cfg)) {
         return r.map(Answer::Json);
+    }
+    if let Some(r) = mcp_axinspect::call(name, a, &|| phone_of(a, &cfg)) {
+        return r.map(|(t, v)| Answer::Text(t, v));
     }
     if matches!(name, "phones_list" | "sim_status") {
         return Ok(Answer::Json(json!({"phones": instance::summaries(1000)})));
