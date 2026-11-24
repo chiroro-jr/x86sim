@@ -28,7 +28,9 @@ Each application listens on a Unix socket next to the phone's frame ring:
 ```
 
 `.fg` is created when the app enters the foreground or becomes active, and removed when it enters the background
-or terminates. SpringBoard keeps its own. The host only asks processes that have one. Connections are
+or terminates; scene and window notifications update it too, so a view service whose scene or full-screen
+`_UIHostedWindow` comes up (watchOS's QuickboardViewService, the text input sheet) counts as on screen. SpringBoard
+keeps its own. The host only asks processes that have one. Connections are
 non-blocking, because a process RunningBoard suspended (a poster extension, for example) never accepts. A process
 that did not answer is given 80 ms the next time, until it answers again. `mksimdevice.py` removes the previous
 boot's files, and the host removes the files of a socket that refuses connections.
@@ -45,14 +47,18 @@ carries `pid`, `bundle`, `process`, `state` (`active`, `inactive`, `background`,
 | op | arguments | answer |
 |---|---|---|
 | `info` | | the fields above |
-| `tree` | `fg` (only walk when on screen), `all` (include elements scrolled out of view), `noax` | plus `elements`, `focus` (oid of the first responder), `animating` |
+| `tree` | `fg` (only walk when on screen), `all` (include elements scrolled out of view), `noax` | plus `elements`, `focus` (oid of the first responder), `focus_item` (the focus engine's item: `oid`, `class`, `frame`, `label`; tvOS's remote focus), `animating` |
 | `type` | `text`, `clear`, `submit` | `typed`, `field` (class), `value` |
 | `scroll` | `oid` | `ok` (`accessibilityScrollToVisible`, else `scrollRectToVisible` in the nearest scroll view) |
-| `activate` | `oid` | `ok` (`accessibilityActivate`) |
+| `activate` | `oid`, `tap` | `ok` (`accessibilityActivate`); with `tap`, when that answers NO, a tap made in the process at the element's activation point (a UITouch with an IOHIDEvent digitizer event through `sendEvent:`): `tapped`, `at` |
+| `scrollby` | `dir` (up down left right), `amount` (part of the view) | scrolls the largest visible scroll view that scrolls that way: `ok`, `moved`, `view` |
+| `probe` | | every scene (`state`) and window (hidden or not) of the process, for debugging |
 | `ax` | | loads the accessibility bundles |
 
 An element contains `oid` (the object's address in hex; web elements use `<webview oid>#<n>`), `role`,
-`label`, `value`, `id`, `hint`, `frame` `[x, y, w, h]` in screen points, `traits`, `enabled` (only when
+`label`, `value`, `id`, `hint`, `frame` `[x, y, w, h]` in screen points (an iPadOS window's elements offset by
+its scene's place on the display, the FBSSceneSettings frame; on visionOS the window's own points), `traits`,
+`enabled` (only when
 false), `selected`, `focused`, `offscreen`, `win` (an index into `windows`), `depth`, `in` (the label of the
 enclosing container), `class` and, for web elements, `web` and `href`.
 
@@ -82,7 +88,11 @@ the web view's scroll view (content = page coordinates times `zoomScale`). The w
 
 `ax.rs` asks every `.fg` process in parallel and merges the answers into one `Snapshot`. It assigns layers:
 SpringBoard windows are `system` (alerts, banners, Control Center) or `home`, status bar elements are `status`,
-and everything else is `app`. Refs are kept in `<state dir>/ax-refs.json`, keyed by the frame ring's inode and
+SpringBoard's iPadOS window chrome is `window` (it also gives the windows' stacking order: elements under another
+app's window are clipped to what shows or marked `covered`), and everything else is `app`. The other platforms'
+homes: tvOS's HeadBoard (TVSystemUIService's clock corner is `status`), a watch face and Carousel's app grid,
+visionOS's RealityLauncher (RealityHUD is `status`). On an Apple TV, `tap` moves the focus with arrow keys onto the
+target and presses select; on a Vision Pro it uses `activate` with `tap`, and `scroll` uses `scrollby`. Refs are kept in `<state dir>/ax-refs.json`, keyed by the frame ring's inode and
 birth time, which change with every boot. An element keeps its ref while it is the same object with the same role
 and label or identifier. Failing that, it takes the ref of the only previous element of the same app with the same
 role and identifier, or of the nearest one with the same role and label. After an action, the host waits for the

@@ -315,6 +315,10 @@ x86sim test qa --spm MyPackage                          # a Swift package's test
 - **XCTest's frameworks** (`XCTest.framework`, `XCTestCore`, `XCUIAutomation`, `libXCTestBundleInject.dylib`) are
   Xcode's, not the runtime's: `x86sim test` takes them from `sdks/<Platform>.platform` (`x86sim test fetch-platform`
   copies them from `$X86SIM_MAC`), `--platform DIR`, or the SDK `x86sim dev setup sdk --xip` installed.
+- **Every platform**: `tests/apps/XCTestDemo` builds for iOS, tvOS, watchOS and visionOS (`X86SIM_PLATFORM=tvos
+  tests/apps/XCTestDemo/build.sh`; `run.sh <phone>` picks the phone's). Its unit, logic and UI tests give Apple's
+  results on iPhone, iPad, Apple TV and Vision Pro; on Apple Watch the unit and logic tests do, its UI tests do not
+  run yet ("Lost connection to the application").
 
 `tests/apps/XCTestDemo/run.sh <phone>` runs the fixture (hosted unit tests, logic tests, UI tests, each with a
 deliberate failure) and checks every result against Apple's simulator.
@@ -397,8 +401,24 @@ acting. [skills/x86sim/SKILL.md](skills/x86sim/SKILL.md) puts it together for co
 
 Snapshots come from host/simax, a reader loaded into every process that has UIKit
 ([docs/protocols/SIMAX.md](docs/protocols/SIMAX.md)). On an iPhone 17, a snapshot that has settled takes about 10 ms in Settings, about 15 ms on the
-home screen, and 25-35 ms for a long web page (about 130 elements). It works on iPhone and iPad, and is built for
-tvOS, watchOS and visionOS too.
+home screen, and 25-35 ms for a long web page (about 130 elements).
+
+Per platform:
+
+- **iPad**: windowed apps (Windowed Apps, Stage Manager) are reported where they are on the display; `front` lists
+  the top window's app first, SpringBoard's window controls and the windows behind it are an "app windows" group,
+  and an element under another app's window is marked `[covered]`. Landscape, the software keyboard's keys,
+  `key cmd+a`-style shortcuts and `pointer` (the iPad's mouse) work as on a device.
+- **Apple TV** has no touchscreen: the snapshot names what has the focus (`focus: @e13 button "General"`), and `tap`
+  moves the focus onto its target with the remote's arrows, checking after each press, then presses select, as
+  XCUIRemote does; `scroll` and `swipe` move the focus, `press menu` goes back, `press tv` home. `type` writes into
+  tvOS's full-screen keyboard.
+- **Apple Watch**: the watch face and the app grid are the home screen; a text field's input sheet (keyboard,
+  Scribble, dictation) is listed and `type` writes into it; `crown` scrolls.
+- **Apple Vision Pro**: windows float in a rendered room, so a snapshot's points are each app's own window points,
+  not display positions. `tap` acts through accessibility (the element's activate, else a tap made inside the app at
+  its activation point, as VoiceOver does); `scroll` / `swipe` move the front app's scroll view; `press home` (the
+  Digital Crown) opens the Home View. `pointer` drives the system pointer by display position.
 
 ### MCP server
 
@@ -439,7 +459,8 @@ lacks it, e.g. plain HTTP on the LAN); quality, size and frame rate are picked o
   Command), Ctrl+V types the clipboard into the device, F1 to F4 Home, Lock and volume, Keyboard > Software / Hardware
   (Toggle Software Keyboard, Connect Hardware Keyboard).
 - **Controls per platform**: iPhone / iPad buttons (Home, Lock, volume, Siri, Action, App Switcher), rotate, shake,
-  the iPhone Duo's fold poses; an Apple TV's Siri Remote; an Apple Watch's crown, side button and hand gestures.
+  the iPhone Duo's fold poses; an Apple TV's Siri Remote; an Apple Watch's crown, side button and hand gestures; a
+  Vision Pro's crown, and the mouse as its system pointer (hover, click, drag; the wheel scrolls where it points).
 - **Capture**: a full-size PNG screenshot, and recording the stream to a video file.
 - **Links**: a control link (watch and drive) and a view-only link; more links with their own expiry, limited to
   one device or not, from the Share dialog (with a QR code) or `x86sim serve link`; revoke them there.

@@ -177,8 +177,22 @@ link: use them only when asked.
   accessibility bundles: it is 0.1-0.2 s slower, and the setting stays on in that phone.
 - An empty or thin snapshot means the screen has no accessibility elements (a game, a Metal view, a custom-drawn
   control): fall back to a screenshot and `tap X Y` in device pixels.
-- Snapshots work on iPhone and iPad; tvOS, watchOS and visionOS are built but less exercised. On Apple TV, move focus
-  with `key up|down|left|right` and select with `key return` (escape is back).
+- **Per platform** (snapshot and actions checked on iPhone, iPad, Apple TV, Apple Watch and Vision Pro):
+  - *iPad*: windowed apps are placed where they show; `front` lists the top window's app first, SpringBoard's window
+    chrome (window controls, resize grabbers, a card per window behind) is the "app windows" group, and an element
+    under another app's window is marked `[covered]` (tap refuses it: bring its app forward first). `pointer` /
+    MCP `sim_pointer` drive the iPad's mouse; `key cmd+a` etc. are hardware-keyboard shortcuts.
+  - *Apple TV*: no touches; the snapshot ends with `focus: @e13 ...`. `tap TARGET` moves the focus there with the
+    remote's arrows and presses select (`long-press`: select held); `scroll` / `swipe` move the focus; `press menu`
+    is back, `press tv` home. `type` writes into tvOS's full-screen keyboard; leave it with `tap Done`.
+  - *Apple Watch*: touches, `crown DELTA` (MCP `sim_crown`, ~120 a row) to scroll; `press home` is the crown press
+    (face <-> app grid). A text field opens watchOS's input sheet, listed in the snapshot; `type` then `tap Done`.
+  - *Vision Pro*: (x,y) are points in each app's own window, not display positions: `tap TARGET` acts through
+    accessibility (activate, else a tap made inside the app), `scroll` moves the front app's scroll view, `press
+    home` (Digital Crown) toggles the Home View. A point cannot be tapped; `pointer at NX NY` + `pointer click` drive
+    the system pointer by display position.
+  - tvOS and watchOS have no `ui appearance` and no `status_bar` overrides (unsupported, as in Apple's simulator),
+    and no software keyboard to toggle.
 - Settings changes (`ui`, `status_bar`, `locale`) on a phone that is off apply at its next boot.
 - Stop a phone with `x86sim-aot --device NAME sim stop` (or MCP `sim_stop`), never by signalling processes; kill only
   PIDs you started, never `pkill -f`.

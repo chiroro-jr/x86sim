@@ -37,7 +37,7 @@ entitlement-gated services) is not counted as an x86Sim gap.
 | Terminate, uninstall, `listapps`, `get_app_container` | yes | same | regression apps |
 | Build apps | `x86sim dev` (omarchy-apple-dev: Swift, xtool, the iOS SDK from Xcode's `.xip`; Flutter, Kotlin Multiplatform; Xcode project conversion) | close: no Xcode IDE, no Interface Builder canvas, no SwiftUI previews; `actool`, `ibtool`, `momc`, `xcstringstool` have Linux versions | `x86sim dev test` on a phone |
 | Debugger (LLDB attach to a simulator app) | none | gap (`device-run.sh` attaches LLDB on a *real* iPhone) | no debugserver in the repo |
-| XCTest / XCUITest runs (`xcodebuild test-without-building`) | `x86sim test`, MCP `xctest_run`: an `.xctestrun` or bundles; app-hosted unit tests (`libXCTestBundleInject`), logic tests (`xctest`), UI tests (runner + `testmanagerd`, the `xctest` feature); per-test results with `file:line`, JUnit XML, JSON, exit 0 / 1 | close: same results; no IDE session, so no `.xcresult` bundle, attachments, screen recordings or code coverage; XCTest's frameworks come from Xcode (`sdks/` or the `x86sim dev` SDK) | `tests/apps/XCTestDemo/run.sh`: 14 tests (hosted, logic, UI; passes, deliberate failures, a skip) = Apple's iOS 27.2 simulator; Swift package tests with Swift Testing; iOS only |
+| XCTest / XCUITest runs (`xcodebuild test-without-building`) | `x86sim test`, MCP `xctest_run`: an `.xctestrun` or bundles; app-hosted unit tests (`libXCTestBundleInject`), logic tests (`xctest`), UI tests (runner + `testmanagerd`, the `xctest` feature); per-test results with `file:line`, JUnit XML, JSON, exit 0 / 1 | close: same results; no IDE session, so no `.xcresult` bundle, attachments, screen recordings or code coverage; XCTest's frameworks come from Xcode (`sdks/` or the `x86sim dev` SDK) | `tests/apps/XCTestDemo/run.sh`: 14 tests (hosted, logic, UI; passes, deliberate failures, a skip) = Apple's iOS 27.2 simulator; the same on iPad, tvOS and visionOS (all 14), watchOS unit + logic (its UI tests fail here); Swift package tests with Swift Testing |
 | Build test bundles (`xcodebuild build-for-testing`) | Swift packages: `x86sim dev test --xctest` (`swift build --build-tests` for the simulator, then run) | gap for Xcode projects: app unit test targets and UI test runners need Xcode on a Mac | `tests/apps/XCTestDemo/spm` |
 | Safari Web Inspector | none (the runtime's `webinspectord` is there, no host side) | gap | |
 | Instruments, Memory Graph, view debugger | none | gap | |
@@ -61,11 +61,11 @@ entitlement-gated services) is not counted as an x86Sim gap.
 | Game controller | `x86sim gamepad`, MCP `sim_gamepad` | same | inputs.sh |
 | iPad pointer and trackpad | `pointer`, `trackpad on\|off`, MCP `sim_pointer`, `sim_system` | close: trackpad gestures are not simulated (as Apple's "Simulate Trackpad"; pinch / pan2 instead) | GCMouse input unreachable on Apple's side too |
 | Digital Crown, watch side button, hand gestures | `crown`, `button side`, `gesture doubletap\|wristflick` | same | |
-| Apple TV Siri Remote | on-screen remote; arrows, Return, Escape; `button select\|menu\|playpause\|tv` | close: the keyboard stands in for the remote's services | |
+| Apple TV Siri Remote | on-screen remote; arrows, Return, Escape; `button select\|menu\|playpause\|tv` | close: the keyboard stands in for the remote's services | browser viewer's remote driven from headless Chrome (2026-11-24) |
 | Vision Pro look and pinch | mouse, `pointer`, `crown` | close: Apple's Mac simulator was not available for comparison (no Simulator.app on the reference Mac) | unverified |
 | iPhone Duo hinge | slider and DeviceHub poses; MCP `sim_fold` | same | on phones |
-| Appearance, Dynamic Type, Increase Contrast, Reduce Transparency / Motion | `x86sim ui`, MCP `sim_ui` | same | on phones |
-| Status bar overrides | `x86sim status_bar`, MCP `sim_status_bar` | same | on phones (dark at 9:41) |
+| Appearance, Dynamic Type, Increase Contrast, Reduce Transparency / Motion | `x86sim ui`, MCP `sim_ui` | same; appearance is "unsupported" on tvOS and watchOS, as Apple's (`simctl ui appearance`: ENOTSUP) | on phones, iPad, Vision Pro; Apple's answers on the Mac (2026-11-24) |
+| Status bar overrides | `x86sim status_bar`, MCP `sim_status_bar` | same; not supported on tvOS and watchOS, as Apple's | on phones (dark at 9:41), iPad, Vision Pro |
 | Pasteboard | `pbcopy`, `pbpaste`, `pbsync` (Linux clipboard) | same | on phones |
 | Language, region, time zone | `locale`, `timezone` | same (time zone applies at the next boot) | on phones |
 | Keychain | `keychain reset` | close: no `add-cert` / `add-root-cert` | reset checked with a probe app |
@@ -110,14 +110,20 @@ entitlement-gated services) is not counted as an x86Sim gap.
 |---|---|---|
 | The screen as text | `x86sim snapshot`, MCP `snapshot`: the app's accessibility elements (UIKit, SwiftUI), web content, SpringBoard alerts, home screen, status bar, with stable refs and diffs | better: simctl has none; XCUITest reads the same tree only inside a test bundle |
 | Act on elements | `tap`, `type`, `key`, `scroll`, `scroll_to`, `swipe`, `long_press`, `press`, `wait_for` by ref, identifier, label or point; each answers with the settled screen | better |
+| iPad windows | windowed apps placed where they show, the top window's app first, elements under another window `[covered]` | better |
+| Apple TV | the focus in the snapshot; `tap` moves the focus with the remote and selects (as XCUIRemote), `scroll` / `swipe` move it | better |
+| Apple Watch | face, app grid, the text input sheet (type into it); crown | better |
+| Vision Pro | windows' elements in their own points; `tap` through accessibility (activate, else a tap made in the app), `scroll` the front app's scroll view; no display points | close: no tap at a display point (windows float in 3D); `sim_pointer` for that |
 | Screenshot in points | MCP `screenshot` (default) | better: coordinates match the snapshot |
 | MCP server | `x86sim-mcp`, 70 tools | unverified against what Xcode 27 ships for agents |
 | Device pool with leases | `x86sim pool`, MCP `phone_take` / `phone_release` | better |
 | Build-install-launch in one call | `x86sim dev run`, MCP `dev_run` | close to `xcodebuild` + `simctl` |
 | Watch or drive a device from a browser, share it | `x86sim serve`, MCP `share_*`, Tailscale / cloudflared | better: Apple has no browser streaming |
 
-Element snapshots are verified on iPhone and iPad; the reader is built for tvOS, watchOS and visionOS but has had
-little use there.
+Element snapshots and actions are verified on iPhone, iPad (windowed apps, landscape, keyboard, pointer), Apple TV,
+Apple Watch and Vision Pro (2026-11-24). XCTestDemo (`tests/apps/XCTestDemo/run.sh`) gives Apple's results on iPad,
+Apple TV and Vision Pro (unit, logic and UI tests) and on Apple Watch for unit and logic tests; watchOS UI tests fail
+here with XCTest's "Lost connection to the application" (open).
 
 ## Multi-device
 
