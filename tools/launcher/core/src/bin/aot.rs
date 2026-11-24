@@ -326,6 +326,8 @@ fn run() -> Result<()> {
                     bail!("not deleted");
                 }
             }
+            // the answer may have taken a while: a phone started meanwhile must block the delete (as the GUI re-plans)
+            plan = rtdelete::plan(&r);
             if stop && !plan.running_devices().is_empty() {
                 rtdelete::stop_devices(&plan, 120)?;
                 plan = rtdelete::plan(&r);

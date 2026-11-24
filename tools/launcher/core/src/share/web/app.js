@@ -2,8 +2,13 @@
 "use strict";
 
 const qs = new URLSearchParams(location.search);
-let TOKEN = qs.get("t") || sessionStorage.getItem("x86sim_t") || "";
-if (qs.get("t")) sessionStorage.setItem("x86sim_t", TOKEN);
+let TOKEN = qs.get("t") || (() => { try { return sessionStorage.getItem("x86sim_t"); } catch { return null; } })() || "";
+if (qs.get("t")) {
+  try { sessionStorage.setItem("x86sim_t", TOKEN); } catch {}
+  // the token out of the address bar and the history (this tab keeps it, and the server set its cookie)
+  qs.delete("t");
+  history.replaceState(null, "", location.pathname + (qs.toString() ? "?" + qs : "") + location.hash);
+}
 let ME = null;
 const $ = (s, el = document) => el.querySelector(s);
 const main = $("#main");
@@ -82,7 +87,8 @@ async function boot() {
   role.textContent = ME.role === "control" ? "Watch and drive" : "Watching only";
   role.classList.toggle("view", ME.role !== "control");
   if (ME.expires) role.title = "Link expires " + new Date(ME.expires * 1000).toLocaleString();
-  if (ME.role === "control") {
+  // tunnels and links are the server owner's (a link can't make more links)
+  if (ME.owner) {
     const b = $("#shareBtn");
     b.hidden = false;
     b.onclick = () => openShare(currentPhone);

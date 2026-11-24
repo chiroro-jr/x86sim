@@ -949,6 +949,8 @@ static void serve(int fd) {
 		if (n < 0 && errno == EINTR) continue;
 		if (n <= 0) break;
 		[buf appendBytes:tmp length:n];
+		// a request is one JSON line: past 4 MB without a newline the connection is dropped
+		if (buf.length > (4u << 20) && !memchr(buf.bytes, '\n', buf.length)) break;
 		for (;;) {
 			const char* b = buf.bytes;
 			const char* nl = memchr(b, '\n', buf.length);
@@ -958,7 +960,11 @@ static void serve(int fd) {
 			@autoreleasepool {
 				NSDictionary* req = [NSJSONSerialization JSONObjectWithData:line options:0 error:nil];
 				if (![req isKindOfClass:[NSDictionary class]]) req = @{ @"op": @"info" };
-				double timeout = req[@"timeout"] ? [req[@"timeout"] doubleValue] : 5.0;
+				// this runs outside the @try below: a timeout that is no number ("timeout": []) must not raise here
+				id tv = req[@"timeout"];
+				double timeout = [tv isKindOfClass:[NSNumber class]] ? [tv doubleValue] : 5.0;
+				if (!(timeout >= 0.1)) timeout = 0.1;
+				if (timeout > 600) timeout = 600;
 				__block NSData* answer = nil;
 				dispatch_semaphore_t sem = dispatch_semaphore_create(0);
 				uint64_t t0 = clock_gettime_nsec_np(CLOCK_MONOTONIC);

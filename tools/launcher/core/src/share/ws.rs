@@ -52,6 +52,18 @@ pub fn read(s: &mut impl Read) -> std::io::Result<Msg> {
         let fin = h[0] & 0x80 != 0;
         let op = h[0] & 0x0f;
         let masked = h[1] & 0x80 != 0;
+        let bad = |m: &str| Err(std::io::Error::new(std::io::ErrorKind::InvalidData, m.to_string()));
+        // a client's frames are masked (RFC 6455 5.1); only the defined opcodes; a continuation only after a first
+        // fragment, a new data frame only when none is open
+        if !masked {
+            return bad("unmasked client frame");
+        }
+        if !matches!(op, 0 | 1 | 2 | 8 | 9 | 0xa) {
+            return bad("reserved opcode");
+        }
+        if (op == 0 && first_op.is_none()) || (matches!(op, 1 | 2) && first_op.is_some()) {
+            return bad("bad fragment sequence");
+        }
         let mut len = (h[1] & 0x7f) as u64;
         if len == 126 {
             let mut b = [0u8; 2];
@@ -151,6 +163,10 @@ mod tests {
         match read(&mut std::io::Cursor::new(wire)).unwrap() {
             Msg::Text(t) => assert_eq!(t, "Hello"),
             _ => panic!(),
+        }
+        // unmasked, reserved opcode, a continuation with nothing open: refused
+        for w in [vec![0x81u8, 0x01, b'x'], vec![0x83, 0x80, 0, 0, 0, 0], vec![0x80, 0x80, 0, 0, 0, 0]] {
+            assert!(read(&mut std::io::Cursor::new(w)).is_err());
         }
         let mut out = vec![];
         write(&mut out, 2, &vec![7u8; 300]).unwrap();

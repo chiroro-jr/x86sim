@@ -1,7 +1,8 @@
 //! x86sim-devapp: turn an .ipa / .xcarchive / device .app into a simulator .app (x86sim-core's devapp module).
 //! `x86sim install` runs it before installing; on its own:
 //!   x86sim-devapp convert INPUT [--work DIR] [--json]   prints the .app to install (the input for a simulator .app)
-//!   x86sim-devapp inspect INPUT [--json]                what it is: platform, encryption, slices per binary
+//!   x86sim-devapp inspect INPUT [--json]                what it is: platform, encryption, slices per binary (changes
+//!                                                       nothing; an .ipa is unpacked into a work dir, removed after)
 use x86sim_core::devapp;
 
 fn main() {
@@ -13,13 +14,13 @@ fn main() {
         std::process::exit(2);
     };
     let work = work.unwrap_or_else(|| devapp::work_dir().join(format!("{}-{}", if cmd == "inspect" { "inspect" } else { "convert" }, std::process::id())));
-    let r = devapp::prepare(std::path::Path::new(input), &work);
+    let r = if cmd == "inspect" { devapp::inspect(std::path::Path::new(input), &work) } else { devapp::prepare(std::path::Path::new(input), &work) };
     match r {
         Ok(p) => {
             if json {
                 println!("{}", serde_json::to_string_pretty(&p).unwrap_or_default());
             } else if cmd == "inspect" {
-                println!("{}: {}{}", input, p.kind, if p.converted { " (converted for the simulator)" } else { "" });
+                println!("{}: {}", input, p.kind);
                 for b in &p.binaries {
                     println!("  {:<50} {}{}{}", b.path, b.platform_name, if b.entitlements { ", entitlements" } else { "" }, if b.dropped_slices.is_empty() { String::new() } else { format!(", dropped {}", b.dropped_slices.join(" ")) });
                 }

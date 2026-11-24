@@ -60,6 +60,9 @@ pub struct Member {
     pub lease: Option<Lease>,
     /// the reset worker's pid while resetting
     pub worker: Option<u32>,
+    /// its start time (proc_start): a pid reused by another process (another x86sim-pool even) is not our worker
+    #[serde(default)]
+    pub worker_start: Option<u64>,
     /// last event (reaped: holder gone, reset failed: ...)
     pub note: String,
 }
@@ -97,9 +100,15 @@ pub fn proc_start(pid: u32) -> Option<u64> {
     f.get(19)?.parse().ok()
 }
 
-/// Our reset worker still runs as `pid`
-fn worker_running(pid: u32) -> bool {
-    proc_start(pid).is_some() && std::fs::read_to_string(format!("/proc/{pid}/comm")).is_ok_and(|c| c.trim() == "x86sim-pool")
+/// The member's reset worker still runs (its pid with the start time recorded; a state file from before start times
+/// were recorded: an x86sim-pool at that pid)
+fn worker_running(m: &Member) -> bool {
+    let Some(pid) = m.worker else { return false };
+    match (proc_start(pid), m.worker_start) {
+        (None, _) => false,
+        (Some(s), Some(w)) => s == w,
+        (Some(_), None) => std::fs::read_to_string(format!("/proc/{pid}/comm")).is_ok_and(|c| c.trim() == "x86sim-pool"),
+    }
 }
 
 fn holder_alive(l: &Lease) -> bool {
@@ -111,18 +120,34 @@ fn holder_alive(l: &Lease) -> bool {
 
 /// The pool's state under its lock: `f` reads and changes it; it is saved when `f` returns Ok.
 pub fn with_state<T>(pool: &str, f: impl FnOnce(&mut State) -> Result<T>) -> Result<T> {
-    check_name(pool)?;
-    std::fs::create_dir_all(dir())?;
-    let lock = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(dir().join(format!("{pool}.lock")))?;
-    use std::os::fd::AsRawFd;
-    // SAFETY: flock on an fd we own; released when `lock` is dropped
-    anyhow::ensure!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) } == 0, "locking the pool");
+    let lock = lock_pool(pool)?;
     let path = dir().join(format!("{pool}.json"));
     let mut st: State = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_else(|| State { pool: pool.into(), ..Default::default() });
     let r = f(&mut st)?;
     crate::aot::write_json(&path, &st)?;
     drop(lock);
     Ok(r)
+}
+
+/// The pool's lock, held (exclusive) until the file is dropped. The lock file can be removed (down --delete, holding
+/// it): a waiter that then gets the lock on the removed file sees it is no longer the one at the path and opens again,
+/// so two processes never both "hold" it.
+fn lock_pool(pool: &str) -> Result<std::fs::File> {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::MetadataExt;
+    check_name(pool)?;
+    std::fs::create_dir_all(dir())?;
+    let path = dir().join(format!("{pool}.lock"));
+    for _ in 0..100 {
+        let lock = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(&path)?;
+        // SAFETY: flock on an fd we own; released when `lock` is dropped
+        anyhow::ensure!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) } == 0, "locking the pool");
+        let (held, now) = (lock.metadata()?, std::fs::metadata(&path));
+        if now.is_ok_and(|n| n.ino() == held.ino() && n.dev() == held.dev()) {
+            return Ok(lock);
+        }
+    }
+    anyhow::bail!("locking the pool: its lock file keeps changing")
 }
 
 pub fn template_name(pool: &str) -> String {
@@ -191,6 +216,7 @@ fn spawn_reset(st: &mut State, id: &str, mode: &str, why: &str) -> Result<()> {
     let mut child = cmd.spawn().context("starting the reset worker")?;
     m.state = "resetting".into();
     m.worker = Some(child.id());
+    m.worker_start = proc_start(child.id());
     // a long-lived caller (the MCP server, the hub) waits for it, so it leaves no zombie
     std::thread::spawn(move || {
         let _ = child.wait();
@@ -231,10 +257,11 @@ fn reap(st: &mut State) {
                     }
                 }
             }
-            "resetting" if m.worker.is_none_or(|p| !worker_running(p)) => {
+            "resetting" if !worker_running(&m) => {
                 let mm = st.members.get_mut(&id).unwrap();
                 mm.state = "free".into();
                 mm.worker = None;
+                mm.worker_start = None;
             }
             _ => {}
         }
@@ -822,8 +849,8 @@ pub fn down(pool: &str, delete: bool, force: bool, log: &mut dyn FnMut(&str)) ->
     anyhow::ensure!(force || busy.is_empty(), "taken or resetting: {} (--force to stop them anyway)", busy.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "));
     for id in st.members.keys() {
         // a reset worker still running would boot it again
-        if let Some(p) = st.members[id].worker.filter(|p| worker_running(*p)) {
-            // SAFETY: the worker pid recorded for this member, checked to be our worker
+        if let Some(p) = st.members[id].worker.filter(|_| worker_running(&st.members[id])) {
+            // SAFETY: the worker pid recorded for this member, checked to be our worker (pid and start time)
             unsafe {
                 libc::kill(p as i32, libc::SIGTERM);
             }
@@ -853,8 +880,11 @@ pub fn down(pool: &str, delete: bool, force: bool, log: &mut dyn FnMut(&str)) ->
             instance::delete(&inst, s.first())?;
             log(&format!("deleted {id}"));
         }
+        // removed while holding the lock (lock_pool: a waiter on the old file opens the path again)
+        let lock = lock_pool(pool)?;
         let _ = std::fs::remove_file(dir().join(format!("{pool}.json")));
         let _ = std::fs::remove_file(dir().join(format!("{pool}.lock")));
+        drop(lock);
         for e in std::fs::read_dir(dir()).into_iter().flatten().flatten() {
             if e.file_name().to_string_lossy().starts_with(&format!("{pool}.device-a64-")) {
                 let _ = std::fs::remove_file(e.path());
@@ -866,6 +896,7 @@ pub fn down(pool: &str, delete: bool, force: bool, log: &mut dyn FnMut(&str)) ->
                 m.state = "free".into();
                 m.lease = None;
                 m.worker = None;
+                m.worker_start = None;
             }
             Ok(())
         })?;
@@ -887,6 +918,42 @@ mod tests {
         let gone = Lease { holder_pid: Some(0x3fff_fff0), holder_start: Some(1), ..Default::default() };
         assert!(!holder_alive(&gone));
         assert!(holder_alive(&Lease::default()));
+    }
+
+    #[test]
+    fn workers_by_pid_and_start_time() {
+        let me = std::process::id();
+        let m = |pid: Option<u32>, start: Option<u64>| Member { worker: pid, worker_start: start, ..Default::default() };
+        assert!(worker_running(&m(Some(me), proc_start(me))));
+        // the pid reused by another process (here: this test, under another start time) is not our worker
+        assert!(!worker_running(&m(Some(me), proc_start(me).map(|s| s + 1))));
+        assert!(!worker_running(&m(Some(0x3fff_fff0), Some(1))));
+        assert!(!worker_running(&m(None, None)));
+    }
+
+    #[test]
+    fn a_removed_lock_file_is_not_held_twice() {
+        // a pool name of this test's own; its lock and state live in var/pool
+        let pool = format!("t{}", std::process::id() % 100000);
+        let a = lock_pool(&pool).unwrap();
+        let p = dir().join(format!("{pool}.lock"));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let pool2 = pool.clone();
+        let waiter = std::thread::spawn(move || {
+            let l = lock_pool(&pool2).unwrap();
+            use std::os::unix::fs::MetadataExt;
+            tx.send(l.metadata().unwrap().ino()).unwrap();
+            l
+        });
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        // removed while held (down --delete); a third process opens the new file
+        std::fs::remove_file(&p).unwrap();
+        drop(a);
+        let ino = rx.recv().unwrap();
+        use std::os::unix::fs::MetadataExt;
+        assert_eq!(ino, std::fs::metadata(&p).unwrap().ino(), "the waiter holds the file at the path, not the removed one");
+        drop(waiter.join().unwrap());
+        let _ = std::fs::remove_file(&p);
     }
 
     #[test]

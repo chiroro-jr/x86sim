@@ -61,6 +61,70 @@ def running(dev=DEV):
     return False
 
 
+def boot_processes(dev=DEV):
+    """Pids of anything booting, running or stopping the phone: a process whose environment names it (A64_DEVICE: the
+    launcher's boot-a64.sh, and everything boot-a64.sh starts after it exports it; a relative one resolved against the
+    process's cwd), a boot-a64.sh started without A64_DEVICE (the default phone), or its launchd_sim. running() alone
+    missed a phone still starting (no launchd_sim yet)."""
+    real = os.path.realpath(dev)
+    default = os.path.realpath(os.path.join(ROOT, "var/device-a64"))
+    # ourselves and our ancestors (a shell that exported A64_DEVICE runs this erase) are not the phone
+    mine, q = set(), os.getpid()
+    while q > 1 and q not in mine:
+        mine.add(q)
+        try:
+            q = int(open("/proc/%d/stat" % q).read().rsplit(")", 1)[1].split()[1])
+        except (OSError, ValueError, IndexError):
+            break
+    out = []
+    for p in os.listdir("/proc"):
+        if not p.isdigit() or int(p) in mine:
+            continue
+        try:
+            env = open("/proc/%s/environ" % p, "rb").read().split(b"\0")
+            cmd = open("/proc/%s/cmdline" % p, "rb").read()
+        except OSError:
+            continue
+        val = next((e[len(b"A64_DEVICE="):].decode(errors="replace") for e in env if e.startswith(b"A64_DEVICE=")), None)
+        if val is not None:
+            if not os.path.isabs(val):
+                try:
+                    val = os.path.join(os.readlink("/proc/%s/cwd" % p), val)
+                except OSError:
+                    continue
+            if os.path.realpath(val) == real:
+                out.append(int(p))
+        elif b"boot-a64.sh" in cmd and real == default:
+            out.append(int(p))
+    if running(dev):
+        out.append(-1)
+    return out
+
+
+class Lifecycle:
+    """An exclusive flock on <phone>/.lifecycle.lock while erase / clone work: boot-a64.sh refuses to start a phone
+    whose lock is held (it checks after its own process exists, and erase checks for boot processes after taking the
+    lock: whichever comes second sees the other)."""
+
+    def __init__(self, dev, what):
+        self.dev, self.what = dev, what
+
+    def __enter__(self):
+        import fcntl
+        self.f = open(os.path.join(self.dev, ".lifecycle.lock"), "a")
+        try:
+            fcntl.flock(self.f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            die("x86sim %s: the phone is being erased or cloned already" % self.what)
+        if boot_processes(self.dev):
+            die("x86sim %s: stop the phone first: it is running, starting or stopping (as simctl: Unable to %s in "
+                "current state: Booted)" % (self.what, self.what))
+        return self
+
+    def __exit__(self, *a):
+        self.f.close()
+
+
 def helper(cmd, timeout=30, **kw):
     import simctl
     return simctl.check(simctl.request(cmd, timeout=timeout, **kw), cmd)
@@ -257,10 +321,12 @@ def need_running(what):
 
 def pbcopy(a):
     need_running("pbcopy")
-    if "--host" in a:
+    # "--": everything after it is the text, even "--host"
+    opts, text = (a[:a.index("--")], a[a.index("--") + 1:]) if "--" in a else ([x for x in a if x == "--host"], [x for x in a if x != "--host"])
+    if "--host" in opts:
         s = host_get()
-    elif [x for x in a if x != "--host"]:
-        s = " ".join(x for x in a if x != "--host")
+    elif text:
+        s = " ".join(text)
     else:
         s = sys.stdin.read()
     helper("pasteboard", action="set", string=s)
@@ -374,7 +440,7 @@ def timezone(a):
             except FileNotFoundError:
                 pass
         else:
-            if not os.path.exists(os.path.join("/usr/share/zoneinfo", z)) or ".." in z:
+            if z.startswith(("/", "-")) or ".." in z or not os.path.isfile(os.path.join("/usr/share/zoneinfo", z)):
                 die("x86sim timezone: unknown zone %r (an Olson name such as Europe/Paris, or host)" % z, 2)
             with open(f, "w") as fh:
                 fh.write(z + "\n")
@@ -444,10 +510,13 @@ def own_phone(what):
 
 def erase(a):
     own_phone("erase")
-    if running():
-        die("x86sim erase: stop the phone first (as simctl erase: Unable to erase contents and settings in current state: Booted)")
     if is_default(DEV) and "--force" not in a:
         die("x86sim erase: this is the main phone (var/device-a64); add --force to erase it anyway")
+    with Lifecycle(DEV, "erase"):
+        erase_locked()
+
+
+def erase_locked():
     data = os.path.join(DEV, "data")
     if os.path.isdir(data):
         shutil.rmtree(data)
@@ -466,24 +535,35 @@ def erase(a):
 
 
 def clone(a):
+    if a[:1] == ["--"]:
+        a = a[1:]
     if not a:
         die("usage: x86sim clone NEWNAME", 2)
     name = " ".join(a)
     own_phone("clone")
-    if running():
-        die("x86sim clone: stop the phone first (as simctl clone)")
     slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:24].strip("-")
     if not slug:
         die("x86sim clone: give the new phone a name", 2)
+    with Lifecycle(DEV, "clone"):
+        clone_locked(name, slug)
+
+
+def clone_locked(name, slug):
     new = os.path.join(os.path.realpath(os.path.join(ROOT, "var")), "device-a64-" + slug)
-    if os.path.exists(new):
+    # made here (atomically: a second clone of the same name fails), then filled
+    try:
+        os.mkdir(new)
+    except FileExistsError:
         die("x86sim clone: %s exists" % new)
     # reflinks: a clone costs no space until it changes; the source is never written
-    subprocess.run(["cp", "-a", "--reflink=auto", DEV, new], check=True)
+    r = subprocess.run(["cp", "-a", "--reflink=auto", DEV + "/.", new])
+    if r.returncode != 0:
+        shutil.rmtree(new, ignore_errors=True)
+        die("x86sim clone: copying failed")
     for x in ("var/log", "var/run", "tmp"):
         shutil.rmtree(os.path.join(new, "data", x), ignore_errors=True)
         os.makedirs(os.path.join(new, "data", x))
-    for x in ("data/simhid.sock", "data/framebuffer.bgra", "launcher.json.lock"):
+    for x in ("data/simhid.sock", "data/framebuffer.bgra", "launcher.json.lock", ".lifecycle.lock"):
         try:
             os.unlink(os.path.join(new, x))
         except OSError:
