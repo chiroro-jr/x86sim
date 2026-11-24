@@ -221,7 +221,12 @@ fn reap(st: &mut State) {
                 };
                 if let Some(why) = why {
                     let mode = if l.reset.is_empty() { "apps".to_string() } else { l.reset.clone() };
-                    if let Err(e) = spawn_reset(st, &id, &mode, &why) {
+                    if mode == "none" {
+                        let mm = st.members.get_mut(&id).unwrap();
+                        mm.state = "free".into();
+                        mm.lease = None;
+                        mm.note = format!("{why}; no reset");
+                    } else if let Err(e) = spawn_reset(st, &id, &mode, &why) {
                         st.members.get_mut(&id).unwrap().note = format!("{why}; reset failed to start: {e:#}");
                     }
                 }
@@ -328,9 +333,11 @@ pub fn clone_phone(tpl: &Instance, name: &str) -> Result<PathBuf> {
     }
     std::fs::write(dst.join("name"), format!("{name}\n"))?;
     let root = repo_root();
-    let st = Command::new("python3").arg(root.join("cli/libexec/arm64/device-repath.py")).arg(&dst).arg(&tpl.dir).stdout(Stdio::null()).status()?;
-    if !st.success() {
-        eprintln!("pool: device-repath.py reported leftovers for {name} (see above); continuing");
+    // without it the clone's apps would run in the template's containers: a failure is fatal
+    let out = Command::new("python3").arg(root.join("cli/libexec/arm64/device-repath.py")).arg(&dst).arg(&tpl.dir).output()?;
+    if !out.status.success() {
+        let _ = std::fs::remove_dir_all(&dst);
+        bail!("device-repath.py {name}: {}", String::from_utf8_lossy(&out.stderr).trim());
     }
     let out = Command::new("python3")
         .arg(root.join("cli/libexec/mksimdevice.py"))
@@ -378,6 +385,30 @@ fn running(id: &str) -> bool {
     live().get(id).is_some_and(|s| s.state != "off")
 }
 
+/// Processes whose command line names the phone's data dir (as device-repath.py's and boot-a64.sh's check): after a
+/// stop, Darling's processes of the phone take a few seconds more to end than its launchd_sim
+fn phone_procs(dev: &Path) -> usize {
+    let key = format!("{}/data/", dev.canonicalize().unwrap_or_else(|_| dev.to_path_buf()).display());
+    std::fs::read_dir("/proc")
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().bytes().all(|b| b.is_ascii_digit()))
+        .filter(|e| std::fs::read(e.path().join("cmdline")).is_ok_and(|c| c.windows(key.len()).any(|w| w == key.as_bytes())))
+        .count()
+}
+
+/// Waits until a stopped phone has no process left (up to `secs`)
+fn wait_gone(dev: &Path, secs: u64) -> Result<()> {
+    for _ in 0..secs {
+        if phone_procs(dev) == 0 {
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+    bail!("{}: {} process(es) still run after its stop", dev.display(), phone_procs(dev))
+}
+
 /// Boots the pool's template once to its home screen and stops it: clones start from a phone that booted
 pub fn prepare_template(tpl: &Instance, log: &mut dyn FnMut(&str)) -> Result<()> {
     if instance::home_marker(&tpl.dir).exists() {
@@ -396,7 +427,7 @@ pub fn prepare_template(tpl: &Instance, log: &mut dyn FnMut(&str)) -> Result<()>
         }
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
-    Ok(())
+    wait_gone(&tpl.dir, 90)
 }
 
 #[derive(Debug, Clone, Default)]
@@ -439,6 +470,7 @@ pub fn up(pool: &str, n: usize, o: &UpOpts, log: &mut dyn FnMut(&str)) -> Result
     };
     anyhow::ensure!(!running(&tpl.id), "{} is running: stop it first (clones are copied from it)", tpl.name);
     prepare_template(&tpl, log)?;
+    wait_gone(&tpl.dir, 30)?;
     // members 1..n (clones)
     let reflink = reflink_supported();
     for i in 1..=n {
@@ -667,6 +699,7 @@ pub fn reset_worker(pool: &str, id: &str, mode: &str, apps_at_take: &[String]) -
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
             anyhow::ensure!(!running(id), "{id} did not stop");
+            wait_gone(&inst.dir, 90)?;
             let name = inst.id.strip_prefix("device-a64-").unwrap_or(&inst.id).to_string();
             std::fs::remove_dir_all(&inst.dir)?;
             clone_phone(&tpl, &name)?;
