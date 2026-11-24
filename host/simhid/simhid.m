@@ -852,20 +852,26 @@ static void handle_line(char* line, Client* cl) {
 		if (!hinge_svc.service) { slog("no hinge on this device: %s", line); return; }
 		double to = !strcmp(line, "fold") ? 0 : !strcmp(line, "unfold") ? 180 : deg < 0 ? 0 : deg > 180 ? 180 : deg;
 		// a hinge moving as a hand opens it: 100 Hz reports (the ReportInterval CoreMotion sets) over <ms> with the
-		// velocity, phase Began / Changed / Ended (IOHIDEventPhase 1 / 2 / 4); the device state follows the angle
+		// velocity, phase Began / Changed / Ended (IOHIDEventPhase 1 / 2 / 4); the device state follows the angle.
+		// At least a report per degree, so every whole degree on the way is seen (the relay takes whole degrees):
+		// a fast move reports faster than 100 Hz rather than skipping angles.
 		double from = hinge_deg;
+		if (ms < 0) ms = 0;
 		int steps = ms > 0 ? (ms + 9) / 10 : 0;
+		int per_deg = (int)ceil(fabs(to - from));
+		if (ms > 0 && per_deg > steps) steps = per_deg;
+		useconds_t step_us = steps > 0 ? (useconds_t)(ms * 1000 / steps) : 0;
 		slog("hinge %.1f -> %.1f in %d ms", from, to, ms);
 		avp_send_pose();   // the relay's other inputs (it may have started after the last command)
 		for (int i = 1; i <= steps; i++) {
 			hinge_deg = from + (to - from) * i / steps;
-			hinge_vel = (to - from) * 1000.0 / ms;
+			hinge_vel = ms > 0 ? (to - from) * 1000.0 / ms : 0;
 			hinge_phase = i == 1 ? 1 : 2;
 			dispatch_event(&hinge_svc, hinge_event());
 			avp_send_angle(hinge_deg);   // as Simulator's hinge slider while it is dragged
 			if (i == 1) post_device_state(hinge_deg);
 			pthread_mutex_unlock(&cmd_mu);
-			usleep(10000);
+			usleep(step_us);
 			pthread_mutex_lock(&cmd_mu);
 		}
 		hinge_deg = to; hinge_vel = 0; hinge_phase = 4;
