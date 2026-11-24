@@ -19,6 +19,8 @@ pub mod logs;
 pub mod pool;
 pub mod macho;
 pub mod ring;
+/// Web Inspector: Safari and WKWebView pages over webinspectord (RWI)
+pub mod rwi;
 pub mod rtdelete;
 pub mod setup;
 /// Share: phones in a browser (x86sim serve)

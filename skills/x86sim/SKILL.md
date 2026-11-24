@@ -166,6 +166,18 @@ x86sim serve status | x86sim serve stop
 Links off this machine carry a token; `--ttl` makes them expire. Public tunnels expose a phone to anyone with the
 link: use them only when asked.
 
+## 9. Web pages (Safari, WKWebView)
+
+```sh
+x86sim inspect qa --list                      # inspectable pages: id, app, title, URL
+x86sim inspect qa --url example.com           # WebKit's Web Inspector on that page, in the browser
+```
+
+MCP: `web_targets`, `web_eval` (`expression`; a promise is awaited), `web_console` (`follow_s`), `web_dom`
+(`selector`), `web_network` (`follow_s`); `target` is a page id from `web_targets`, text in its URL or title, or the
+app. Prefer them to screenshots for web content: the DOM and console say what a page did. An app's WKWebView shows
+up only if the app sets `isInspectable = true` (as on Apple's simulator); Safari's pages always do.
+
 ## Gotchas
 
 - **Destructive commands need an explicit phone, which must be off**: `x86sim erase qa`, `x86sim clone qa qa2`
@@ -202,7 +214,7 @@ link: use them only when asked.
 ## MCP
 
 The same features are MCP tools (`x86sim-mcp`, stdio): `snapshot`, `tap`, `type`, `wait_for`, `screenshot`,
-`app_install`, `app_launch`, `xctest_run`, `phone_take`, `share_start`, `sim_ui`, `app_logs`, `dev_run` and the rest (71 tools;
+`app_install`, `app_launch`, `xctest_run`, `web_eval`, `phone_take`, `share_start`, `sim_ui`, `app_logs`, `dev_run` and the rest (77 tools;
 README.md lists them by group). Every tool takes `phone`.
 
 ```sh

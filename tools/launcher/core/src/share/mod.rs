@@ -3,6 +3,8 @@
 //! tailscale / cloudflared tunnels (tunnel.rs) for other machines. The server writes its state (pid, port, tokens,
 //! tunnels and their URLs) to $XDG_RUNTIME_DIR/x86sim-serve.json (0600): the CLI, the MCP server and the launcher
 //! find it there and talk to it over loopback with its control token.
+/// Web Inspector routes (control role): x86sim inspect, the viewer's Inspect button
+pub mod inspect;
 pub mod server;
 pub mod tunnel;
 pub mod video;

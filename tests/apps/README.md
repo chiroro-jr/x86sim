@@ -9,6 +9,7 @@ and appends it to `Documents/x86test-results.txt` in the app's data container.
 | x86ui | SwiftUI List (200 rows), NavigationStack push/pop, repeating animation, TextField + keyboard, SF Symbols, UIGraphicsImageRenderer → PNG |
 | x86net | URLSession HTTPS GET + JSON, download task, WKWebView page load (+ JS `document.title`) |
 | x86data | UIKit scene lifecycle, Core Data (SQLite store, model built in code), files (write/rename/attributes), UserDefaults, Core Image blur → PNG, local notification (authorization prompt, schedule, delivery) |
+| x86webinspect | two WKWebViews for Web Inspector (`x86sim inspect`, MCP `web_*`): `isInspectable = true` (listed: console logs, a fetch, `window.appValue`) and one without (not listed) |
 
     tests/apps/build.sh [app...]                 build on the Mac (X86SIM_MAC) into $X86SIM_SCRATCH/apps/
     tests/apps/run.sh <phone> [--no-build] [app...]

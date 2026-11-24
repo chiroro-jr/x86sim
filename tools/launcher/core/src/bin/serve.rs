@@ -62,6 +62,10 @@ fn main() {
         libc::signal(libc::SIGPIPE, libc::SIG_DFL);
     }
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // x86sim inspect: Web Inspector for a phone's pages (share/inspect.rs)
+    if args.first().map(String::as_str) == Some("inspect") {
+        std::process::exit(share::inspect::cli(&args[1..]));
+    }
     let mut opts = Options::default();
     let (mut bg, mut open, mut phone, mut sub, mut role, mut link_ttl) = (false, false, None::<String>, None::<String>, Role::View, 3600u64);
     let mut stop_what = None;

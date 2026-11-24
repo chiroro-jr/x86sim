@@ -121,6 +121,12 @@ def host_path(rel):
     return p if os.path.exists(p) else None
 
 
+def rwi_socket(udid, darling_side=False):
+    """x86Sim (Web Inspector): webinspectord's debugger socket for this device (host path, or as the guest sees it)."""
+    p = "/run/user/%d/x86sim-rwi-%s.sock" % (os.getuid(), udid)
+    return "/Volumes/SystemRoot" + p if darling_side else p
+
+
 def darling(path):
     return DARLING_VIEW + path
 
@@ -386,6 +392,17 @@ def main():
         # reclaimed (~100 MB). On a device dasd expires an activity nobody checks in.
         for act in STALE_ACTIVITIES.get(job, ()):
             plist.get("LaunchEvents", {}).get("com.apple.xpc.activity", {}).pop(act, None)
+        # x86Sim (Web Inspector): webinspectord's debugger socket (Safari's Develop menu on a Mac). launchd_sim binds a
+        # SecureSocketWithKey socket in a mkdtemp directory of the device's /private/var/tmp, ~130 bytes on the host, which
+        # Darling truncates to 103 (duct.c: com.apple.launchd.XXXXXXXXXX/com.apple.t, the same name for every such
+        # socket of a job), and it refuses SockPathName ("not supported on this platform"). So no Sockets entry: libsimshim
+        # answers webinspectord's launch_activate_socket with a socket it binds at X86SIM_RWI_SOCKET, a short host path in
+        # /run/user (the simax convention), where the launcher's RWI client (tools/launcher/core/src/rwi.rs) connects with
+        # no Darling code in the way. The job stays on demand (MachServices): the launcher wakes it with an XPC message
+        # through host/openurl (xpcping) when it finds nobody listening.
+        if job == "com.apple.webinspectord":
+            plist.pop("Sockets", None)
+            plist.setdefault("EnvironmentVariables", {})["X86SIM_RWI_SOCKET"] = rwi_socket(udid, darling_side=True)
         # x86Sim: X86SIM_JOBENV="label:K=V;label:K=V": extra environment for runtime jobs (experiments)
         for kv in filter(None, os.environ.get("X86SIM_JOBENV", "").split(";")):
             lab, _, ev = kv.partition(":")
@@ -658,6 +675,11 @@ def main():
     # landscape here turned screenshots and touches sideways (an iPad rebooted after landscapeRight)
     try:
         os.unlink(os.path.join(data, "orientation"))
+    except OSError:
+        pass
+    # the last boot's Web Inspector socket (launchd_sim binds it again; a stale file makes the bind fail)
+    try:
+        os.unlink(rwi_socket(udid))
     except OSError:
         pass
     # the last boot's accessibility-reader sockets (host/simax): their processes are gone

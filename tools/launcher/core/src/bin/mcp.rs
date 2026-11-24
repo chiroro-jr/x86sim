@@ -13,6 +13,9 @@ mod mcp_simctl;
 // ---- XCTest (feat/ap-xctest): xctest_run ----
 #[path = "mcp_parts/xctest.rs"]
 mod mcp_xctest;
+// ---- Web Inspector (feat/r2-webinspect): web_targets, web_eval, web_console, web_dom, web_network ----
+#[path = "mcp_parts/web.rs"]
+mod mcp_web;
 
 fn tools() -> Value {
     let phone = json!({"type": "string", "description": "the phone: its name (as in the hub, e.g. \"QA\"), folder (device-a64-qa) or path. Default: the only running phone, else the configured one"});
@@ -108,6 +111,10 @@ fn tools() -> Value {
     if let Value::Array(v) = &mut t {
         v.extend(mcp_xctest::tools(&phone));
     }
+    // ---- Web Inspector (feat/r2-webinspect) ----
+    if let Value::Array(v) = &mut t {
+        v.extend(mcp_web::tools(&phone));
+    }
     t
 }
 
@@ -166,6 +173,9 @@ fn call_json(name: &str, a: &Value) -> anyhow::Result<Answer> {
         return r.map(Answer::Json);
     }
     if let Some(r) = mcp_xctest::call(name, a, &|| phone_of(a, &cfg)) {
+        return r.map(Answer::Json);
+    }
+    if let Some(r) = mcp_web::call(name, a, &|| phone_of(a, &cfg)) {
         return r.map(Answer::Json);
     }
     if matches!(name, "phones_list" | "sim_status") {

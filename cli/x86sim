@@ -108,6 +108,9 @@ Display and input
                        --tailscale: HTTPS on your tailnet, --funnel / --cloudflared: a public HTTPS URL (token links)
   serve status | stop [TUNNEL] | link [--phone NAME] [--control] [--ttl 1h]
                        the running server's URLs (and a QR code), stop it or one tunnel, a new expiring link
+  inspect [PHONE] [--url PATTERN] [--list] [--no-open]
+                       Web Inspector (WebKit's, in your browser) for Safari's pages and apps' WKWebViews that set
+                       isInspectable; --url opens the first page whose URL or title has PATTERN; --list only lists
 
 Apps (as xcrun simctl install/uninstall/launch)
   install PATH.app|PATH.ipa|PATH.xcarchive
@@ -262,6 +265,11 @@ case $c in
 		b=${X86SIM_SERVE:-$X/tools/launcher/target/release/x86sim-serve}
 		[ -x "$b" ] || { echo "x86sim: $b is not built (cd tools/launcher && cargo build --release)" >&2; exit 1; }
 		exec "$b" "$@" ;;
+	inspect)
+		# Web Inspector: Safari's and apps' web pages (share/inspect.rs, through x86sim-serve)
+		b=${X86SIM_SERVE:-$X/tools/launcher/target/release/x86sim-serve}
+		[ -x "$b" ] || { echo "x86sim: $b is not built (cd tools/launcher && cargo build --release)" >&2; exit 1; }
+		exec "$b" inspect "$@" ;;
 	install|uninstall) exec "$L/appinstall.sh" "$c" "$@" ;;
 	test|xctest)
 		# XCTest / XCUITest bundles (xctest.py); a leading <device> as for launch
