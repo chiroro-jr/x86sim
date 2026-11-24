@@ -441,8 +441,8 @@ lacks it, e.g. plain HTTP on the LAN); quality, size and frame rate are picked o
 - **Controls per platform**: iPhone / iPad buttons (Home, Lock, volume, Siri, Action, App Switcher), rotate, shake,
   the iPhone Duo's fold poses; an Apple TV's Siri Remote; an Apple Watch's crown, side button and hand gestures.
 - **Sound**: Sound on plays the device's audio in the page (Opus decoded by WebCodecs, 16-bit PCM where the
-  browser lacks it), ~60-120 ms behind the device, with a volume per viewer; browsers start audio only from a click,
-  so it is off until then. Mic on (control links, HTTPS or this machine) sends the browser's microphone to the
+  browser lacks it), ~70 ms from the server to the speaker (a tap on a button that beeps is heard ~115 ms later),
+  with a volume per viewer; browsers start audio only from a click, so it is off until then. Mic on (control links, HTTPS or this machine) sends the browser's microphone to the
   device's input instead of the host's.
 - **On a phone's browser**: the screen fills the window, with Home, App Switcher, Type… and Sound under it and the
   other controls below; fingers touch, two fingers pinch, rotate and pan.

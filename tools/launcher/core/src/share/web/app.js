@@ -571,7 +571,7 @@ function phoneView(id) {
   };
   const isTv = () => info?.platform === "tvos";
   const pts = new Map(); // pointerId -> [x, y]
-  let mode = null; // "one" | "two" (real fingers) | "pinch" | "pan" | "tv"
+  let mode = null; // "wait" (a finger, maybe a second coming) | "one" | "two" (real fingers) | "pinch" | "pan" | "tv"
   let anchor = null, cur = null;
   function showDots(list) { dots.replaceChildren(...list.map(([x, y]) => { const i = h("i"); i.style.left = x * 100 + "%"; i.style.top = y * 100 + "%"; return i; })); }
   function synth(p) {
@@ -588,6 +588,13 @@ function phoneView(id) {
     send({ t: "touch2", p, x1, y1, x2, y2 });
     showDots(p === "up" ? [] : [[x1, y1], [x2, y2]]);
   }
+  let fingerWait = 0, fingerStart = null;
+  function firstFinger() {
+    if (mode !== "wait" || pts.size !== 1) return;
+    const [p] = pts.values(), [x, y] = fingerStart;
+    mode = "one"; send({ t: "touch", p: "down", x, y });
+    if (p[0] !== x || p[1] !== y) send({ t: "touch", p: "move", x: p[0], y: p[1] });
+  }
   function realTwo(p) {
     const [[x1, y1], [x2, y2]] = [...pts.values()];
     send({ t: "touch2", p, x1, y1, x2, y2 });
@@ -602,7 +609,10 @@ function phoneView(id) {
     if (isTv()) { if (!mode) { mode = "tv"; send({ t: "key", u: 0x28, d: true }); } return; }
     if (e.pointerType === "touch" || e.pointerType === "pen") {
       pts.set(e.pointerId, p);
-      if (pts.size === 1) { mode = "one"; send({ t: "touch", p: "down", x: p[0], y: p[1] }); }
+      // the first finger waits a moment for a second one: both fingers of a pinch land within a few frames, and a
+      // one-finger touch down + up just before the two-finger touch was a tap that Safari took instead of the pinch
+      if (pts.size === 1) { mode = "wait"; fingerStart = p; fingerWait = setTimeout(firstFinger, 60); }
+      else if (pts.size === 2 && mode === "wait") { clearTimeout(fingerWait); mode = "two"; realTwo("down"); }
       else if (pts.size === 2 && mode === "one") {
         const first = [...pts.values()][0];
         send({ t: "touch", p: "up", x: first[0], y: first[1] });
@@ -622,6 +632,7 @@ function phoneView(id) {
     if (e.pointerType === "touch" || e.pointerType === "pen") {
       if (!pts.has(e.pointerId)) return;
       pts.set(e.pointerId, p);
+      if (mode === "wait") return; // the down goes out with the place it has then
       if (mode === "one") send({ t: "touch", p: "move", x: p[0], y: p[1] });
       else if (mode === "two" && pts.size === 2) realTwo("move");
       return;
@@ -638,6 +649,7 @@ function phoneView(id) {
     if (e.pointerType === "touch" || e.pointerType === "pen") {
       if (!pts.has(e.pointerId)) return;
       pts.set(e.pointerId, p);
+      if (mode === "wait") { clearTimeout(fingerWait); mode = "one"; send({ t: "touch", p: "down", x: fingerStart[0], y: fingerStart[1] }); }
       if (mode === "one") send({ t: "touch", p: "up", x: p[0], y: p[1] });
       else if (mode === "two" && pts.size === 2) realTwo("up");
       pts.delete(e.pointerId);
