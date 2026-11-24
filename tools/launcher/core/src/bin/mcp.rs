@@ -7,6 +7,9 @@
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 use x86sim_core::{aot, apps, ax, features, instance, sim};
+// ---- simctl parity (feat/ap-simctl): runtime_delete, sim_ui, sim_status_bar, ... in their own module ----
+#[path = "mcp_parts/simctl.rs"]
+mod mcp_simctl;
 
 fn tools() -> Value {
     let phone = json!({"type": "string", "description": "the phone: its name (as in the hub, e.g. \"QA\"), folder (device-a64-qa) or path. Default: the only running phone, else the configured one"});
@@ -92,6 +95,10 @@ fn tools() -> Value {
         v.extend(x86sim_core::share::mcp_tools());
     }
     // ---- end Share ----
+    // ---- simctl parity (feat/ap-simctl) ----
+    if let Value::Array(v) = &mut t {
+        v.extend(mcp_simctl::tools(&phone));
+    }
     t
 }
 
@@ -140,6 +147,10 @@ fn call_json(name: &str, a: &Value) -> anyhow::Result<Answer> {
     // ---- end Pool ----
     let after = ax::After::parse(a["after"].as_str());
     let cfg = aot::Paths::new(&aot::Paths::default_jc()).load_config();
+    // ---- simctl parity (feat/ap-simctl) ----
+    if let Some(r) = mcp_simctl::call(name, a, &|| phone_of(a, &cfg)) {
+        return r.map(Answer::Json);
+    }
     if matches!(name, "phones_list" | "sim_status") {
         return Ok(Answer::Json(json!({"phones": instance::summaries(1000)})));
     }

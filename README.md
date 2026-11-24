@@ -67,6 +67,14 @@ from scripts or by an AI agent. No Mac and no Apple ID are needed.
 - Simulated push notifications, simulated location (a point, a route between waypoints or one of Apple's scenarios),
   opening URLs, and adding photos and videos to the Photos library.
 - Screenshots and H.264 / HEVC video recording.
+- Device settings as `simctl` has them: light / dark appearance, Dynamic Type text size, Increase Contrast, Reduce
+  Transparency and Reduce Motion; status bar overrides (time, battery, Wi-Fi and cellular bars, carrier, data network)
+  for clean screenshots; the pasteboard (copy, paste, or kept in sync with the Linux clipboard); keychain reset;
+  language, region and time zone.
+- Erase a device back to new, or clone it.
+- An app's logs in one command: its `os_log` and the crash report of its last run, symbolicated.
+- A fidelity setting per device: Fast draws a 3x iPhone at 2x with Reduce Transparency and Reduce Motion on, High
+  keeps the native scale and every effect.
 - Scripted input: tap, swipe, pinch, type, hardware keys, Digital Crown.
 - Per-service logs for every device, with filtering. Installed apps' `os_log` / `Logger` output is stored and can be
   read back with `OSLogStore`.
@@ -76,7 +84,9 @@ from scripts or by an AI agent. No Mac and no Apple ID are needed.
 - One AppImage. A setup page checks the computer, downloads a runtime from Apple, pre-translates it and creates the
   first device.
 - No root where unprivileged user namespaces are available.
-- Runtimes are managed on a Versions page: download, resume and remove iOS, tvOS, watchOS and visionOS versions.
+- Runtimes are managed on a Versions page: download, resume, remove and delete iOS, tvOS, watchOS and visionOS
+  versions. Deleting asks whether to keep the version's pre-translated code (a later download of it starts fast) or
+  remove everything that belongs to it, with the size of each.
 - The AppImage updates itself, on a stable or a pre-release channel.
 - The launcher follows the Omarchy theme live (or the desktop's light / dark setting), and every page can be driven
   from the keyboard: `?` lists the shortcuts.
@@ -169,8 +179,11 @@ The launcher is what the AppImage opens. Its pages:
 
 - **Devices**: every device as a card with a live screen, running devices first. Click a card to open it; start,
   stop, restart, add, rename and remove devices, or open one in its own window. A device's page has its screen and buttons, its feature toggles, memory, CPU and
-  processes, and its logs.
-- **Versions**: the runtimes on this computer and those available from Apple.
+  processes, and its logs. Its Simulate section sets appearance, text size, Increase Contrast and fidelity, and
+  erases or clones the device.
+- **Versions**: the runtimes on this computer and those available from Apple. Delete removes an installed version:
+  only its files, or also its pre-translated code and caches. Devices that use it are listed, and a running one has
+  to be stopped first.
 - **Pre-translate**: build or update the ahead-of-time image for a runtime, and see what it takes on disk.
 - **Settings**: appearance (System, Dark or Light), graphics (GPU or software), screen scaling, memory cap and
   clean-up, disk use, and updates.
@@ -188,6 +201,7 @@ shortcut and `q` quits. Closing the launcher leaves running devices running.
 x86sim device models                          # the models a device can be
 x86sim device create --model "iPhone 17 Pro" work
 x86sim runtime list all                       # runtimes in Apple's catalogue
+x86sim runtime delete 24K150 --dry-run        # what deleting a version frees (--all: its caches too)
 
 x86sim install MyApp.app                      # an arm64 iOS-simulator build
 x86sim install MyApp.ipa                      # or a device build: .ipa, .xcarchive, device .app
@@ -201,6 +215,14 @@ x86sim push com.example.myapp payload.json    # simulated remote notification
 x86sim location set 48.8584,2.2945            # also: routes and scenarios
 x86sim addmedia photo.jpg clip.mov
 x86sim log stream --app com.example.myapp
+x86sim logs com.example.myapp                 # its os_log and last crash report, symbolicated
+
+x86sim ui appearance dark                     # also: content_size, increase_contrast, reduce_motion, ...
+x86sim status_bar override --time 9:41 --batteryLevel 100 --batteryState charged --cellularBars 4 --wifiBars 3
+x86sim pbcopy "text"                          # pbpaste; --host: the Linux clipboard; pbsync keeps both the same
+x86sim locale --language fr-CA --locale fr_CA # also: timezone Europe/Paris, keychain reset
+x86sim fidelity fast                          # 3x iPhone at 2x + reduced effects (high: native)
+x86sim erase work                             # back to new; clone work work2 copies it (device off)
 
 x86sim tap 200 400                            # also: swipe, pinch, type, key, home, lock, crown
 x86sim --phone work snapshot                  # the screen as text (see "Agents" below); --phone on any command
@@ -296,8 +318,10 @@ x86sim pool down --delete
 other MCP clients. Its tools list, create, start, stop and restart devices, fold the iPhone Duo, read and change
 feature sets, install (simulator or device builds), launch, list and uninstall apps, take and release pool devices,
 report the state of the pre-translated image, and share devices in a browser (`share_start`, `share_stop`,
-`share_status`, `share_link`: they return the URLs). Agents can also read the screen as text and act on its elements
-(below).
+`share_status`, `share_link`: they return the URLs). They also cover the device settings above (appearance, status
+bar, pasteboard, keychain, language, time zone, fidelity), erase and clone, an app's logs and crash report,
+screenshots and video recording, and deleting an OS version. Agents can also read the screen as text and act on its
+elements (below).
 
 ```sh
 claude mcp add x86sim -- /path/to/x86sim.AppImage mcp      # AppImage

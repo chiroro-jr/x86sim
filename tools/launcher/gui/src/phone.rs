@@ -749,6 +749,12 @@ impl App {
         }
         hline(ui);
 
+        // ---- Simulate: appearance, text size, contrast, fidelity, erase / clone (devctl_ui.rs)
+        if self.fold_section(ui, "sim", "Simulate", "", "") {
+            self.simulate_section(ui, inst, phase);
+        }
+        hline(ui);
+
         // ---- Advanced
         if self.fold_section(ui, "adv", "Advanced", "", "") {
             self.advanced_section(ui, inst, st);

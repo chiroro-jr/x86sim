@@ -907,6 +907,8 @@ sleep 1
 # Host zone name (no darling yet). The TZ link itself must run *inside* limited.sh so it does not birth
 # darlingserver in the caller's cgroup (that was the Stage 2/3 escape: only timeout+darling stayed under MemoryMax).
 TZNAME=$(readlink -f /etc/localtime 2>/dev/null | sed -n 's#^.*/zoneinfo/##p')
+# the phone's own time zone (x86sim timezone ZONE: <device>/timezone), else the host's (as a Mac's simulator)
+if [ -s "$D/timezone" ] && [ -e "/usr/share/zoneinfo/$(cat "$D/timezone")" ]; then TZNAME=$(cat "$D/timezone"); fi
 H="/Volumes/SystemRoot$X/host/simhost/simhost"
 
 # Payload for `darling shell sh -c` — raw text so $ENVS quote tokens are only parsed by that inner sh.
