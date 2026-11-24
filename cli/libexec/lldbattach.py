@@ -73,19 +73,20 @@ def sock_path(u, gpid):
     return "%s/x86sim-dbg-%s-%d.sock" % (RUN, u, gpid)
 
 
-def connectable(p):
-    s = socket.socket(socket.AF_UNIX)
-    try:
-        s.connect(p)
-        return True
-    except OSError:
-        return False
-    finally:
-        s.close()
+def prune(u):
+    """Sockets of this phone's processes that are gone (killed: an exit removes its own)."""
+    pre = "x86sim-dbg-%s-" % u
+    for f in os.listdir(RUN):
+        if f.startswith(pre) and f.endswith(".sock") and f[len(pre):-5].isdigit() and linux_pid(int(f[len(pre):-5]), u) is None:
+            try:
+                os.unlink(os.path.join(RUN, f))
+            except OSError:
+                pass
 
 
 def ensure_stub(u, gpid, wait=15):
     """The process's debug stub socket: asks a running process to start it (SIGUSR1 + request file)."""
+    prune(u)
     p = sock_path(u, gpid)
     hp = linux_pid(gpid, u)
     if hp is None:

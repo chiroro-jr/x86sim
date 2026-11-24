@@ -847,6 +847,7 @@ bool dbg_check_request() {
 
 // The process is going away (a crash after the debugger let it continue): tell lldb.
 void dbg_exiting(int linux_sig) {
+    if (!g_sock_path.empty()) unlink(g_sock_path.c_str());  // (a SIGKILL leaves it: x86sim debug prunes those)
     int fd = g_session_fd.load();
     if (fd < 0) return;
     static const int darwin[32] = {0, 1, 2, 3, 4, 5, 6, 10, 8, 9, 30, 11, 31, 13, 14, 15};
@@ -855,6 +856,7 @@ void dbg_exiting(int linux_sig) {
 }
 
 void dbg_exit_code(int status) {
+    if (!g_sock_path.empty()) unlink(g_sock_path.c_str());
     int fd = g_session_fd.load();
     if (fd < 0) return;
     Io io{fd, true};
