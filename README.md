@@ -28,7 +28,8 @@ from scripts or by an AI agent. No Mac and no Apple ID are needed.
 
 - iPhone, iPad, Apple TV, Apple Watch and Apple Vision Pro: 82 device models, including the dual-screen iPhone
   Duo, whose hinge moves from closed to flat on a slider, with the poses of Xcode's DeviceHub (closed, half open in
-  portrait or landscape, open).
+  portrait or landscape, open). The launcher draws the Duo as a 3D model at the hinge's angle, with both of its
+  screens live; you can tap through the model, turn it and zoom.
 - Several devices at once. Each runs in its own container with its own apps, data and settings; starting or stopping
   one leaves the others alone.
 - The stock system apps of each runtime, such as Settings, Safari, Photos, Files, Maps and Health.
@@ -87,6 +88,14 @@ from scripts or by an AI agent. No Mac and no Apple ID are needed.
 <tr>
 <td align="center"><sub>A device with its memory, CPU and processes</sub></td>
 <td align="center"><sub>Runtimes, downloaded from Apple</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/screens/launcher-iphone-duo.webp" alt="The iPhone Duo as a 3D model, half open, with its hinge panel"></td>
+<td width="50%"><img src="docs/screens/launcher-iphone-duo-laptop.webp" alt="The iPhone Duo half open in landscape, standing like a laptop"></td>
+</tr>
+<tr>
+<td align="center"><sub>iPhone Duo: the hinge panel</sub></td>
+<td align="center"><sub>iPhone Duo in landscape, like a laptop</sub></td>
 </tr>
 <tr>
 <td width="50%"><img src="docs/screens/launcher-apple-tv.webp" alt="An Apple TV in the launcher, with its remote beside the screen"></td>

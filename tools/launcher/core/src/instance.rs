@@ -577,7 +577,12 @@ impl Monitor {
             let home = match launchd {
                 Some(l) if self.home_seen.get(&inst.id) == Some(&l) => true,
                 Some(l) => {
-                    let ok = crate::ring::Ring::new(&inst.ring).home_frame(boot_time.unwrap_or(0.0) - 2.0, inst.platform == "tvos");
+                    // a two-screen phone opened past the screen swap draws on its inner screen only (the outer one
+                    // goes dark), so a launcher started then would never see a home frame on the outer ring
+                    let after = boot_time.unwrap_or(0.0) - 2.0;
+                    let tvos = inst.platform == "tvos";
+                    let ok = crate::ring::Ring::new(&inst.ring).home_frame(after, tvos)
+                        || inst.inner.as_ref().is_some_and(|d| crate::ring::Ring::new(&d.ring).home_frame(after, tvos));
                     if ok {
                         self.home_seen.insert(inst.id.clone(), l);
                         let m = home_marker(&inst.dir);
