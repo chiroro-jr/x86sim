@@ -89,19 +89,19 @@ pub fn budget_summary(device: &metal2vulkan_runtime::Device) -> String {
     }
 }
 
+/// The runtime's own gauges (metal2vulkan-runtime `Gauges`), in place of the old runtime's spare counts and pipeline
+/// census: its memory by class, textures, kernels and render contents alive.
+pub fn gauges_summary(device: &metal2vulkan_runtime::Device) -> String {
+    let g = device.counters().gauges();
+    format!("rt: {g:?}")
+}
+
 /// Starts the MTLVK_MEMSTATS thread.
 pub fn start(device: metal2vulkan_runtime::Device) {
     let Some(secs) = std::env::var("MTLVK_MEMSTATS").ok().and_then(|v| v.parse::<f64>().ok()).filter(|s| *s > 0.0) else { return };
     let _ = std::thread::Builder::new().name("memstats".into()).spawn(move || loop {
         let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-        let (pools, primaries, secondaries, descriptors) = device.spare_counts();
-        eprintln!(
-            "mtlvk mem: t {t} | {} | {} | {} | spares: command pools {pools} (primaries {primaries} secondaries {secondaries}) descriptor pools {descriptors} | {}",
-            smaps_summary(),
-            malloc_summary(),
-            budget_summary(&device),
-            device.pipeline_census()
-        );
+        eprintln!("mtlvk mem: t {t} | {} | {} | {} | {}", smaps_summary(), malloc_summary(), budget_summary(&device), gauges_summary(&device));
         crate::conn::STATS_REQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         prof_dump_on_request();
         std::thread::sleep(std::time::Duration::from_secs_f64(secs));
