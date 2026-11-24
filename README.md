@@ -743,5 +743,7 @@ x86Sim builds on:
 
 Each fork carries its changes on a branch named `x86sim`.
 
+Thanks to [agent-sim](https://github.com/Developing-Gamer/agent-sim) for ideas on driving phones from AI agents.
+
 Apple's simulator runtimes, SDKs and Xcode are not included and are never redistributed. Apple, iPhone, iPad, iOS,
 Xcode and Metal are trademarks of Apple Inc. x86Sim is not affiliated with or endorsed by Apple.
