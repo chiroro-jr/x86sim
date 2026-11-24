@@ -16,7 +16,7 @@ fn func(path: &str) -> FunctionDescriptor {
 fn main() {
     let a: Vec<String> = std::env::args().skip(1).collect();
     let profile = std::fs::read_to_string(&a[0]).expect("profile");
-    let dev = Device::new(DeviceDescription::from_khronos_json(&profile, None).expect("profile"), DevicePolicy::default()).expect("device");
+    let dev = Device::from_queries(DeviceDescription::from_khronos_json(&profile, None).expect("profile"), DevicePolicy::default()).expect("device");
     let mut d = RenderPipelineDescriptor::new(StageSource::Function(func(&a[1])));
     if a[2] != "-" {
         d.fragment = Some(StageSource::Function(func(&a[2])));

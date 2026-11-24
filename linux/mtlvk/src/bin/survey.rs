@@ -23,7 +23,7 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let profile = std::fs::read_to_string(&args[0]).expect("profile");
     let desc = DeviceDescription::from_khronos_json(&profile, None).expect("profile json");
-    let dev = Device::new(desc, DevicePolicy::default()).expect("device");
+    let dev = Device::from_queries(desc, DevicePolicy::default()).expect("device");
     let verbose = std::env::var_os("SURVEY_VERBOSE").is_some();
     let mut reasons: BTreeMap<String, usize> = BTreeMap::new();
     let (mut tot_ok, mut tot) = (0, 0);

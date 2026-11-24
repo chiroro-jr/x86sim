@@ -104,6 +104,7 @@ template <bool Kernel> static void sigaction_like(GuestThread &t, u32 i) {
     }
     if (r == 0 && osa && osa->handler == (u64)&native_handler) { osa->handler = old_guest; osa->flags = old_flags; }
     if (r == 0 && set && sig > 0 && sig < 32) { g_act[sig].handler = g.handler; g_act[sig].mask = g.mask; g_act[sig].flags = g.flags; }
+    if (r == 0 && set && sig > 0 && sig < 32) retake_host_signal(sig);
     t.set_x(0, (u32)r);
 }
 // Whether the guest set an action other than SIG_DFL for a (Darwin) signal: host.cpp's SIGUSR1 memlog handler then

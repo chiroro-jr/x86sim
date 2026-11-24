@@ -1328,6 +1328,36 @@ static void install_fault_report() {
     sigaction(SIGSEGV, &sa, &g_old_segv); sigaction(SIGBUS, &sa, &g_old_bus);
 }
 
+// Darling's sigaction() makes its sigexc_handler the Linux handler of the signal again, with the application's
+// SA_RESTART (darling-xnu 18c366e2, "blocking syscalls return EINTR when the handler has no SA_RESTART"; since 7e6e6be1
+// also its SA_ONSTACK). For SIGSEGV / SIGBUS that replaced on_fault as soon as the guest installed a handler: a fault in
+// translated code then went to sigexc_handler, which ran native_handler (pending + halt) and returned to the faulting
+// host instruction, which faulted again, forever (crashsig null hung in sigprocess / interrupt_exit). So the guest's
+// sigaction() is followed by putting libarm64jit's handler back. The handlers chain to Darling's (g_darling_sig,
+// g_darling_usr1) where the signal is the guest's, and take its SA_RESTART from what Darling installed.
+void retake_host_signal(int dsig) {
+    int sig, flags = SA_SIGINFO | SA_ONSTACK;
+    void (*mine)(int, siginfo_t *, void *);
+    switch (dsig) {
+    case 11: sig = SIGSEGV; mine = on_fault; flags |= SA_NODEFER; break;  // as install_fault_report
+    case 10: sig = SIGBUS; mine = on_fault; flags |= SA_NODEFER; break;
+    case 6: sig = SIGABRT; mine = on_abrt; break;
+    case 30: sig = SIGUSR1; mine = on_usr1; break;
+    default: return;
+    }
+    struct sigaction cur{};
+    if (sigaction(sig, nullptr, &cur) != 0 || cur.sa_sigaction == mine || !(cur.sa_flags & SA_SIGINFO) ||
+        (void *)cur.sa_handler == SIG_DFL || (void *)cur.sa_handler == SIG_IGN)
+        return;  // ours still, or not Darling's handler: left alone
+    if (sig == SIGUSR1) g_darling_usr1 = cur.sa_sigaction;
+    else g_darling_sig = cur.sa_sigaction;
+    struct sigaction sa{};
+    if (sig == SIGUSR1) sa = cur;  // as start_memlog: Darling's mask
+    sa.sa_sigaction = mine;
+    sa.sa_flags = (sig == SIGUSR1 ? cur.sa_flags | SA_SIGINFO : flags) | (cur.sa_flags & SA_RESTART);
+    sigaction(sig, &sa, nullptr);
+}
+
 void print_stats() {
     peek();
     if (!getenv("X86SIM_A64_STATS")) return;
