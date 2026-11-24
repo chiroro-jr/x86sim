@@ -31,9 +31,13 @@ want = {  # Apple's simulator: target -> {test: result}
     "XCTestDemoUITests": {"XCTestDemoUITests/testDeliberateUIFailure": "failed", "XCTestDemoUITests/testIncrement": "passed",
                           "XCTestDemoUITests/testTypeName": "passed"},
 }
+# Apple's watchOS and visionOS 27.2 simulators fail testTypeName (watch: "Neither element nor any descendant has
+# keyboard focus"; visionOS: typeText leaves the greeting "Hello!"); tvOS matches iOS (2026-11-24, Xcode 27.2)
+if sys.argv[3] in ("watchos", "xros"):
+    want["XCTestDemoUITests"]["XCTestDemoUITests/testTypeName"] = "failed"
 if sys.argv[2] == "0":
     del want["XCTestDemoUITests"]
-lines = {"CalcTests/testDeliberateFailure": 15, "LogicTests/testDeliberateFailure": 8, "XCTestDemoUITests/testDeliberateUIFailure": 48}
+lines = {"CalcTests/testDeliberateFailure": 15, "LogicTests/testDeliberateFailure": 8, "XCTestDemoUITests/testDeliberateUIFailure": 49}
 bad = 0
 got = {r["name"]: r for r in s["targets"]}
 for tgt, tests in want.items():

@@ -11,7 +11,8 @@ final class XCTestDemoUITests: XCTestCase {
         XCTAssertTrue(label.waitForExistence(timeout: 30))
         XCTAssertEqual(label.label, "Count: 0")
         #if os(tvOS)
-        // tvOS: the Siri Remote (Increment has the focus first)
+        // tvOS: the Siri Remote; up until Increment has the focus (the top focusable control)
+        for _ in 0..<4 where !app.buttons["incrementButton"].hasFocus { XCUIRemote.shared.press(.up) }
         XCUIRemote.shared.press(.select)
         XCUIRemote.shared.press(.select)
         XCTAssertEqual(label.label, "Count: 2")
