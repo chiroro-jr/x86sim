@@ -10,6 +10,9 @@ use x86sim_core::{aot, apps, ax, features, instance, sim};
 // ---- simctl parity (feat/ap-simctl): runtime_delete, sim_ui, sim_status_bar, ... in their own module ----
 #[path = "mcp_parts/simctl.rs"]
 mod mcp_simctl;
+// ---- XCTest (feat/ap-xctest): xctest_run ----
+#[path = "mcp_parts/xctest.rs"]
+mod mcp_xctest;
 
 fn tools() -> Value {
     let phone = json!({"type": "string", "description": "the phone: its name (as in the hub, e.g. \"QA\"), folder (device-a64-qa) or path. Default: the only running phone, else the configured one"});
@@ -23,7 +26,7 @@ fn tools() -> Value {
          "inputSchema": {"type": "object", "properties": {"phone": phone}}},
         {"name": "feature_get", "description": "Whether one feature is on.",
          "inputSchema": {"type": "object", "properties": {"id": {"type": "string"}, "phone": phone}, "required": ["id"]}},
-        {"name": "feature_set", "description": "Turn a feature on or off (wallpaper, spotlight, keyboard, siri, maps, photos, files, wallet, health, widgets). Applies at the next boot: call sim_restart.",
+        {"name": "feature_set", "description": "Turn a feature on or off (wallpaper, spotlight, keyboard, siri, maps, photos, files, wallet, health, widgets, xctest). Applies at the next boot: call sim_restart.",
          "inputSchema": {"type": "object", "properties": {"id": {"type": "string"}, "enabled": {"type": "boolean"}, "phone": phone}, "required": ["id", "enabled"]}},
         {"name": "features_preset", "description": "Apply a preset: full (the default set), lean, minimal. Applies at the next boot.",
          "inputSchema": {"type": "object", "properties": {"name": {"type": "string", "enum": ["full", "lean", "minimal"]}, "phone": phone}, "required": ["name"]}},
@@ -101,6 +104,10 @@ fn tools() -> Value {
     if let Value::Array(v) = &mut t {
         v.extend(mcp_simctl::tools(&phone));
     }
+    // ---- XCTest (feat/ap-xctest) ----
+    if let Value::Array(v) = &mut t {
+        v.extend(mcp_xctest::tools(&phone));
+    }
     t
 }
 
@@ -156,6 +163,9 @@ fn call_json(name: &str, a: &Value) -> anyhow::Result<Answer> {
     let cfg = aot::Paths::new(&aot::Paths::default_jc()).load_config();
     // ---- simctl parity (feat/ap-simctl) ----
     if let Some(r) = mcp_simctl::call(name, a, &|| phone_of(a, &cfg)) {
+        return r.map(Answer::Json);
+    }
+    if let Some(r) = mcp_xctest::call(name, a, &|| phone_of(a, &cfg)) {
         return r.map(Answer::Json);
     }
     if matches!(name, "phones_list" | "sim_status") {
