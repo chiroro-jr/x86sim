@@ -311,6 +311,7 @@ pub fn reflink_supported() -> bool {
 /// (device-repath.py) and identity (mksimdevice.py: UDID, jobs, sim.env), as device-a64.py create does for its base.
 pub fn clone_phone(tpl: &Instance, name: &str) -> Result<PathBuf> {
     let dst = member_dir(name);
+    anyhow::ensure!(!name.is_empty() && !name.contains('/') && !name.contains(".."), "bad phone name {name:?}");
     anyhow::ensure!(!dst.exists(), "{} exists", dst.display());
     let out = Command::new("cp").args(["-a", "--reflink=auto"]).arg(&tpl.dir).arg(&dst).output()?;
     if !out.status.success() {
@@ -428,6 +429,8 @@ pub fn up(pool: &str, n: usize, o: &UpOpts, log: &mut dyn FnMut(&str)) -> Result
             log(&format!("creating {tname} ({model})"));
             let rt = pick_runtime(&model, if o.os.is_empty() { "27.2" } else { &o.os })?;
             let d = crate::sim::create_device(&model, &tname, &rt)?;
+            // only ever a phone dir of ours under var/ (never a path made of a script's report)
+            anyhow::ensure!(d == member_dir(&tname), "device create made {} (expected {})", d.display(), member_dir(&tname).display());
             if let Some(p) = &o.preset {
                 crate::features::apply_preset(&d, p)?;
             }
