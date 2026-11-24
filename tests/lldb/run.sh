@@ -3,7 +3,8 @@
 #   tests/lldb/run.sh PHONE [--no-build] [--settings]
 # 1. dbgapp (tests/lldb/dbgapp.m, built with a dSYM by build-app.sh) launched stopped before dyld (--launch):
 #    break on dbg_tick, continue, hit, bt, read n and acc, step over lines, finish; detach
-# 2. attach to the running dbgapp: thread list, bt all, break on dbg_work (the worker thread), read round; detach
+# 2. attach to the running dbgapp: thread list, bt all, break on dbg_work (the worker thread), read round; break in
+#    UIKitCore (-[UILabel setText:], AOT-translated code); detach
 # 3. (--settings) attach to Settings (com.apple.Preferences, launched first): bt all; detach
 # Every check prints "X86TEST lldb <check> PASS|FAIL"; exit status 1 if one failed. Output in $X86SIM_SCRATCH/lldb-test/.
 X86SIM_ROOT=${X86SIM_ROOT:-$(cd "$(dirname "$0")/../.." && pwd)}; . "$X86SIM_ROOT/cli/lib/config.sh"
