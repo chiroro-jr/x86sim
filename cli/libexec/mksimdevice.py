@@ -83,6 +83,17 @@ def device_type(device):
         dt["name"] = open(os.path.join(device, "name")).read().strip() or "x86sim"
     except OSError:
         pass
+    # x86Sim: <device>/fidelity "fast" (x86sim fidelity, devctl.py): a 3x model's screen at 2x, the same points in 4/9
+    # of the pixels (as Apple's "at 1080p" device types do for Apple TV / Vision Pro): less to draw, composite and copy
+    # per frame. 2x and 1x models keep theirs. "high" (or no file): the model's own screen.
+    try:
+        fid = open(os.path.join(device, "fidelity")).read().strip()
+    except OSError:
+        fid = ""
+    if fid == "fast" and float(dt["scale"]) == 3.0:
+        dt["w"], dt["h"] = str(int(dt["w"]) * 2 // 3), str(int(dt["h"]) * 2 // 3)
+        dt["scale"] = "2.000000"
+        dt["pitch"] = "%f" % (float(dt["pitch"]) * 2 / 3)
     return dt
 
 

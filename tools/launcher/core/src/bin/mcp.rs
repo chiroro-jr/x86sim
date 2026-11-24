@@ -6,9 +6,22 @@
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 use x86sim_core::{aot, apps, features, instance, sim};
+// ---- simctl parity (feat/ap-simctl): runtime_delete, sim_ui, sim_status_bar, ... in their own module ----
+#[path = "mcp_parts/simctl.rs"]
+mod mcp_simctl;
 
 fn tools() -> Value {
     let phone = json!({"type": "string", "description": "the phone: its name (as in the hub, e.g. \"QA\"), folder (device-a64-qa) or path. Default: the only running phone, else the configured one"});
+    let mut v = own_tools(&phone);
+    // ---- simctl parity (feat/ap-simctl) ----
+    if let Some(a) = v.as_array_mut() {
+        a.extend(mcp_simctl::tools(&phone));
+    }
+    v
+}
+
+fn own_tools(phone: &Value) -> Value {
+    let phone = phone.clone();
     json!([
         {"name": "phones_list", "description": "Every phone, as the hub shows it: name, model, iOS version and whether it is installed, state (off / starting / running / stopping), home screen reached, memory (MB), CPU %, processes, uptime.",
          "inputSchema": {"type": "object", "properties": {}}},
@@ -78,6 +91,10 @@ fn phone_of(a: &Value, cfg: &aot::Config) -> anyhow::Result<instance::Instance> 
 
 fn call(name: &str, a: &Value) -> anyhow::Result<Value> {
     let cfg = aot::Paths::new(&aot::Paths::default_jc()).load_config();
+    // ---- simctl parity (feat/ap-simctl) ----
+    if let Some(r) = mcp_simctl::call(name, a, &|| phone_of(a, &cfg)) {
+        return r;
+    }
     if matches!(name, "phones_list" | "sim_status") {
         return Ok(json!({"phones": instance::summaries(1000)}));
     }

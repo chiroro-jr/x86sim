@@ -70,7 +70,7 @@ mtlprobe)
 		-fobjc-arc -framework Foundation -framework Metal -framework IOSurface -o mtlprobe mtlprobe.m" ;;
 openurl)
 	# arm64 sim target. Linux inotify via svc #0xfffe.
-	tar cf - -C "$X/host/openurl" openurl.m openurl.entitlements | build_exe a64openurl "$X/host/openurl/arm64$SUF/openurl" "$CC \
+	tar cf - -C "$X/host/openurl" openurl.m devctl.m openurl.entitlements | build_exe a64openurl "$X/host/openurl/arm64$SUF/openurl" "$CC \
 		-O1 -g -Wall -Wno-deprecated-declarations \
 		-fobjc-arc -framework Foundation -Wl,-sectcreate,__TEXT,__entitlements,openurl.entitlements -o openurl openurl.m" ;;
 netconfig)

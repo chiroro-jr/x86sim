@@ -452,6 +452,9 @@ static NSDictionary* addMedia(NSArray* paths) {
 	return @{ @"ok": @YES, @"added": @(paths.count) };
 }
 
+// x86Sim: simctl ui / status_bar / pbcopy / pbpaste / keychain, language (cli/libexec/devctl.py)
+#include "devctl.m"
+
 static void request(NSString* rest) {
 	NSRange sp = [rest rangeOfString:@" "];
 	if (sp.location == NSNotFound) return;
@@ -471,6 +474,7 @@ static void request(NSString* rest) {
 	else if ([c isEqual:@"xpcping"]) r = xpcPing(q[@"service"]);
 	else if ([c isEqual:@"addmedia"]) r = addMedia(q[@"paths"]);
 	else if ([c isEqual:@"spawn"]) r = spawnProgram(q);
+	else if ((r = devctlRequest(c, q))) {}
 	else r = @{ @"ok": @NO, @"error": [NSString stringWithFormat:@"unknown cmd %@", c] };
 	answer(rid, r);
 }

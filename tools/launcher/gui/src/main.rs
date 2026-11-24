@@ -2,12 +2,14 @@
 //! touch and keyboard plus a fold-out panel (features, logs, performance, advanced); global pages for iOS versions,
 //! pre-translation (AOT) and settings. Logic lives in x86sim-core; the GUI repaints only when a frame or a status
 //! changes.
+mod devctl_ui;
 mod duo3d;
 mod global;
 mod home;
 mod omarchy;
 mod phone;
 mod remote;
+mod rtdelete_ui;
 mod setup;
 mod theme;
 mod updater;
@@ -111,6 +113,10 @@ pub struct App {
     pub hub_show_betas: bool,
     /// the build whose stopped download "Discard" asked to confirm
     pub confirm_discard: Option<String>,
+    /// Versions page: deleting an installed version (rtdelete_ui.rs)
+    pub rt_delete: rtdelete_ui::RtDeleteUi,
+    /// phone page: Simulate section (devctl_ui.rs)
+    pub devctl: devctl_ui::DevctlUi,
     /// the GPU helper count (checked every few seconds, not per frame)
     pub gpu_helpers: usize,
     pub sizes: Arc<Mutex<HashMap<std::path::PathBuf, u64>>>,
@@ -207,7 +213,7 @@ impl App {
         };
         let mut open = HashSet::new();
         for k in std::env::var("X86SIM_LAUNCHER_OPEN").unwrap_or_default().split(',') {
-            for key in ["features", "logs", "perf", "adv"] {
+            for key in ["features", "logs", "perf", "adv", "sim"] {
                 if k == key {
                     open.insert(key);
                 }
@@ -244,6 +250,8 @@ impl App {
             fetch_started: HashMap::new(),
             hub_show_betas: false,
             confirm_discard: None,
+            rt_delete: Default::default(),
+            devctl: Default::default(),
             gpu_helpers: 0,
             sizes: Arc::new(Mutex::new(HashMap::new())),
             measuring: false,
@@ -663,6 +671,7 @@ impl eframe::App for App {
         }
         theme::poll(ctx);
         self.sync();
+        self.devctl_poll();
         self.cursor_device = None;
         self.shortcuts(ctx);
         if self.last_slow.elapsed() > Duration::from_secs(10) {
