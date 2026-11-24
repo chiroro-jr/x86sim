@@ -67,6 +67,8 @@ loop (copy it to `.claude/skills/x86sim/` or your agent's equivalent). Agents th
   debugger.
 - Debug an app with LLDB: attach to it running or launch it stopped, then breakpoints, stepping, backtraces of every
   thread, variables, registers and memory (see [Debugging (LLDB)](#debugging-lldb)).
+- Profile an app's CPU use (as Instruments' Time Profiler): top functions by self and total time per thread, and a
+  speedscope or Firefox Profiler file (see [Profiling (CPU)](#profiling-cpu)).
 - Find an app's bundle, data and app-group containers as ordinary Linux paths.
 
 **Graphics and input**
@@ -367,6 +369,44 @@ Limits:
 - With `--launch` the app's `+load` methods and initializers run after the first `continue`, so breakpoints there hit;
   images loaded later (`dlopen`) are reported to lldb as they load.
 
+### Profiling (CPU)
+
+`x86sim profile` samples an app's threads while they run on a CPU and shows where the time goes, as Instruments' Time
+Profiler does:
+
+```sh
+x86sim profile qa com.example.myapp                          # 10 s: top functions + a speedscope file
+x86sim profile qa com.example.myapp --secs 5 --format gecko  # Firefox Profiler (https://profiler.firefox.com)
+x86sim profile qa 1234 --format text --out top.txt           # a process by pid; the text summary as the file
+x86sim profile --raw ~/scratch/x86sim/profiles/raw-....txt --format speedscope   # symbolicate raw samples again
+```
+
+It prints the busiest functions by self and total time for the process and per thread, and how the time splits
+between the app's (guest) code, native library functions and the translator, then writes the profile (default:
+speedscope JSON under `$X86SIM_SCRATCH/profiles`, open it at https://www.speedscope.app). The MCP tools `profile_start`
+/ `profile_stop` do the same around anything you do meanwhile (`profile_stop` answers the summary and the file), and
+the browser viewer's **Profile 5 s** button (control links) downloads a profile of the app in front.
+
+How: the sampler is in the translator (`linux/arm64jit/prof.cpp`), off until asked for and started at run time through
+the debugger's request channel (a request file and `SIGUSR1`); nothing runs while no profile is taken. It counts each
+thread's CPU time with `perf_event_open` (user mode, allowed at the default `perf_event_paranoid` 2) and takes one
+sample per millisecond of CPU time: the exact host instruction, mapped back to the guest code block it belongs to, and
+the guest frame-pointer chain. Symbols come from the simulator's dyld cache (which keeps every library's local symbols)
+and the app's binary; C++ and Swift names are demangled. Overhead: none while off; about 1% with one busy thread
+sampled at 1 kHz (`tests/profile/run.sh <phone> [--settings]`, or `--standalone` without a phone, checks it).
+
+Limits:
+
+- **Timings are of the translated x86-64 code**: relative costs differ from a device (floating point, atomics and
+  `objc_msgSend` cost differently than on arm64). Time the translator spends on itself shows up as `[translator]`
+  (compiling, libarm64jit) and `[translator: code cache runtime]` (the dispatcher between blocks).
+- **Frame-pointer stacks only**: a leaf function without a frame shows its caller through LR; code built without frame
+  pointers loses callers (Apple's arm64 code keeps them).
+- A library function the translator runs natively (libsystem, `pthread_*`, `memmove`, `malloc`) is one `[native] name`
+  frame; time blocked in a system call is not CPU time and is not sampled (nor is kernel time).
+- Threads are named by their Linux name (`pthread_setname_np`); dispatch queue labels are not shown.
+- Like `x86sim debug`, an app that handles `SIGUSR1` itself cannot be profiled. No allocations / Leaks instrument.
+
 ### Device pool
 
 For agents and CI, a pool keeps devices booted at their home screen; a caller takes one, uses it and gives it back.
@@ -515,6 +555,7 @@ else the configured one. Erase, clone and keychain reset need it.
 | Apps | `app_install` (simulator or device builds), `app_uninstall`, `app_launch`, `app_terminate`, `app_list`, `app_logs` |
 | Tests | `xctest_run` (XCTest / XCUITest: an `.xctestrun` or bundles; per-test results, see [Tests](#tests-xctest-xcuitest)) |
 | Debugging | `debug_start`, `debug_command`, `debug_stop` (an lldb session on an app, see [Debugging (LLDB)](#debugging-lldb)) |
+| Profiling | `profile_start`, `profile_stop` (CPU profile of an app, see [Profiling (CPU)](#profiling-cpu)) |
 | Screen as text and actions | `snapshot`, `tap`, `long_press`, `type`, `key`, `scroll`, `scroll_to`, `swipe`, `wait_for`, `press`, `open_url`, `screenshot` |
 | Accessibility Inspector | `ax_inspect`, `ax_audit`, `ax_action` |
 | Hardware | `sim_button`, `sim_crown`, `sim_fold`, `sim_shake`, `sim_orientation`, `sim_biometric`, `sim_gamepad`, `sim_pointer`, `sim_system`, `sim_keyboard`, `sim_memory_warning` |
@@ -669,7 +710,8 @@ above work. These are the known gaps:
 - **Apps** need arm64 code: simulator builds, or device builds that are converted on install. FairPlay-encrypted App
   Store downloads do not run.
 - **Debugging**: LLDB attaches (`x86sim debug`) but has no Swift expression support and no watchpoints (see
-  [Debugging (LLDB)](#debugging-lldb)); there is no Web Inspector or Instruments. XCTest and
+  [Debugging (LLDB)](#debugging-lldb)); of Instruments only a CPU profiler (`x86sim profile`, no allocations or
+  Leaks; see [Profiling (CPU)](#profiling-cpu)). XCTest and
   XCUITest bundles run (`x86sim test`), but an app's own test targets are built on a Mac (`xcodebuild
   build-for-testing`); only Swift package tests build on Linux.
 - **Maps** shows no map tiles: the map data comes from a Mac and is not part of a release.

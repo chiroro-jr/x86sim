@@ -162,6 +162,17 @@ up to `timeout_s` for the next stop), `debug_stop`. C and Objective-C variables 
 not (upstream lldb), Swift frames are symbolized. `objc_msgSend` and libsystem functions run natively: breakpoints
 there never hit. Always `detach` / `debug_stop`: a stopped app stays stopped.
 
+## 6c. Profile CPU use
+
+```sh
+x86sim profile qa com.example.myapp --secs 5 --format text      # top functions by self / total time, per thread
+```
+
+MCP: `profile_start {app}`, do the slow thing (scroll, tap...), then `profile_stop {format?}`: the summary and a
+speedscope / gecko file. Samples count CPU time only (an idle app gives no samples: make it busy while profiling).
+Times are of translated x86-64 code: trust the ranking, not absolute numbers. `[translator...]` frames are the
+translator's own time, `[native] name` a library function run natively.
+
 ## 7. Build, run, repeat (omarchy-apple-dev)
 
 ```sh
@@ -252,7 +263,7 @@ up only if the app sets `isInspectable = true` (as on Apple's simulator); Safari
 ## MCP
 
 The same features are MCP tools (`x86sim-mcp`, stdio): `snapshot`, `tap`, `type`, `wait_for`, `screenshot`,
-`app_install`, `app_launch`, `xctest_run`, `web_eval`, `phone_take`, `share_start`, `sim_ui`, `app_logs`, `dev_run`, `ax_audit` and the rest (80 tools;
+`app_install`, `app_launch`, `xctest_run`, `web_eval`, `phone_take`, `share_start`, `sim_ui`, `app_logs`, `dev_run`, `ax_audit`, `profile_start` and the rest (85 tools;
 README.md lists them by group). Every tool takes `phone`.
 
 ```sh
