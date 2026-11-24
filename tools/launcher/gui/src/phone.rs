@@ -19,6 +19,8 @@ fn toolbar_w(platform: &str) -> f32 {
     if platform == "tvos" { 116.0 } else { 46.0 }
 }
 const GESTURES: &str ="Click the screen to tap, drag to swipe.\nDrag in from an edge for system gestures (Home, Control Center, back).\nCtrl + drag to pinch, Shift + drag to scroll with two fingers.\nF1 Home · F2 Lock · F3/F4 volume";
+/// Models 2: a two-screen phone's 3D view adds its own controls
+const GESTURES_DUO: &str = "Click the screen to tap, drag to swipe.\nDrag in from an edge for system gestures (Home, Control Center, back).\nCtrl + drag to pinch, Shift + drag to scroll with two fingers.\nRight-drag (or Alt + drag) turns the phone; scroll with the right button held (or Alt) zooms; double right-click resets the view.\nF1 Home · F2 Lock · F3/F4 volume";
 const GESTURES_TV: &str = "The keyboard is the remote: arrow keys move, Return selects, Esc goes back.\nClick the screen or the clickpad's centre to select; the wheel over either moves the focus.\nF1 TV (home) · F2 play / pause · F3/F4 volume";
 const GESTURES_WATCH: &str = "Click the screen to tap, drag to swipe.\nThe mouse wheel (over the screen or the crown) or a drag on the crown turns it; a click on the crown presses it.\nF1 presses the crown (watch face / apps) · F2 sleeps / wakes the screen; the side button opens Control Center";
 
@@ -191,7 +193,30 @@ impl App {
             let r = ui.horizontal_top(|ui| {
                 ui.add_space(((ui.available_width() - w) / 2.0).max(0.0));
                 let start = ui.cursor().min.x;
-                let case = self.viewer(id).map(|v| v.show(ui, avail, live, placeholder, true, viewer::FULL));
+                // Models 2: a two-screen phone is shown as its 3D model while it runs, its screens live on it and
+                // touchable through it (duo3d::DuoMap); the right (or middle) button, or Alt, turns and zooms it
+                let ctx = ui.ctx().clone();
+                let three_d = live && self.duo(id, &ctx).is_some();
+                let case = if three_d {
+                    if let Some(v) = self.viewer(id) {
+                        v.shared.mode.store(viewer::OFF, std::sync::atomic::Ordering::Relaxed);
+                    }
+                    let (rect, _) = ui.allocate_exact_size(avail, egui::Sense::hover());
+                    let mut touch = None;
+                    if let Some((d, inst)) = self.duo(id, &ctx) {
+                        let resp = d.paint(ui, rect, &inst);
+                        let moving = ui.input(|i| i.modifiers.alt || i.pointer.secondary_down() || i.pointer.middle_down());
+                        if !moving {
+                            touch = d.screen_map(&inst).map(|m| (resp, m));
+                        }
+                    }
+                    if let (Some((resp, map)), Some(v)) = (touch, self.viewer(id)) {
+                        v.input_mapped(ui, &resp, &map, live);
+                    }
+                    Some(rect)
+                } else {
+                    self.viewer(id).map(|v| v.show(ui, avail, live, placeholder, true, viewer::FULL))
+                };
                 // Platforms 1: a watch's crown and side button stand off its case's right edge, as on the watch
                 if let (true, Some(case)) = (watch, case) {
                     ui.add_space(edge);
@@ -441,23 +466,124 @@ impl App {
                             None => {}
                         }
                     }
-                    // Models 2: a two-screen phone (iPhone Duo) opens and closes like one: the hinge
+                    // Models 2: a two-screen phone (iPhone Duo): its hinge, as Xcode's DeviceHub gives it: a slider from
+                    // closed to flat and the pose presets (closed, half open in portrait or landscape, open)
                     if let Some(open) = hinge {
-                        let (ic, tip) = if open { (icon::DEVICE_MOBILE, "Fold: close the phone, the outer screen") } else { (icon::BOOK_OPEN, "Unfold: open the phone flat, the inner screen") };
-                        if tool(ui, ic, tip) {
-                            if let Some(v) = self.viewer(id) {
-                                v.hinge(if open { 0.0 } else { 180.0 });
-                            }
+                        let ic = if open { icon::BOOK_OPEN } else { icon::DEVICE_MOBILE };
+                        let resp = ui.add_enabled(live, Btn::ghost("").icon(ic)).on_hover_text("Hinge: fold, half open, unfold").on_disabled_hover_text("Not running");
+                        // scripted screenshots: X86SIM_LAUNCHER_OPEN=hinge opens the panel once
+                        static OPEN: std::sync::Once = std::sync::Once::new();
+                        if live && std::env::var("X86SIM_LAUNCHER_OPEN").is_ok_and(|v| v.split(',').any(|k| k == "hinge")) {
+                            OPEN.call_once(|| egui::Popup::open_id(ui.ctx(), egui::Popup::default_response_id(&resp)));
                         }
+                        egui::Popup::menu(&resp)
+                            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                            .align(egui::RectAlign::RIGHT_START)
+                            .align_alternatives(&[egui::RectAlign::LEFT_START, egui::RectAlign::BOTTOM_START])
+                            .show(|ui| self.hinge_panel(ui, id));
                     }
                     ui.add(Btn::tool(icon::INFO)).on_hover_text(match platform.as_str() {
                         "tvos" => GESTURES_TV,
                         "watchos" => GESTURES_WATCH,
+                        _ if hinge.is_some() => GESTURES_DUO,
                         _ => GESTURES,
                     });
                 });
             }
         });
+    }
+
+    /// Models 2: the hinge panel of a two-screen phone. The slider moves the hinge while it is dragged (a short move
+    /// every 40 ms, as DeviceHub's slider streams "hinge-slider-control" values); a preset moves it as a hand would and
+    /// sets the orientation it names. Shows the angle simhid last set (<device>/data/hinge) unless just moved here.
+    fn hinge_panel(&mut self, ui: &mut egui::Ui, id: &str) {
+        use x86sim_core::hid::{hinge_state, HINGE_POSES};
+        let key = egui::Id::new(("hinge-slider", id));
+        let now = ui.input(|i| i.time);
+        // (value shown, when it was last sent, the value last sent)
+        let (mut v, sent_at, sent) = ui.data(|d| d.get_temp::<(f64, f64, f64)>(key)).unwrap_or((f64::NAN, f64::NEG_INFINITY, f64::NAN));
+        let file = self.inst(id).and_then(|i| i.hinge()).unwrap_or(0.0);
+        // a move takes up to 600 ms (a preset); after that the file is the truth (MCP / CLI moves too)
+        if v.is_nan() || now - sent_at > 1.0 {
+            v = file;
+        }
+        ui.set_width(250.0);
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("Hinge").strong());
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(egui::RichText::new(format!("{v:.0}°  {}", hinge_state(v))).color(pal().ink_2));
+            });
+        });
+        ui.spacing_mut().slider_width = 250.0;
+        let r = ui.add(egui::Slider::new(&mut v, 0.0..=180.0).step_by(1.0).show_value(false));
+        let (mut sent_at, mut sent) = (sent_at, sent);
+        if r.changed() || r.drag_stopped() {
+            let dragging = r.dragged() && !r.drag_stopped();
+            // a click on the track moves it as a hand would; a drag follows the pointer, the last value when let go
+            // what the hinge is at: the last angle sent from here while it is recent, else simhid's (nothing sent
+            // yet, or moved since by a preset, the MCP or the CLI). A NaN here never compared as changed: the slider
+            // sent nothing until a preset had set it.
+            let at = if sent.is_nan() || now - sent_at > 1.0 { file } else { sent };
+            if (v - at).abs() >= 0.5 && (!dragging || now - sent_at >= 0.04) {
+                // arrow keys step a degree at a time: a short move each
+                let ms = if r.dragged() || r.drag_stopped() { 40 } else if (v - at).abs() <= 2.0 { 60 } else { 300 };
+                if let Some(vw) = self.viewer(id) {
+                    vw.hinge(v, ms);
+                }
+                if let Some(d) = self.duo3d.get_mut(id) {
+                    d.commanded = Some((v, now));
+                }
+                sent = v;
+                sent_at = now;
+            }
+        }
+        // the scale under the rail, where egui puts the handle's centre for a value (the rail less half the handle,
+        // theme.rs's 0.5 aspect): a tick every 5 degrees, longer every 15, labelled every 45, and SpringBoard's
+        // screen swap at 85 in the accent colour
+        {
+            let rail = r.rect.x_range().shrink(r.rect.height() / 2.5 * 0.5);
+            let (scale, _) = ui.allocate_exact_size(egui::vec2(r.rect.width(), 22.0), egui::Sense::hover());
+            let p = ui.painter();
+            let x_of = |deg: f32| rail.min + (rail.max - rail.min) * deg / 180.0;
+            for deg in (0..=180).step_by(5) {
+                let len = if deg % 45 == 0 { 7.0 } else if deg % 15 == 0 { 5.0 } else { 3.0 };
+                let x = x_of(deg as f32);
+                p.line_segment([egui::pos2(x, scale.top()), egui::pos2(x, scale.top() + len)], egui::Stroke::new(1.0_f32, pal().ink_3));
+                if deg % 45 == 0 {
+                    let align = match deg { 0 => egui::Align2::LEFT_TOP, 180 => egui::Align2::RIGHT_TOP, _ => egui::Align2::CENTER_TOP };
+                    let x = match deg { 0 => x - 2.0, 180 => x + 2.0, _ => x };
+                    p.text(egui::pos2(x, scale.top() + 9.0), align, format!("{deg}°"), font(T_SMALL), pal().ink_3);
+                }
+            }
+            let x = x_of(85.0);
+            p.line_segment([egui::pos2(x, scale.top()), egui::pos2(x, scale.top() + 7.0)], egui::Stroke::new(1.5_f32, pal().active));
+            let at = egui::Rect::from_center_size(egui::pos2(x, scale.top() + 4.0), egui::vec2(8.0, 10.0));
+            ui.interact(at, egui::Id::new(("hinge-swap", id)), egui::Sense::hover()).on_hover_text("85°: the inner screen takes over above this, the outer one below");
+        }
+        ui.add_space(S2);
+        let icons = [icon::DEVICE_MOBILE, icon::BOOK_OPEN, icon::LAPTOP, icon::DEVICE_TABLET];
+        ui.horizontal(|ui| {
+            for (pose, ic) in HINGE_POSES.iter().zip(icons) {
+                let on = (v - pose.angle).abs() < 1.0
+                    && pose.orientation.is_none_or(|o| self.inst(id).and_then(|i| i.orientation()).is_some_and(|cur| cur == o));
+                let b = if on { Btn::tinted("", pal().active) } else { Btn::ghost("") }.icon(ic);
+                if ui.add(b).on_hover_text(pose.label).clicked() {
+                    if let Some(vw) = self.viewer(id) {
+                        vw.hinge_pose(pose);
+                    }
+                    if let Some(d) = self.duo3d.get_mut(id) {
+                        d.commanded = Some((pose.angle, now));
+                    }
+                    v = pose.angle;
+                    sent = v;
+                    sent_at = now;
+                }
+            }
+        });
+        ui.data_mut(|d| d.insert_temp(key, (v, sent_at, sent)));
+        if now - sent_at <= 1.0 {
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(250));
+        }
     }
 
     /// Platforms 1: the Siri Remote. Clickpad (arrows / select as the keyboard's keys, held keys repeat); Back

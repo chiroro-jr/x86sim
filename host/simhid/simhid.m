@@ -280,6 +280,7 @@ static uint16_t hinge_phase = 2;
 // pose, 0..11), D (stable orientation state, 0..4); -[CMMagicPoseManager createMagicPoseEventFromDeviceStateEvent:]
 // copies them 1:1 into a CMMagicPoseEvent. Hinge state from the strings: 1 Closed, 2 PartiallyOpen, 3 OpenFlat.
 // the angle for the launcher (which screen to show): <SIMULATOR_SHARED_RESOURCES_DIRECTORY>/hinge, degrees
+static int cur_orientation(void);
 static void write_hinge_file(double deg) {
 	const char* d = getenv("SIMULATOR_SHARED_RESOURCES_DIRECTORY");
 	if (!d) return;
@@ -298,8 +299,10 @@ static void post_device_state(double deg) {
 	Class c = NSClassFromString(@"NSDistributedNotificationCenter");
 	id center = c ? ((id (*)(id, SEL))objc_msgSend)((id)c, sel_registerName("defaultCenter")) : nil;
 	if (!center) { slog("hinge: no NSDistributedNotificationCenter"); return; }
-	NSDictionary* info = @{ @"CMDeviceStateEventPropertyAKey": @1, @"CMDeviceStateEventPropertyA0Key": @1,
-		@"CMDeviceStateEventPropertyA1Key": @1, @"CMDeviceStateEventPropertyBKey": @((float)deg),
+	int o = cur_orientation();
+	if (o < 1 || o > 6) o = 1;
+	NSDictionary* info = @{ @"CMDeviceStateEventPropertyAKey": @(o), @"CMDeviceStateEventPropertyA0Key": @(o),
+		@"CMDeviceStateEventPropertyA1Key": @(o), @"CMDeviceStateEventPropertyBKey": @((float)deg),
 		@"CMDeviceStateEventPropertyCKey": @0, @"CMDeviceStateEventPropertyDKey": @2 };
 	((void (*)(id, SEL, id, id, id, BOOL))objc_msgSend)(center, sel_registerName("postNotificationName:object:userInfo:deliverImmediately:"),
 		@"CMDeviceStateEventSendNotification", nil, info, YES);
@@ -321,6 +324,34 @@ static IOHIDEventRef hinge_event(void) {
 	}
 	return e;
 }
+// Models 2: a hinge sensor reports all the time (the SPU at 100 Hz), not only while the hinge moves: SpringBoard
+// keeps a partly open phone's fold state (the outer screen's glass blur while it is open part way) only while
+// reports arrive, and dropped it about a second after the last one (holding the launcher's slider still at 30
+// degrees cleared the blur; re-sending the same angle every 50 ms kept it). So between moves the angle is reported
+// again every 100 ms while the phone is part open (closed or flat it rests: nothing depends on it there). Measured
+// at 30 degrees: every 100 ms (and 50) keeps the blur, every 150 ms or slower loses it; backboardd then spends
+// ~70% of a core and SpringBoard ~20% drawing the live blur, the same at 50 and 100 ms (the reports themselves cost
+// nothing measurable: 1-5% at 150-800 ms, where the blur is gone).
+static volatile int hinge_moving;
+static volatile int hinge_stream_ms = 100;   // "hingestream <ms>": the interval (0: off)
+static void avp_send_angle(double deg);
+static IOHIDEventRef hinge_event(void);
+static pthread_mutex_t cmd_mu;
+static void* hinge_stream_thread(void* arg) {
+	for (;;) {
+		int ms = hinge_stream_ms;
+		usleep((ms > 0 ? ms : 250) * 1000);
+		pthread_mutex_lock(&cmd_mu);
+		if (ms > 0 && hinge_svc.service && !hinge_moving && hinge_deg > 0.5 && hinge_deg < 179.5) {
+			hinge_vel = 0;
+			hinge_phase = 2;
+			dispatch_event(&hinge_svc, hinge_event());
+			avp_send_angle(hinge_deg);
+		}
+		pthread_mutex_unlock(&cmd_mu);
+	}
+	return NULL;
+}
 // Models 2: the hinge as Apple's Simulator gives it. The Duo's runtime (24B91016s) has locationd's
 // CMDeviceStateRelayManager: its CLAVPMonitor matches a service {0xff61, 0x5b} and takes vendor-defined events from it
 // whose data is an IOCFSerialize'd dictionary (at most 256 bytes) {source, type, value}: "hinge-slider-control" /
@@ -339,15 +370,30 @@ static void avp_send(NSDictionary* d) {
 	CFRelease(data);
 	dispatch_event(&avp_svc, e);
 }
+// whole degrees: IOCFSerialize takes integer CFNumbers only (a fractional angle failed to serialize and was dropped,
+// so a move whose steps were not whole degrees, 0 -> 90 in 1.5 degree steps, reached the relay half the time)
 static void avp_send_angle(double deg) {
-	avp_send(@{ @"source": @"hinge-slider-control", @"type": @"range", @"value": @(deg) });
+	avp_send(@{ @"source": @"hinge-slider-control", @"type": @"range", @"value": @((long)lround(deg)) });
 }
-// the inputs besides the angle the relay waits for: portrait, not in standby
+// the device orientation as the relay's orientation picker names it (Simulator's values; portraitUpsideDown has none)
+static NSString* avp_orientation_name(void) {
+	switch (cur_orientation()) {
+	case 3: return @"landscape-left";
+	case 4: return @"landscape-right";
+	case 5: return @"faceup";
+	case 6: return @"facedown";
+	default: return @"portrait";
+	}
+}
+static void avp_send_orientation(void) {
+	avp_send(@{ @"source": @"orientation-picker-control", @"type": @"enum", @"value": avp_orientation_name() });
+}
+// the inputs besides the angle the relay waits for: the device orientation, not in standby
 static void avp_send_pose(void) {
 	if (!avp_svc.service) return;
 	IOHIDEventRef b = IOHIDEventCreateButtonEvent(kCFAllocatorDefault, mach_absolute_time(), 0, 0, 0);
 	if (b) { IOHIDEventSetIntegerValue(b, (3 << 16) | 2, 0); dispatch_event(&avp_svc, b); }
-	avp_send(@{ @"source": @"orientation-picker-control", @"type": @"enum", @"value": @"portrait" });
+	avp_send_orientation();
 }
 static IOHIDEventSystemRef_ hid_system;
 
@@ -604,6 +650,10 @@ static void write_shared_file(const char* name, const char* text) {
 	fclose(f);
 	rename(t, p);
 }
+// the device orientation (UIDeviceOrientation, 1..6), 1 before BackBoardServices is loaded
+static int cur_orientation(void) {
+	return bk_get_orientation ? bk_get_orientation() : 1;
+}
 static void note_orientation(void) {
 	int o = bk_get_orientation ? bk_get_orientation() : 0;
 	write_shared_file("orientation", orient_names[o >= 0 && o < 7 ? o : 0]);
@@ -628,6 +678,8 @@ static void set_orientation(const char* arg, int rotate) {
 	}
 	if (o > 0) { bks_set_orientation(o); slog("orientation -> %d (%s)", o, orient_names[o]); usleep(50000); }
 	note_orientation();
+	// Models 2: a two-screen phone's relay and device state take the orientation too (a half open landscape pose)
+	if (o > 0 && hinge_svc.service) { avp_send_orientation(); post_device_state(hinge_deg); }
 }
 
 // Biometrics as SimulatorCoreDevicePlugin does them for DeviceHub's Face ID / Touch ID / Optic ID menus and devicectl device
@@ -803,6 +855,8 @@ static bool handle_inputs2(char* line) {
 		set_orientation(a, 0);
 		return true;
 	}
+	int hs;
+	if (sscanf(line, "hingestream %d", &hs) == 1) { hinge_stream_ms = hs < 0 ? 0 : hs; slog("hinge stream every %d ms", hinge_stream_ms); return true; }
 	if (sscanf(line, "biometric %31s %31s", a, b) >= 1) {
 		biometric(a, *b ? b : NULL);
 		return true;
@@ -828,22 +882,30 @@ static void handle_line(char* line, Client* cl) {
 		if (!hinge_svc.service) { slog("no hinge on this device: %s", line); return; }
 		double to = !strcmp(line, "fold") ? 0 : !strcmp(line, "unfold") ? 180 : deg < 0 ? 0 : deg > 180 ? 180 : deg;
 		// a hinge moving as a hand opens it: 100 Hz reports (the ReportInterval CoreMotion sets) over <ms> with the
-		// velocity, phase Began / Changed / Ended (IOHIDEventPhase 1 / 2 / 4); the device state follows the angle
+		// velocity, phase Began / Changed / Ended (IOHIDEventPhase 1 / 2 / 4); the device state follows the angle.
+		// At least a report per degree, so every whole degree on the way is seen (the relay takes whole degrees):
+		// a fast move reports faster than 100 Hz rather than skipping angles.
 		double from = hinge_deg;
+		if (ms < 0) ms = 0;
 		int steps = ms > 0 ? (ms + 9) / 10 : 0;
+		int per_deg = (int)ceil(fabs(to - from));
+		if (ms > 0 && per_deg > steps) steps = per_deg;
+		useconds_t step_us = steps > 0 ? (useconds_t)(ms * 1000 / steps) : 0;
 		slog("hinge %.1f -> %.1f in %d ms", from, to, ms);
 		avp_send_pose();   // the relay's other inputs (it may have started after the last command)
+		hinge_moving = 1;
 		for (int i = 1; i <= steps; i++) {
 			hinge_deg = from + (to - from) * i / steps;
-			hinge_vel = (to - from) * 1000.0 / ms;
+			hinge_vel = ms > 0 ? (to - from) * 1000.0 / ms : 0;
 			hinge_phase = i == 1 ? 1 : 2;
 			dispatch_event(&hinge_svc, hinge_event());
 			avp_send_angle(hinge_deg);   // as Simulator's hinge slider while it is dragged
 			if (i == 1) post_device_state(hinge_deg);
 			pthread_mutex_unlock(&cmd_mu);
-			usleep(10000);
+			usleep(step_us);
 			pthread_mutex_lock(&cmd_mu);
 		}
+		hinge_moving = 0;
 		hinge_deg = to; hinge_vel = 0; hinge_phase = 4;
 		dispatch_event(&hinge_svc, hinge_event());
 		avp_send_angle(to);
@@ -1338,6 +1400,11 @@ static void* listen_thread(void* arg) {
 	pthread_t t;
 	pthread_create(&t, NULL, listen_thread, NULL);
 	pthread_detach(t);
+	if (hinge_svc.service) {
+		pthread_t ht;
+		pthread_create(&ht, NULL, hinge_stream_thread, NULL);
+		pthread_detach(ht);
+	}
 	slog("SimHIDSystem ready");
 	return self;
 }

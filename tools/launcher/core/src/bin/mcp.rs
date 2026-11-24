@@ -27,8 +27,8 @@ fn tools() -> Value {
         {"name": "sim_add_device", "description": "Make a new phone of a model (see sim_devices models), optional name and version (ios, e.g. \"27.2\": iOS for an iPhone or iPad, tvOS for an Apple TV, watchOS for an Apple Watch, or a build such as \"24B91016s\"; see sim_devices runtimes; a model with a runtime of its own, the iPhone Duo's 24B91016s, gets that one). Start it with sim_start phone=<name>. Its first start can take a few minutes.",
          "inputSchema": {"type": "object", "properties": {"model": {"type": "string"}, "name": {"type": "string"}, "ios": {"type": "string"}}, "required": ["model"]}},
         {"name": "sim_start", "description": "Start a phone (its own container, so other phones keep running). Returns at once; poll phones_list for state running.", "inputSchema": {"type": "object", "properties": {"phone": phone}}},
-        {"name": "sim_fold", "description": "Fold or unfold a two-screen phone (iPhone Duo): open=true opens it flat (the large inner screen takes over), open=false closes it (the outer screen); or angle in degrees (0 closed .. 180 flat; SpringBoard swaps screens at 85). The hinge moves over ms (default 600) as a hand would.",
-         "inputSchema": {"type": "object", "properties": {"phone": phone, "open": {"type": "boolean"}, "angle": {"type": "number"}, "ms": {"type": "integer"}}}},
+        {"name": "sim_fold", "description": "Fold or unfold a two-screen phone (iPhone Duo): open=true opens it flat (the large inner screen takes over), open=false closes it (the outer screen); or angle in degrees (0 closed .. 180 flat; SpringBoard swaps screens at 85); or pose, a preset as in Xcode's DeviceHub: closed, half-portrait (90 degrees, portrait), half-landscape (90 degrees, landscape), open. The hinge moves over ms (default 600) as a hand would.",
+         "inputSchema": {"type": "object", "properties": {"phone": phone, "open": {"type": "boolean"}, "angle": {"type": "number"}, "pose": {"type": "string", "enum": ["closed", "half-portrait", "half-landscape", "open"]}, "ms": {"type": "integer"}}}},
         {"name": "sim_button", "description": "Press a hardware button as Apple's simulator does (DeviceHub's Home, Lock, Side Button, Volume, Siri, Action Button, Apple Pay; an Apple TV's Siri Remote: select, menu (back), tv, playpause, siri). Per platform: on a watch home is the Digital Crown's press and side its side button. ms: how long it is held (default 100; e.g. 2500 on lock = Siri on an iPhone).",
          "inputSchema": {"type": "object", "properties": {"phone": phone, "name": {"type": "string", "enum": ["home", "lock", "side", "volup", "voldown", "siri", "action", "wallet", "playpause", "tv", "select", "menu", "back", "mute"]}, "ms": {"type": "integer"}}, "required": ["name"]}},
         {"name": "sim_crown", "description": "Turn the Digital Crown (Apple Watch, Vision Pro): delta per step (positive = down / towards the bottom; ~120 scrolls a watch list one row), steps (default 8, 30 ms apart).",
@@ -138,11 +138,19 @@ fn call(name: &str, a: &Value) -> anyhow::Result<Value> {
         "sim_start" => json!({"phone": inst.name, "starting": true, "pid": sim::start(&device)?}),
         "sim_fold" => {
             anyhow::ensure!(inst.inner.is_some(), "{} has one screen", inst.name);
-            let deg = a["angle"].as_f64().unwrap_or(if a["open"].as_bool().unwrap_or(true) { 180.0 } else { 0.0 }).clamp(0.0, 180.0);
+            let pose = match a["pose"].as_str() {
+                Some(k) => Some(x86sim_core::hid::HINGE_POSES.iter().find(|p| p.key == k).ok_or_else(|| anyhow::anyhow!("unknown pose {k}: closed, half-portrait, half-landscape, open"))?),
+                None => None,
+            };
+            let deg = pose.map(|p| p.angle).or(a["angle"].as_f64()).unwrap_or(if a["open"].as_bool().unwrap_or(true) { 180.0 } else { 0.0 }).clamp(0.0, 180.0);
             let ms = a["ms"].as_u64().unwrap_or(600) as u32;
-            x86sim_core::hid::Hid::new(&inst.sock).hinge(deg, ms);
+            let mut hid = x86sim_core::hid::Hid::new(&inst.sock);
+            if let Some(o) = pose.and_then(|p| p.orientation) {
+                hid.orientation(o);
+            }
+            hid.hinge(deg, ms);
             std::thread::sleep(std::time::Duration::from_millis(ms as u64 + 300));
-            json!({"phone": inst.name, "hinge": inst.hinge(), "screen": if inst.inner_active() { "inner" } else { "outer" }})
+            json!({"phone": inst.name, "hinge": inst.hinge(), "state": inst.hinge().map(x86sim_core::hid::hinge_state), "orientation": inst.orientation(), "screen": if inst.inner_active() { "inner" } else { "outer" }})
         }
         // Inputs 2: the inputs Apple's simulator offers besides touches and keys (host/simhid)
         "sim_button" => {
