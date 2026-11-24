@@ -17,7 +17,7 @@
 // symbolicates it):
 //   X86SIMPROF 1 / P <pid> <exe> / M perf|poll <period us> / U <udid>
 //   S <time ns> <tid> <host ip> <thunk|-1|-2> <guest pc> <lr> <frame return addresses...>   (hex; -2: no guest call)
-//   B <host ip> <guest block pc>   H <host ip> <host object>   N <thunk> <name>   T <tid> <name>
+//   B <host ip> <guest block pc>   H <host ip> <host object or mapping (anon: the code cache)> [symbol]   N <thunk> <name>   T <tid> <name>
 //   I <mach header> <Darwin path>  C <dyld cache Linux path>  E <samples> <lost>
 #include "a64.h"
 #include <atomic>
@@ -239,11 +239,27 @@ void run(Cfg c) {
         std::lock_guard<std::mutex> l(dbg_threads_mutex());
         GuestThread *any = nullptr;
         for_each_guest_thread([](GuestThread *t, void *p) { if (t->jit && !*(GuestThread **)p) *(GuestThread **)p = t; }, &any);
+        // the mappings, for host code dladdr does not know (Darling's Mach-O libraries, the code cache: "anon")
+        std::vector<std::pair<std::pair<u64, u64>, std::string>> maps;
+        if (FILE *m = fopen("/proc/self/maps", "r")) {
+            char l[600];
+            while (fgets(l, sizeof l, m)) {
+                unsigned long lo, hi; int n = 0;
+                if (sscanf(l, "%lx-%lx %*s %*s %*s %*s %n", &lo, &hi, &n) < 2) continue;
+                std::string p = n > 0 ? l + n : "";
+                while (!p.empty() && (p.back() == '\n' || p.back() == ' ')) p.pop_back();
+                maps.push_back({{lo, hi}, p.empty() ? "anon" : p});
+            }
+            fclose(m);
+        }
         for (u64 ip : ips) {
             std::optional<u64> b = any ? any->jit->GuestBlockAtHostAddress(ip) : std::nullopt;
             if (b) { fprintf(out, "B %lx %lx\n", (unsigned long)ip, (unsigned long)*b); continue; }
             Dl_info di{};
             const char *obj = dladdr((void *)ip, &di) && di.dli_fname ? di.dli_fname : "-";
+            if (!strcmp(obj, "-") || !*obj)
+                for (auto &[r, p] : maps) if (ip >= r.first && ip < r.second) { obj = p.c_str(); break; }
+            if (!strcmp(obj, "-") || !*obj) obj = "anon";
             const char *b2 = strrchr(obj, '/');
             fprintf(out, "H %lx %s%s%s\n", (unsigned long)ip, b2 ? b2 + 1 : obj, di.dli_sname ? " " : "", di.dli_sname ? di.dli_sname : "");
         }

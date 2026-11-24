@@ -386,6 +386,10 @@ impl Symbolizer {
                 return (format!("{}+{:#x}", im.name, a - im.lo), im.name.clone());
             }
         }
+        // the translator's stub dylibs (libsystem's guest side, thread start) sit high, outside the image list
+        if a >= 0x7f00_0000_0000 {
+            return ("[x86sim stub code]".into(), "x86sim".into());
+        }
         (format!("{a:#x}"), "?".to_string())
     }
 }
@@ -505,7 +509,12 @@ pub fn symbolicate(raw: &Raw, runtime_root: Option<&Path>) -> Profile {
         let i = addrs.partition_point(|&a| a < lo);
         i < addrs.len() && addrs[i] < hi
     };
-    let sym = Symbolizer::new(raw, runtime_root, &hit);
+    // the runtime of the images' paths (".../RuntimeRoot/usr/lib/..."), when not given
+    let inferred: Option<PathBuf> = raw.images.iter().find_map(|(_, p)| {
+        let l = darwin_to_linux(p);
+        l.find("/RuntimeRoot/").map(|i| PathBuf::from(&l[..i + "/RuntimeRoot".len()]))
+    });
+    let sym = Symbolizer::new(raw, runtime_root.or(inferred.as_deref()), &hit);
     // a return address is the instruction after the call: look up a-4 (a call at a function's end)
     let mut cache: HashMap<u64, (String, String)> = HashMap::new();
     let mut look = |a: u64, ret: bool| -> (String, String) {
@@ -536,9 +545,19 @@ pub fn symbolicate(raw: &Raw, runtime_root: Option<&Path>) -> Profile {
             let n = raw.thunks.get(&s.thunk).cloned().unwrap_or_else(|| format!("thunk #{}", s.thunk));
             st.push((format!("[native] {}", n.trim_start_matches('_')), "native".into(), Kind::Native));
         } else {
+            // not translated code and no native call: the translator (libarm64jit, the code cache's dispatcher and
+            // helpers: "anon"), or host code it called (glibc)
             let host = raw.hosts.get(&s.ip).map(String::as_str).unwrap_or("-");
-            let what = if host.starts_with("libarm64jit.so") { "[translator]" } else if host == "-" { "[translator: JIT runtime]" } else { "[host code]" };
-            st.push((what.into(), host.split(' ').next().unwrap_or("-").to_string(), Kind::Translator));
+            let obj = host.split(' ').next().unwrap_or("-");
+            let obj = obj.rsplit('/').next().unwrap_or(obj);
+            let what = if obj.starts_with("libarm64jit.so") {
+                "[translator]"
+            } else if obj == "-" || obj == "anon" || obj.starts_with('[') {
+                "[translator: code cache runtime]"
+            } else {
+                "[translator: host library]"
+            };
+            st.push((what.into(), obj.to_string(), Kind::Translator));
         }
         if s.thunk != -2 {
             let chain: Vec<(String, String)> = s.frames.iter().map(|&a| look(a, true)).collect();
