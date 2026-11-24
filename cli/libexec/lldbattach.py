@@ -220,33 +220,43 @@ def serve(cmds, ready_fd):
     def target():
         return dbg.GetSelectedTarget()
 
+    listener = dbg.GetListener()
+    RUNNING = ("running", "stepping", "launching", "attaching", "connected")
+
     def state():
         p = target().GetProcess()
         return lldb.SBDebugger.StateAsCString(p.GetState()) if p and p.IsValid() else "none"
 
-    def settle(timeout):
-        """Waits until the process is not running (stopped, exited) or the timeout."""
-        end = time.monotonic() + timeout
-        while state() in ("running", "stepping", "launching", "attaching") and time.monotonic() < end:
-            time.sleep(0.05)
-        time.sleep(0.05)
+    def drain():
+        """Consumes pending events: lldb's public process state only advances as its events are taken (async mode)."""
+        ev = lldb.SBEvent()
+        while listener.GetNextEvent(ev):
+            pass
 
-    def stop_id():
-        p = target().GetProcess()
-        return p.GetStopID() if p and p.IsValid() else -1
+    def settle(timeout):
+        """After a command: waits until a resumed process stops again (or exits), at most timeout seconds."""
+        end = time.monotonic() + 0.5   # a resume may not have produced its event yet
+        while time.monotonic() < end and state() not in RUNNING:
+            drain()
+            time.sleep(0.02)
+        end = time.monotonic() + timeout
+        ev = lldb.SBEvent()
+        while state() in RUNNING and time.monotonic() < end:
+            listener.WaitForEvent(1, ev)
+            drain()
 
     def run(c, timeout=30):
         r = lldb.SBCommandReturnObject()
-        before, sid = state(), stop_id()
+        drain()
+        p = target().GetProcess()
+        sid = p.GetStopID() if p and p.IsValid() else -1
+        before = state()
         ci.HandleCommand(c, r)
-        # async mode: a resuming command (continue, next, finish, ...) may return before the process shows "running"
-        end = time.monotonic() + 0.5
-        while state() == before and stop_id() == sid and time.monotonic() < end:
-            time.sleep(0.02)
         settle(timeout)
         out = (r.GetOutput() or "") + (r.GetError() or "")
         st = state()
-        if st == "stopped" and (before != "stopped" or stop_id() != sid):
+        p = target().GetProcess()
+        if st == "stopped" and (before != "stopped" or (p.IsValid() and p.GetStopID() != sid)):
             r2 = lldb.SBCommandReturnObject()
             ci.HandleCommand("thread list", r2)
             out += r2.GetOutput() or ""
