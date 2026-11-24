@@ -21,7 +21,30 @@ Phones
                        or Apple Watch model takes the newest tvOS / watchOS runtime in runtimes/
   runtime list [ios|tvos|watchos|all] | url B | fetch B
                        27.x simulator runtimes from Apple (no Mac / Apple ID): fetch downloads build B into runtimes/
+  runtime delete B [--all] [--stop] [--yes] [--dry-run] [--json]
+                       delete an installed version: its runtime files only, or --all also its pre-translated code
+                       (jc-<build>, its files in shared caches, download log; shared data stays). Sizes and the phones
+                       on it are shown first; a running phone blocks it (--stop stops those phones first)
   logs [label]         list the device's job logs, or tail one (<device>/data/var/log/<label>.log)
+  logs BUNDLEID [--follow] [--relaunch] [--lines N]
+                       an app's os_log and the crash report of its last run, symbolicated (devctl.py applog);
+                       --relaunch restarts it with its os_log recorded and follows it
+  erase | clone NEWNAME
+                       the phone back to new (simctl erase) / a copy as a new phone (simctl clone); the phone must be off
+  ui [appearance|content_size|increase_contrast|reduce_transparency|reduce_motion] [VALUE]
+                       as simctl ui: light|dark, a Dynamic Type size (large, extra-large, accessibility-medium, ...,
+                       increment, decrement), enabled|disabled; no VALUE prints the setting. Off phones: at next boot
+  status_bar override [--time T] [--dataNetwork wifi|5g|lte|...] [--wifiBars N] [--cellularBars N]
+                      [--operatorName S] [--batteryState charging|charged|discharging] [--batteryLevel N] ... | clear | list
+                       as simctl status_bar (clean screenshots): overrides add up until clear
+  pbcopy [--host] [TEXT] | pbpaste [--host] | pbsync
+                       the phone's pasteboard (simctl pbcopy / pbpaste: TEXT or stdin); --host takes / puts the host
+                       clipboard (wl-clipboard, xclip or xsel); pbsync keeps both the same until Ctrl-C
+  keychain reset | locale [--language fr-CA,en] [--locale fr_CA] | timezone [ZONE|host]
+                       delete every keychain item; the language / region (apps pick it up at their next start); the
+                       phone's time zone (next boot)
+  fidelity [fast|high] fast: a 3x iPhone drawn at 2x (fewer pixels) + Reduce Transparency and Reduce Motion; high:
+                       native scale, every effect (the scale applies at the next boot)
 
 Display and input
   view [--bg]          GTK viewer window with mouse/keyboard input (simview.py; DISPLAY defaults to :0)
@@ -112,8 +135,13 @@ cmd_screenshot() {
 }
 
 cmd_logs() {
+	. "$X/cli/lib/pickdevice.sh"
+	if [ $# -ge 2 ] && pick_device "$1"; then shift; export X86SIM_DEVICE; fi
 	local d=$X86SIM_DEVICE/data/var/log
-	if [ $# = 0 ]; then ls -t "$d"; else exec tail -n "${LINES:-50}" -F "$d/$1.log"; fi
+	if [ $# = 0 ]; then ls -t "$d"; return; fi
+	# an app (bundle id): its os_log and its last crash (devctl.py applog); else a job's log
+	if [ ! -e "$d/$1.log" ] && case $1 in *.*) true ;; *) false ;; esac; then exec python3 "$L/devctl.py" applog "$@"; fi
+	exec tail -n "${LINES:-50}" -F "$d/$1.log"
 }
 
 [ $# -ge 1 ] || { usage; exit 2; }
@@ -122,7 +150,12 @@ case $c in
 	help|-h|--help) usage ;;
 	wait) exec python3 "$L/framecheck.py" wait "${1:-home}" "${2:-300}" ;;
 	device) exec python3 "$L/arm64/device-a64.py" "$@" ;;
-	runtime) exec python3 "$L/arm64/runtime-fetch.py" "$@" ;;
+	runtime)
+		if [ "${1:-}" = delete ]; then
+			# core rtdelete.rs (shared with the launcher's Versions page and the MCP tool runtime_delete)
+			exec "$X/tools/launcher/target/release/x86sim-aot" runtime "$@"
+		fi
+		exec python3 "$L/arm64/runtime-fetch.py" "$@" ;;
 	logs) cmd_logs "$@" ;;
 	view) cmd_view "$@" ;;
 	screenshot|shot) cmd_screenshot "$@" ;;
@@ -136,6 +169,12 @@ case $c in
 		. "$X/cli/lib/pickdevice.sh"
 		if [ $# -ge 1 ] && { [ $# -ge 2 ] || [ "$c" = listapps ]; } && pick_device "$1"; then shift; export X86SIM_DEVICE; fi
 		exec python3 "$L/simctl.py" "$c" "$@" ;;
+	ui|status_bar|statusbar|pbcopy|pbpaste|pbsync|keychain|locale|timezone|fidelity|erase|clone)
+		# simctl's device settings / erase / clone (devctl.py); a leading <device> as for the commands above
+		. "$X/cli/lib/pickdevice.sh"
+		if [ $# -ge 1 ] && { [ $# -ge 2 ] || case $c in erase|keychain|ui|fidelity|timezone|locale|pbpaste|pbsync) true ;; *) false ;; esac; } && pick_device "$1"; then shift; export X86SIM_DEVICE; fi
+		[ "$c" = statusbar ] && c=status_bar
+		exec python3 "$L/devctl.py" "$c" "$@" ;;
 	build) exec make -C "$X" "$@" ;;
 	repos) exec "$L/repos.sh" "$@" ;;
 	upstream-sync) exec "$L/repos.sh" upstream-sync "$@" ;;

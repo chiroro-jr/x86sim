@@ -15,6 +15,7 @@ pub mod key;
 pub mod logs;
 pub mod macho;
 pub mod ring;
+pub mod rtdelete;
 pub mod setup;
 pub mod sim;
 pub mod update;
