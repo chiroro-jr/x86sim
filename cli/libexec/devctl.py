@@ -31,7 +31,9 @@ import x86config  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = x86config.ROOT
-DEV = x86config.device()
+# real paths: boot-a64.sh boots a device by its real path (realpath -m), and the paths in its data must be that one
+# (a checkout whose var/ is a symlink otherwise rewrote a clone's stores to the symlinked path)
+DEV = os.path.realpath(x86config.device())
 DATA = os.path.join(DEV, "data")
 PREFS = os.path.join(DATA, "Library/Preferences")
 
@@ -102,7 +104,7 @@ SIZE_CAT = dict(zip(SIZES, ["UICTContentSizeCategory" + s for s in
                              "AccessibilityXXL", "AccessibilityXXXL"]]))
 # the preferences each setting is kept in (what Apple's simulator writes: see devctl.m), for a phone that is off
 AX = "com.apple.Accessibility.plist"
-AX_KEYS = {"increase_contrast": "DarkenSystemColors", "reduce_transparency": "EnhanceBackgroundContrast",
+AX_KEYS = {"increase_contrast": "DarkenSystemColors", "reduce_transparency": "EnhancedBackgroundContrastEnabled",
            "reduce_motion": "ReduceMotionEnabled"}
 STYLE = "com.apple.uikitservices.userInterfaceStyleMode.plist"
 WHATS = ["appearance", "content_size", "increase_contrast", "reduce_transparency", "reduce_motion"]
@@ -405,7 +407,14 @@ def regenerate(dev):
     subprocess.run([sys.executable, os.path.join(HERE, "mksimdevice.py"), dev], env=env, check=True, stdout=subprocess.DEVNULL)
 
 
+def own_phone(what):
+    """erase / clone act on an arm64 phone's own dir only (var/device-a64*), never on another configured device"""
+    if not os.path.basename(DEV).startswith("device-a64") or not os.path.exists(os.path.join(DEV, "runtime")):
+        die("x86sim %s: %s is not an arm64 phone (x86sim device list)" % (what, DEV))
+
+
 def erase(a):
+    own_phone("erase")
     if running():
         die("x86sim erase: stop the phone first (as simctl erase: Unable to erase contents and settings in current state: Booted)")
     if is_default(DEV) and "--force" not in a:
@@ -431,12 +440,13 @@ def clone(a):
     if not a:
         die("usage: x86sim clone NEWNAME", 2)
     name = " ".join(a)
+    own_phone("clone")
     if running():
         die("x86sim clone: stop the phone first (as simctl clone)")
     slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:24].strip("-")
     if not slug:
         die("x86sim clone: give the new phone a name", 2)
-    new = os.path.join(ROOT, "var", "device-a64-" + slug)
+    new = os.path.join(os.path.realpath(os.path.join(ROOT, "var")), "device-a64-" + slug)
     if os.path.exists(new):
         die("x86sim clone: %s exists" % new)
     # reflinks: a clone costs no space until it changes; the source is never written

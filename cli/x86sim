@@ -6,7 +6,15 @@
 set -u
 self=$(readlink -f "$0")
 export X86SIM_ROOT=${X86SIM_ROOT:-$(cd "$(dirname "$self")/.." && pwd)}
+_ring_given=${SIMFB_RING_LINUX+x}
 . "$X86SIM_ROOT/cli/lib/config.sh"
+# a <device> picked from the arguments (pick_device) after config.sh chose the configured device's frame ring: that
+# device's ring instead, unless the caller set SIMFB_RING_LINUX (io screenshot / recordVideo read another phone's)
+use_device() {
+	_picked=1
+	export X86SIM_DEVICE
+	[ -n "$_ring_given" ] || export SIMFB_RING_LINUX=/dev/shm/x86sim-$(basename "$X86SIM_DEVICE" | sed 's/^device-//')-simfb.ring
+}
 X=$X86SIM_ROOT; L=$X/cli/libexec; ST=$X86SIM_STATE
 
 usage() {
@@ -136,7 +144,7 @@ cmd_screenshot() {
 
 cmd_logs() {
 	. "$X/cli/lib/pickdevice.sh"
-	if [ $# -ge 2 ] && pick_device "$1"; then shift; export X86SIM_DEVICE; fi
+	if [ $# -ge 2 ] && pick_device "$1"; then shift; use_device; fi
 	local d=$X86SIM_DEVICE/data/var/log
 	if [ $# = 0 ]; then ls -t "$d"; return; fi
 	# an app (bundle id): its os_log and its last crash (devctl.py applog); else a job's log
@@ -167,13 +175,19 @@ case $c in
 	launch|terminate|get_app_container|listapps|push|location|privacy|addmedia|log|io|pidof|spawn)
 		# simctl-style leading <device> (x86sim launch apps com.foo): a phone's name/folder/dir
 		. "$X/cli/lib/pickdevice.sh"
-		if [ $# -ge 1 ] && { [ $# -ge 2 ] || [ "$c" = listapps ]; } && pick_device "$1"; then shift; export X86SIM_DEVICE; fi
+		if [ $# -ge 1 ] && { [ $# -ge 2 ] || [ "$c" = listapps ]; } && pick_device "$1"; then shift; use_device; fi
 		exec python3 "$L/simctl.py" "$c" "$@" ;;
 	ui|status_bar|statusbar|pbcopy|pbpaste|pbsync|keychain|locale|timezone|fidelity|erase|clone)
 		# simctl's device settings / erase / clone (devctl.py); a leading <device> as for the commands above
 		. "$X/cli/lib/pickdevice.sh"
-		if [ $# -ge 1 ] && { [ $# -ge 2 ] || case $c in erase|keychain|ui|fidelity|timezone|locale|pbpaste|pbsync) true ;; *) false ;; esac; } && pick_device "$1"; then shift; export X86SIM_DEVICE; fi
+		if [ $# -ge 1 ] && { [ $# -ge 2 ] || case $c in erase|keychain|ui|fidelity|timezone|locale|pbpaste|pbsync) true ;; *) false ;; esac; } && pick_device "$1"; then shift; use_device; fi
 		[ "$c" = statusbar ] && c=status_bar
+		# erase / clone destroy or copy a whole phone: only one named here, never the configured default (a name that
+		# matched no phone fell back to X86SIM_DEVICE and erased it)
+		case $c in erase|clone)
+			case "$X86SIM_DEVICE" in */var/device-a64*) ;; *) echo "x86sim $c: name the phone (x86sim $c NAME); ${1:-none given} is no phone" >&2; exit 2 ;; esac
+			[ "${_picked:-}" = 1 ] || { echo "x86sim $c: no phone ${1:-} (x86sim device list)" >&2; exit 2; } ;;
+		esac
 		exec python3 "$L/devctl.py" "$c" "$@" ;;
 	build) exec make -C "$X" "$@" ;;
 	repos) exec "$L/repos.sh" "$@" ;;

@@ -60,9 +60,10 @@ static id styleMode(void) {
 static NSString* currentContentSize(void) {
 	CFStringRef (*copy)(void) = dlsym(axLib(), "_AXSCopyPreferredContentSizeCategoryName");
 	NSString* v = copy ? CFBridgingRelease(copy()) : nil;
+	if (!v) return @"large"; // nothing set: the default size
 	for (NSString* k in contentSizes())
 		if ([contentSizes()[k] isEqual:v]) return k;
-	return v ?: @"unknown";
+	return v;
 }
 
 static BOOL axBool(const char* name) {
@@ -116,7 +117,11 @@ static NSDictionary* uiSettings(NSDictionary* q) {
 		if (!set) return errorOf(@"no %s", fn);
 		set(on);
 	}
-	return uiState();
+	// cfprefsd answers the read-back with the old value for a moment: report what was set
+	NSMutableDictionary* st = [uiState() mutableCopy];
+	if ([what isEqual:@"appearance"] || [what isEqual:@"content_size"]) return st;
+	st[what] = ([v isEqual:@"enabled"] || [v isEqual:@"on"] || [v isEqual:@"1"]) ? @"enabled" : @"disabled";
+	return st;
 }
 
 // ---- status bar ----
@@ -146,10 +151,17 @@ static NSString* sbTime(NSString* t) {
 		stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
 }
 
+// the keys an STStatusBarData has (+[STStatusBarData entryKeys]; the instance has none of its own)
+static id sbKeys(void) {
+	return sbOverrides ? MSG(id, id, SEL)((id)[sbOverrides class], sel_getUid("entryKeys")) : @[];
+}
+
 static NSDictionary* sbList(void) {
 	NSMutableDictionary* o = [NSMutableDictionary new];
-	for (NSString* k in sbOverrides ? MSG(id, id, SEL)(sbOverrides, sel_getUid("entryKeys")) : @[])
-		o[k] = [MSG(id, id, SEL, id)(sbOverrides, sel_getUid("entryForKey:"), k) description] ?: @"";
+	for (NSString* k in sbKeys()) {
+		id e = MSG(id, id, SEL, id)(sbOverrides, sel_getUid("entryForKey:"), k);
+		if (e) o[k] = [e description];
+	}
 	return @{ @"ok": @YES, @"overrides": o };
 }
 
@@ -218,18 +230,21 @@ static NSDictionary* statusBar(NSDictionary* q) {
 		id old = MSG(id, id, SEL)(o, sel_getUid("wifiEntry"));
 		long st = q[@"wifiMode"] ? cellStatus(q[@"wifiMode"]) : old ? MSG(long, id, SEL)(old, sel_getUid("status")) : 5;
 		if (st < 0 || (st == 0 && q[@"wifiMode"])) return errorOf(@"wifiMode: searching, failed or active");
-		// a cellular data network shows its type where the Wi-Fi bars were: Wi-Fi off for it
-		if (net && ![net isEqual:@"wifi"]) st = 1;
-		else if ([net isEqual:@"wifi"] && st == 1) st = 5;
+		if (st == 1) st = 5; // an earlier cellular data network's hidden Wi-Fi comes back
 		long bars = q[@"wifiBars"] ? [q[@"wifiBars"] longValue] : old ? MSG(long, id, SEL)(old, sel_getUid("displayValue")) : 3;
 		if (bars < 0 || bars > 3) return errorOf(@"wifiBars: 0..3");
-		id e = MSG(id, id, SEL, long, long, BOOL, long, long, BOOL)(wifiC, sel_getUid("entryWithType:status:lowDataMode:rawValue:displayValue:displayRawValue:"),
-			0, st, NO, bars, bars, NO);
+		// a cellular data network (or hide) shows its type where the Wi-Fi icon was: no Wi-Fi entry
+		// (+[STStatusBarDataEntry disabledEntry]; one with status "disabled" drew a crossed-out Wi-Fi icon)
+		id e = net && ![net isEqual:@"wifi"] ? MSG(id, id, SEL)(wifiC, sel_getUid("disabledEntry"))
+			: MSG(id, id, SEL, long, long, BOOL, long, long, BOOL)(wifiC, sel_getUid("entryWithType:status:lowDataMode:rawValue:displayValue:displayRawValue:"),
+				0, st, NO, bars, bars, NO);
 		MSG(void, id, SEL, id)(o, sel_getUid("setWifiEntry:"), e);
 	}
 	id d = MSG(id, id, SEL)(MSG(id, id, SEL)(ovC, sel_getUid("alloc")), sel_getUid("init"));
-	for (NSString* k in MSG(id, id, SEL)(o, sel_getUid("entryKeys")))
-		MSG(void, id, SEL, id, id)(d, sel_getUid("setEntry:forKey:"), MSG(id, id, SEL, id)(o, sel_getUid("entryForKey:"), k), k);
+	for (NSString* k in sbKeys()) {
+		id e = MSG(id, id, SEL, id)(o, sel_getUid("entryForKey:"), k);
+		if (e) MSG(void, id, SEL, id, id)(d, sel_getUid("setEntry:forKey:"), e, k);
+	}
 	sbPublish(d);
 	return sbList();
 }
@@ -265,7 +280,8 @@ static NSDictionary* keychainReset(void) {
 	void* h = dlopen("/System/Library/Frameworks/Security.framework/Security", RTLD_NOW);
 	unsigned char (*del)(void) = h ? dlsym(h, "SecItemDeleteAll") : NULL;
 	if (!del) return errorOf(@"no SecItemDeleteAll");
-	return del() ? @{ @"ok": @YES } : errorOf(@"SecItemDeleteAll failed");
+	// it answers false when some items stay (system ones bound to the device), yet every app's items are gone
+	return @{ @"ok": @YES, @"complete": @(del() != 0) };
 }
 
 // ---- language / region ----
@@ -286,9 +302,27 @@ static NSDictionary* globalPrefs(NSDictionary* q) {
 	return @{ @"ok": @YES, @"languages": langs ?: @[], @"locale": loc ?: @"" };
 }
 
+// x86Sim: the status bar publisher's setup and its updates wait on the main queue (its first request never answered
+// when run on the main thread, which this job's request loop is on): run it on a queue of its own while the main
+// thread runs its run loop (which drains the main queue), for up to 20 s.
+static NSDictionary* offMain(NSDictionary* (^work)(void)) {
+	static dispatch_queue_t q;
+	if (!q) q = dispatch_queue_create("com.x86sim.devctl", DISPATCH_QUEUE_SERIAL);
+	__block NSDictionary* r = nil;
+	__block volatile BOOL done = NO;
+	dispatch_async(q, ^{
+		NSDictionary* x = work();
+		dispatch_async(dispatch_get_main_queue(), ^{ r = x; done = YES; });
+	});
+	NSDate* end = [NSDate dateWithTimeIntervalSinceNow:20];
+	while (!done && [end timeIntervalSinceNow] > 0)
+		[[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+	return r ?: errorOf(@"no answer from the status bar server in 20 s");
+}
+
 static NSDictionary* devctlRequest(NSString* c, NSDictionary* q) {
 	if ([c isEqual:@"ui"]) return uiSettings(q);
-	if ([c isEqual:@"statusbar"]) return statusBar(q);
+	if ([c isEqual:@"statusbar"]) return offMain(^{ return statusBar(q); });
 	if ([c isEqual:@"pasteboard"]) return pasteboard(q);
 	if ([c isEqual:@"keychain"]) return keychainReset();
 	if ([c isEqual:@"globalprefs"]) return globalPrefs(q);
