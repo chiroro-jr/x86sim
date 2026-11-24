@@ -1,27 +1,27 @@
 //! One metalhostd connection: object table and the VKMTL request handlers.
 use crate::proto::*;
-use metal2vulkan::library::{FunctionConstantValue, FunctionConstantValues};
+use metal2vulkan::library::{FunctionConstantValue, FunctionConstantValues, FunctionStage, Library};
 use metal2vulkan::metal::{
-    BarrierScope, BlendFactor, BlendOperation, ColorWriteMask, CompareFunction, CullMode, DataType, DepthClipMode,
-    DispatchType, IndexType, PixelFormat, PrimitiveTopologyClass, PrimitiveType, RenderStages, ResourceUsage,
-    SamplerAddressMode, SamplerBorderColor, SamplerMinMagFilter, SamplerMipFilter, StencilOperation, TextureType,
-    TextureUsage, TriangleFillMode, VertexFormat, VertexStepFunction, Winding,
+    BlendFactor, BlendOperation, ColorWriteMask, CompareFunction, CullMode, DataType, DepthClipMode, IndexType,
+    PixelFormat, PrimitiveTopologyClass, PrimitiveType, SamplerAddressMode, SamplerBorderColor, SamplerMinMagFilter,
+    SamplerMipFilter, StencilOperation, TextureType, TextureUsage, TriangleFillMode, VertexFormat, VertexStepFunction,
+    Winding,
 };
 use metal2vulkan::metal::state::{DepthStencilDescriptor, StencilDescriptor};
 use metal2vulkan::pipeline::{
-    ColorAttachmentDescriptor, RenderPipelineDescriptor, VertexAttributeDescriptor, VertexBufferLayoutDescriptor,
-    VertexDescriptor,
+    ColorAttachmentDescriptor, FunctionDescriptor, RenderPipelineDescriptor, VertexAttributeDescriptor,
+    VertexBufferLayoutDescriptor, VertexDescriptor,
 };
 use metal2vulkan::bind::SamplerDescriptor;
 use metal2vulkan::pipeline::{ComputePipelineDescriptor, StageSource};
 use metal2vulkan_runtime::{
-    BlitCommandEncoder, BlitOption, Buffer, ClearColor, CommandBuffer, CommandBufferStatus, CommandQueue,
-    ComputeCommandEncoder, ComputePipelineState, DepthStencilState, Device, EventRef, Function, HostMemory,
-    IoSurfacePlane, Library, LoadAction, Origin, PipelineOptions, Region, RenderCommandEncoder, RenderPassDescriptor,
-    RenderPipelineState, ResourceOptions, ResourceRef, SamplerState, ScissorRect, SharedEvent, Size, StoreAction,
-    Texture, TextureDescriptor, Viewport,
+    BlitCommandEncoder, Buffer, BufferLayout, ClearColor, CommandBuffer, CommandBufferStatus, CommandQueue,
+    ComputeCommandEncoder, ComputePipelineState, DepthStencilState, Device, DispatchType, HostBytes, IndexBuffer,
+    IndexClass, LoadAction, MemoryClass, NumberedSampler, Region, RenderCommandEncoder, RenderPassDescriptor,
+    RenderPipelineState, Resource, ResourceUsage, SamplerState, ScissorRect, SharedEvent, StorageMode, StoreAction,
+    Texture, TextureDescriptor, TexturePlace, Viewport,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::os::unix::net::UnixStream;
@@ -32,6 +32,186 @@ type Res<T> = Result<T, String>;
 
 fn err<E: std::fmt::Display>(what: &str) -> impl FnOnce(E) -> String + '_ {
     move |e| format!("{what}: {e}")
+}
+
+/// The new runtime places every texture and sampler state at an index of set 1 that the consumer chooses from its
+/// grants (Set 1 and index grants in metal2vulkan-runtime's README); one device serves every connection, so the
+/// indices are the process's. A released index is handed out again only after REUSE_DELAY: the runtime leaves a
+/// placement at an index that work committed before its release still reads undefined, and nothing here tracks a
+/// release's command buffers, so the delay stands in for their retirement. Constexpr samplers keep the index their
+/// state words took first, for good (few distinct ones), as the conformance suite's consumer does.
+struct IndexPool {
+    /// next never-used index of the class's range
+    fresh: u32,
+    end: u32,
+    /// released indices with their release time, oldest first
+    released: VecDeque<(u32, std::time::Instant)>,
+}
+
+const REUSE_DELAY: std::time::Duration = std::time::Duration::from_secs(5);
+
+impl IndexPool {
+    fn new(class: IndexClass) -> IndexPool {
+        let r = class.range();
+        IndexPool { fresh: r.start, end: r.end, released: VecDeque::new() }
+    }
+    fn take(&mut self) -> Option<u32> {
+        if self.released.front().is_some_and(|(_, t)| t.elapsed() >= REUSE_DELAY) {
+            return self.released.pop_front().map(|(i, _)| i);
+        }
+        if self.fresh < self.end {
+            self.fresh += 1;
+            return Some(self.fresh - 1);
+        }
+        // every index is live or released moments ago: take the oldest release
+        self.released.pop_front().map(|(i, _)| i)
+    }
+}
+
+struct Indices {
+    texture: IndexPool,
+    sampler: IndexPool,
+    constexprs: HashMap<[u64; 2], u32>,
+}
+
+static INDICES: std::sync::LazyLock<Mutex<Indices>> = std::sync::LazyLock::new(|| {
+    Mutex::new(Indices {
+        texture: IndexPool::new(IndexClass::Texture),
+        sampler: IndexPool::new(IndexClass::Sampler),
+        constexprs: HashMap::new(),
+    })
+});
+
+fn indices() -> std::sync::MutexGuard<'static, Indices> {
+    INDICES.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Grants the device both classes' whole ranges, once, before any texture or sampler is made.
+pub fn grant_indices(device: &Device) -> Res<()> {
+    for class in [IndexClass::Texture, IndexClass::Sampler] {
+        let r = class.range();
+        // the grant lasts as long as the device; nothing needs its handle
+        let _: metal2vulkan_runtime::IndexGrant = device.grant_indices(class, r.start, r.end - r.start).map_err(err("grant_indices"))?;
+    }
+    Ok(())
+}
+
+fn take_index(class: IndexClass) -> Res<u32> {
+    let mut i = indices();
+    let pool = if class == IndexClass::Texture { &mut i.texture } else { &mut i.sampler };
+    pool.take().ok_or_else(|| format!("no free {class:?} index"))
+}
+
+fn release_index(class: IndexClass, index: u32) {
+    let mut i = indices();
+    let pool = if class == IndexClass::Texture { &mut i.texture } else { &mut i.sampler };
+    pool.released.push_back((index, std::time::Instant::now()));
+}
+
+/// A pipeline's numbered samplers: a constexpr sampler takes the index its state words took first; a texture read's
+/// or write's sampler takes nothing at its index (0).
+fn sampler_ids(samplers: &[NumberedSampler]) -> Result<Vec<u32>, metal2vulkan_runtime::Error> {
+    let mut i = indices();
+    let mut out = Vec::with_capacity(samplers.len());
+    for s in samplers {
+        out.push(match s {
+            NumberedSampler::Constexpr(words) => match i.constexprs.get(words) {
+                Some(&x) => x,
+                None => {
+                    // an exhausted pool answers 0: the runtime refuses the state rather than share an index
+                    let x = i.sampler.take().unwrap_or(0);
+                    i.constexprs.insert(*words, x);
+                    x
+                }
+            },
+            _ => 0,
+        });
+    }
+    Ok(out)
+}
+
+/// The index a texture of `pf` and `usage` takes: where shaders reach it (shader read or write, no usage bit,
+/// which is every usage, or a colour render target, which a fragment function reads through its attachment).
+fn texture_reached(pf: PixelFormat, usage: TextureUsage) -> bool {
+    let reached = TextureUsage::SHADER_READ | TextureUsage::SHADER_WRITE;
+    let color_target = usage.contains(TextureUsage::RENDER_TARGET) && !metal2vulkan::metal::format::is_depth_stencil(pf);
+    usage.is_empty() || usage.intersects(reached) || color_target
+}
+
+fn origin3(x: u64, y: u64, z: u64) -> [u32; 3] {
+    [x as u32, y as u32, z as u32]
+}
+
+fn load_action(raw: u32) -> Res<LoadAction> {
+    Ok(match raw {
+        0 => LoadAction::DontCare,
+        1 => LoadAction::Load,
+        2 => LoadAction::Clear,
+        _ => return Err(format!("load action {raw}")),
+    })
+}
+
+fn store_action(raw: u32) -> Res<StoreAction> {
+    Ok(match raw {
+        0 => StoreAction::DontCare,
+        1 => StoreAction::Store,
+        2 => StoreAction::MultisampleResolve,
+        3 => StoreAction::StoreAndMultisampleResolve,
+        4 => StoreAction::Unknown,
+        5 => StoreAction::CustomSampleDepthStore,
+        _ => return Err(format!("store action {raw}")),
+    })
+}
+
+fn viewport(c: &mut Rd) -> Viewport {
+    Viewport { origin_x: c.f64(), origin_y: c.f64(), width: c.f64(), height: c.f64(), znear: c.f64(), zfar: c.f64() }
+}
+
+/// MTLResourceUsage bits (read 1, write 2, sample 4) as the runtime's.
+fn resource_usage(bits: u32) -> ResourceUsage {
+    let mut u = ResourceUsage::READ;
+    if bits & 2 != 0 {
+        u = if bits & 1 != 0 { u | ResourceUsage::WRITE } else { ResourceUsage::WRITE };
+    }
+    if bits & 4 != 0 {
+        u = u | ResourceUsage::SAMPLE;
+    }
+    u
+}
+
+fn place(slice: u64, level: u64, origin: [u32; 3]) -> TexturePlace {
+    TexturePlace { slice: slice as u32, level: level as u32, origin }
+}
+
+/// The device's name and the `registryID` mtlvk answers for it: Vulkan's vendor and device ids (the old runtime's
+/// `Device::name` / `registry_id`, which the new one does not keep).
+pub fn device_identity(device: &Device) -> (String, u64) {
+    let raw = device.raw();
+    // SAFETY: a query of the device's own physical device.
+    let p = unsafe { raw.instance.get_physical_device_properties(raw.physical_device) };
+    let name = p.device_name_as_c_str().map(|c| c.to_string_lossy().into_owned()).unwrap_or_default();
+    (name, ((p.vendor_id as u64) << 32) | p.device_id as u64)
+}
+
+/// MTLFunctionType of a library function's stage (0 where Metal names none).
+fn function_type(stage: FunctionStage) -> u32 {
+    match stage {
+        FunctionStage::Vertex => 1,
+        FunctionStage::Fragment => 2,
+        FunctionStage::Kernel => 3,
+        FunctionStage::Extern => 4,
+        FunctionStage::Visible => 5,
+        FunctionStage::Intersection => 6,
+        FunctionStage::Mesh => 7,
+        FunctionStage::Object => 8,
+        _ => 0,
+    }
+}
+
+/// A shared buffer of `len` bytes the runtime places in a block of its own (the block goes back with the buffer).
+fn own_buffer(device: &Device, len: u64) -> Res<Buffer> {
+    let block = device.take_block(MemoryClass::Shared, len.max(1)).map_err(err("take_block"))?;
+    device.new_buffer(block.id, 0, len.max(1), Some(0)).map_err(err("new_buffer"))
 }
 
 /// A MAP_SHARED mapping of a memfd from metalhostd.
@@ -97,7 +277,8 @@ enum Obj {
     Queue(CommandQueue),
     Event(SharedEvent),
     Lib(Library),
-    Func(Function),
+    /// a library function with the constant values it was made with
+    Func(FunctionDescriptor),
     Pso(ComputePipelineState),
     Sampler(SamplerState),
     Rps(RenderPipelineState),
@@ -123,12 +304,20 @@ enum Enc {
 impl Enc {
     fn end(&mut self) -> Res<()> {
         match std::mem::replace(self, Enc::None) {
-            Enc::None => Ok(()),
-            Enc::Blit(b) => b.end_encoding().map_err(err("end blit")),
-            Enc::Compute(c) => c.end_encoding().map_err(err("end compute")),
-            Enc::Render(r) => r.end_encoding().map_err(err("end render")),
+            Enc::None => {}
+            Enc::Blit(b) => b.end_encoding(),
+            Enc::Compute(c) => c.end_encoding(),
+            Enc::Render(r) => r.end_encoding(),
         }
+        Ok(())
     }
+}
+
+/// x86Sim: where a VRAM render target's texels go back to: the IOSurface's buffer, at the plane's offset and pitch.
+struct Proxy {
+    buf: Buffer,
+    offset: u64,
+    bpr: u64,
 }
 
 /// A VRAM render target's surface: memfd (dev, inode, offset of the plane), bytes per row, width, height, pixel format.
@@ -156,7 +345,9 @@ pub struct State {
     /// Textures over the same surface pages (`buf_keys`: buffer -> memfd dev/inode/offset) share one VRAM texture;
     /// views of a proxied texture count as it (`proxy_views`).
     vram_targets: bool,
-    proxies: HashMap<u64, Texture>,
+    proxies: HashMap<u64, Proxy>,
+    /// the set-1 index each texture or sampler object holds (given back at OBJ_DEL and when the connection ends)
+    idx: HashMap<u64, (IndexClass, u32)>,
     proxy_views: HashMap<u64, u64>,
     shared_vram: HashMap<VramKey, Texture>,
     /// x86Sim RAM 2: the `shared_vram` key of each proxied texture: the VRAM texture goes with the last proxy of its
@@ -194,8 +385,17 @@ enum Kind {
 }
 
 fn tex_bytes(d: &TextureDescriptor) -> u64 {
-    let base = d.width * d.height * d.depth * d.array_length * d.sample_count * 4;
+    let base = d.width as u64 * d.height as u64 * d.depth as u64 * d.array_length as u64 * d.sample_count as u64 * 4;
     if d.mipmap_level_count > 1 { base * 4 / 3 } else { base }
+}
+
+impl Drop for State {
+    fn drop(&mut self) {
+        self.objs.clear();
+        for (_, (class, i)) in self.idx.drain() {
+            release_index(class, i);
+        }
+    }
 }
 
 /// x86Sim Speed 7: SIGUSR1 bumps this; each connection prints its object counts on its next request.
@@ -231,7 +431,7 @@ impl State {
             e.0 += 1;
             e.1 += b;
         }
-        let shared_vram: u64 = self.shared_vram.values().map(|t| t.width() * t.height() * 4).sum();
+        let shared_vram: u64 = self.shared_vram.values().map(|t| t.descriptor().width as u64 * t.descriptor().height as u64 * 4).sum();
         let kinds: Vec<String> = by.iter().map(|(k, (n, b))| format!("{k} {n}/{}MB", b >> 20)).collect();
         eprintln!("mtlvk stats: kinds [{}] shared_vram {} MB", kinds.join(", "), shared_vram >> 20);
         eprintln!(
@@ -273,13 +473,13 @@ fn timing_add(enc: f64, done: f64, gpu: f64) {
 
 impl State {
     pub fn new(device: Device, out: Sink) -> Res<State> {
-        let helper = device.new_command_queue().map_err(err("helper queue"))?;
+        let helper = device.new_command_queue(64).map_err(err("helper queue"))?;
         let vram_targets = std::env::var("MTLVK_VRAM_TARGETS").map(|v| v != "0").unwrap_or(true);
         if vram_targets {
             eprintln!("mtlvk: render targets over IOSurfaces are drawn in VRAM (MTLVK_VRAM_TARGETS)");
         }
         Ok(State { device, objs: HashMap::new(), skip_draws: std::cell::Cell::new(false), mirrors: HashMap::new(), helper, out, log: std::env::var_os("MTLVK_LOG").is_some(), lib_bytes: HashMap::new(), func_src: HashMap::new(),
-            vram_targets, proxies: HashMap::new(), proxy_views: HashMap::new(), shared_vram: HashMap::new(), proxy_keys: HashMap::new(), buf_keys: HashMap::new(),
+            vram_targets, proxies: HashMap::new(), idx: HashMap::new(), proxy_views: HashMap::new(), shared_vram: HashMap::new(), proxy_keys: HashMap::new(), buf_keys: HashMap::new(),
             written: Default::default(), stats_seen: 0, kinds: HashMap::new() })
     }
 
@@ -310,7 +510,7 @@ impl State {
             _ => Err(format!("no library {id:#x}")),
         }
     }
-    fn func(&self, id: u64) -> Res<&Function> {
+    fn func(&self, id: u64) -> Res<&FunctionDescriptor> {
         match self.objs.get(&id) {
             Some(Obj::Func(f)) => Ok(f),
             _ => Err(format!("no function {id:#x}")),
@@ -359,12 +559,12 @@ impl State {
         let mut w = Wr::default();
         match op {
             HELLO => {
-                let props = self.device.properties();
-                let name = format!("{} (Vulkan, x86Sim)", self.device.name());
-                w.u64(self.device.registry_id())
+                let (dev_name, registry) = device_identity(&self.device);
+                let name = format!("{dev_name} (Vulkan, x86Sim)");
+                w.u64(registry)
                     .u64(4 << 30)
-                    .u64(props.max_buffer_length)
-                    .u32(props.has_unified_memory as u32)
+                    .u64(metal2vulkan_runtime::MAX_BUFFER_LENGTH)
+                    .u32(self.device.has_unified_memory() as u32)
                     .u32(name.len() as u32)
                     .bytes(name.as_bytes());
                 Some(w.0)
@@ -378,7 +578,7 @@ impl State {
                         (-1, 0)
                     }
                 };
-                let gpu = self.buf(id).map(|b| b.gpu_address().0).unwrap_or(0);
+                let gpu = self.buf(id).map(|b| b.gpu_address()).unwrap_or(0);
                 w.i32(status).u32(copied).u64(gpu);
                 Some(w.0)
             }
@@ -393,10 +593,22 @@ impl State {
                 self.lib_bytes.remove(&id);
                 self.func_src.remove(&id);
                 self.kinds.remove(&id);
+                let mut held = self.idx.remove(&id);
                 if let Some(k) = self.proxy_keys.remove(&id) {
-                    if !self.proxy_keys.values().any(|o| *o == k) {
-                        self.shared_vram.remove(&k);
+                    match self.proxy_keys.iter().find(|(_, o)| **o == k).map(|(o, _)| *o) {
+                        // the shared VRAM texture lives on in another proxy: its index goes with it
+                        Some(other) => {
+                            if let Some(h) = held.take() {
+                                self.hold_index(other, h.0, Some(h.1));
+                            }
+                        }
+                        None => {
+                            self.shared_vram.remove(&k);
+                        }
                     }
+                }
+                if let Some((class, i)) = held {
+                    release_index(class, i);
                 }
                 None
             }
@@ -432,7 +644,7 @@ impl State {
             }
             QUEUE_NEW => {
                 let id = r.u64();
-                match self.device.new_command_queue() {
+                match self.device.new_command_queue(64) {
                     Ok(q) => {
                         self.objs.insert(id, Obj::Queue(q));
                     }
@@ -503,13 +715,18 @@ impl State {
             LIB_NEW => {
                 let (id, len) = (r.u64(), r.u64());
                 let data = r.bytes(len as usize);
-                match self.device.new_library_with_data(data) {
+                match Library::parse(data) {
                     Ok(l) => {
-                        let names = l.function_names();
-                        w.i32(0).u32(names.len() as u32);
-                        for n in &names {
-                            let ty = l.new_function_with_name(n).ok().and_then(|f| f.function_type().ok()).map(|t| t.as_raw()).unwrap_or(0);
-                            w.u32(ty).text(n);
+                        // Metal's functionNames omits a Core Image library's extern functions
+                        let funcs: Vec<(u32, String)> = l
+                            .functions()
+                            .filter(|f| !matches!(f.stage, FunctionStage::Extern))
+                            .map(|f| (function_type(f.stage), f.name.to_string()))
+                            .collect();
+                        let names: Vec<&str> = funcs.iter().map(|f| f.1.as_str()).collect();
+                        w.i32(0).u32(funcs.len() as u32);
+                        for (ty, n) in &funcs {
+                            w.u32(*ty).text(n);
                         }
                         if self.log {
                             eprintln!("mtlvk: library {id:#x}: {len} bytes, functions {names:?}");
@@ -625,11 +842,11 @@ impl State {
 
     /// Returns whether the buffer is a copy (metalhostd must BUF_WRITE/BUF_READ it).
     fn buf_new(&mut self, id: u64, length: u64, options: u64, off: u64, fd: Option<OwnedFd>, shared: bool) -> Res<bool> {
-        // storage mode bits (4..8) cleared: Shared. Pages from metalhostd are host memory whatever the
-        // app asked for (Private buffers too, for now).
-        let shared_opts = ResourceOptions::from_raw(options & !0xf0).map_err(err("options"))?;
+        // Pages from metalhostd are host memory whatever storage mode the app asked for (Private buffers too, for
+        // now): every buffer is Shared.
+        let _ = options;
         let Some(fd) = fd else {
-            let b = self.device.new_buffer(length.max(1), shared_opts).map_err(err("new_buffer"))?;
+            let b = own_buffer(&self.device, length)?;
             self.objs.insert(id, Obj::Buf(b));
             self.kinds.insert(id, (Kind::BufOwn, length));
             return Ok(false);
@@ -655,15 +872,18 @@ impl State {
         let ptr = unsafe { map.base.add(delta as usize) };
         if shared {
             let keep = map.clone();
-            // SAFETY: the pages stay mapped (and writable) until the deallocator drops `keep`.
+            // The whole mapping (page-aligned, whole pages: NVIDIA's and RADV's minImportedHostPointerAlignment is the
+            // page) is imported as one block, the buffer placed at the plane's offset in it.
+            // SAFETY: the pages stay mapped (and writable) until the release drops `keep`, which the runtime runs
+            // once the block and every command buffer that used it are gone.
             let r = unsafe {
-                self.device.new_buffer_with_bytes_no_copy(
-                    HostMemory::new(NonNull::new(ptr).unwrap()),
-                    length.max(1),
-                    shared_opts,
-                    Some(Box::new(move |_, _| drop(keep))),
+                self.device.import_host_memory(
+                    NonNull::new(map.base).unwrap(),
+                    map_len as u64,
+                    Some(Box::new(move || drop(keep))),
                 )
-            };
+            }
+            .and_then(|(block, _)| self.device.new_buffer(block.id, delta, length.max(1), None));
             match r {
                 Ok(b) => {
                     if self.log {
@@ -676,7 +896,7 @@ impl State {
                 Err(e) => eprintln!("mtlvk: buffer {id:#x}: import refused ({e}); mirroring it"),
             }
         }
-        let b = self.device.new_buffer(length.max(1), shared_opts).map_err(err("new_buffer"))?;
+        let b = own_buffer(&self.device, length)?;
         let m = Mirror { buffer: b.clone(), _map: map, ptr: ptr as usize, len: length as usize };
         m.to_gpu();
         self.objs.insert(id, Obj::Buf(b));
@@ -707,13 +927,10 @@ impl State {
             return Err("truncated FUNC_NEW".into());
         }
         let l = self.lib(lib)?;
-        let f = if nconst == 0 {
-            l.new_function_with_name(&name)
-        } else {
-            l.new_function_with_name_constant_values(&name, &consts)
-        }
-        .map_err(err("new_function"))?;
-        let ty = f.function_type().map(|t| t.as_raw()).unwrap_or(0);
+        let func = l.function(&name).map_err(err("new_function"))?;
+        let ty = function_type(func.info().stage);
+        let mut f = FunctionDescriptor::new(func).with_specialized(nconst != 0);
+        f.constants = consts;
         if self.log {
             eprintln!("mtlvk: function {id:#x}: {name} type {ty} ({nconst} constants)");
         }
@@ -724,11 +941,11 @@ impl State {
 
     fn cps_new(&mut self, id: u64, f: u64, max_total: u32, multiple: bool) -> Res<(u32, u32, u32)> {
         let f = self.func(f)?;
-        let mut desc = ComputePipelineDescriptor::new(StageSource::Function(f.function_descriptor()));
+        let mut desc = ComputePipelineDescriptor::new(StageSource::Function(f.clone()));
         desc.max_total_threads_per_threadgroup = if max_total == 0 { None } else { Some(max_total) };
         desc.threadgroup_size_is_multiple_of_execution_width = multiple;
         let t0 = std::time::Instant::now();
-        let p = self.device.new_compute_pipeline_state(&desc, &PipelineOptions::default()).map_err(err("new_compute_pipeline_state"))?;
+        let p = self.device.new_compute_pipeline_state(&desc, sampler_ids).map_err(err("new_compute_pipeline_state"))?;
         let r = (p.thread_execution_width(), p.max_total_threads_per_threadgroup(), p.static_threadgroup_memory_length());
         if self.log {
             eprintln!("mtlvk: compute pipeline {id:#x}: width {} max {} static tg {} ({:.1} ms)", r.0, r.1, r.2, t0.elapsed().as_secs_f64() * 1e3);
@@ -752,20 +969,57 @@ impl State {
         d.lod_average = r.u32() != 0;
         d.max_anisotropy = r.u32().max(1);
         d.compare_function = CompareFunction::try_from(r.u32()).map_err(err("compare function"))?;
-        let s = self.device.new_sampler_state(&d).map_err(err("new_sampler_state"))?;
-        let rid = s.gpu_resource_id().0;
+        let index = take_index(IndexClass::Sampler)?;
+        let s = match self.device.new_sampler_state(&d, index) {
+            Ok(s) => s,
+            Err(e) => {
+                release_index(IndexClass::Sampler, index);
+                return Err(format!("new_sampler_state: {e}"));
+            }
+        };
+        let rid = s.gpu_resource_id().to_bits();
         self.objs.insert(id, Obj::Sampler(s));
+        self.hold_index(id, IndexClass::Sampler, Some(index));
         Ok(rid)
+    }
+
+    /// Notes the index object `id` holds now (an earlier one of the same id goes back).
+    fn hold_index(&mut self, id: u64, class: IndexClass, index: Option<u32>) {
+        let old = match index {
+            Some(i) => self.idx.insert(id, (class, i)),
+            None => self.idx.remove(&id),
+        };
+        if let Some((c, i)) = old {
+            release_index(c, i);
+        }
+    }
+
+    /// Makes a texture through `make` with an index taken where shaders reach a texture of `pf` and `usage`; the
+    /// index goes back if the make fails.
+    fn indexed<T>(&mut self, id: u64, pf: PixelFormat, usage: TextureUsage, make: impl FnOnce(&Self, Option<u32>) -> Res<T>) -> Res<T> {
+        let index = if texture_reached(pf, usage) { Some(take_index(IndexClass::Texture)?) } else { None };
+        match make(self, index) {
+            Ok(t) => {
+                self.hold_index(id, IndexClass::Texture, index);
+                Ok(t)
+            }
+            Err(e) => {
+                if let Some(i) = index {
+                    release_index(IndexClass::Texture, i);
+                }
+                Err(e)
+            }
+        }
     }
 
     fn tex_new(&mut self, id: u64, r: &mut Rd) -> Res<u64> {
         let desc = Self::texdesc(r)?;
-        let t = self.device.new_texture(&desc).map_err(err("new_texture"))?;
+        let t = self.indexed(id, desc.pixel_format, desc.usage, |s, i| s.device.new_texture(&desc, i).map_err(err("new_texture")))?;
         if self.log {
             eprintln!("mtlvk: texture {id:#x}: {:?} {}x{}x{} mips {} usage {:?} sample count {}", desc.pixel_format, desc.width,
                 desc.height, desc.depth, desc.mipmap_level_count, desc.usage, desc.sample_count);
         }
-        let k = if desc.resource_options.raw() & 0xf0 == 0x20 { Kind::TexPrivate } else { Kind::TexShared };
+        let k = if desc.storage_mode == StorageMode::Private { Kind::TexPrivate } else { Kind::TexShared };
         self.kinds.insert(id, (k, tex_bytes(&desc)));
         self.objs.insert(id, Obj::Tex(t));
         Ok(0)
@@ -777,34 +1031,38 @@ impl State {
         let desc = Self::texdesc(r)?;
         let (offset, bpr, iosurface, planar) = (r.u64(), r.u64(), r.u32(), r.u32());
         let b = self.buf(buf)?.clone();
-        let t = if iosurface != 0 {
-            let plane = IoSurfacePlane::new(offset, bpr, planar != 0);
-            b.new_texture_with_iosurface_plane(&desc, plane).map_err(err("new_texture_with_iosurface_plane"))?
-        } else {
-            b.new_texture(&desc, offset, bpr).map_err(err("buffer new_texture"))?
-        };
+        // The old runtime's IOSurface plane (IoSurfacePlane) is a texture over the buffer here: the new runtime takes a
+        // texture over a buffer in place where the device's linear image fits, and otherwise copies the bytes into an
+        // image of its own and back (over a host-memory import, always: over_copies_host_memory).
+        let _ = planar;
         if self.log {
             eprintln!("mtlvk: texture {id:#x} over buffer {buf:#x} (+{offset}, row {bpr}{}): {:?} {}x{} usage {:?}",
                 if iosurface != 0 { ", IOSurface" } else { "" }, desc.pixel_format, desc.width, desc.height, desc.usage);
         }
+        // x86Sim: a large IOSurface render target is drawn in a device-local texture and its texels copied to the
+        // surface's buffer once, at the end of each command buffer that wrote it. The runtime's own copy form of a
+        // texture over a host import copies the whole surface in before every submission that uses it as well.
         if self.vram_targets && iosurface != 0 && planar == 0 && desc.usage.contains(TextureUsage::RENDER_TARGET)
             && desc.texture_type == TextureType::Type2D && desc.mipmap_level_count == 1 && desc.sample_count == 1
-            && desc.array_length == 1 && desc.width * desc.height >= *VRAM_MIN_PIXELS
+            && desc.array_length == 1 && desc.width as u64 * desc.height as u64 >= *VRAM_MIN_PIXELS
         {
-            let key = self.buf_keys.get(&buf).map(|k| (k.0, k.1, k.2 + offset, bpr, desc.width, desc.height, desc.pixel_format.as_raw() as u32));
-            let vram = match key.and_then(|k| self.shared_vram.get(&k).cloned()) {
-                Some(v) => Ok(v),
+            let key = self.buf_keys.get(&buf).map(|k| (k.0, k.1, k.2 + offset, bpr, desc.width as u64, desc.height as u64, desc.pixel_format.as_raw() as u32));
+            let shared = key.and_then(|k| self.shared_vram.get(&k).cloned());
+            let vram = match shared {
+                Some(v) => {
+                    // the VRAM texture's own index stays with the proxy that made it; this one needs none of its own
+                    Ok(v)
+                }
                 None => {
                     let mut d2 = desc.clone();
-                    d2.resource_options = ResourceOptions::from_raw(0x20).map_err(err("options"))?;   // Private
-                    match self.device.new_texture(&d2) {
-                        Ok(v) => {
-                            let (w, h) = (desc.width, desc.height);
-                            let r = self.helper_blit(|e| e.copy_from_texture_to_texture(&t, 0, 0, Origin::new(0, 0, 0), Size::new(w, h, 1), &v, 0, 0, Origin::new(0, 0, 0)));
-                            r.map(|_| v)
-                        }
-                        Err(e) => Err(format!("{e}")),
-                    }
+                    d2.storage_mode = StorageMode::Private;
+                    let (w, h) = (desc.width, desc.height);
+                    self.indexed(id, desc.pixel_format, desc.usage, |s, i| {
+                        let v = s.device.new_texture(&d2, i).map_err(err("new_texture"))?;
+                        let layout = BufferLayout { offset, bytes_per_row: bpr, bytes_per_image: bpr * h as u64 };
+                        s.helper_blit(|e| e.copy_from_buffer(&b, layout, [w, h, 1], &v, place(0, 0, [0; 3])))?;
+                        Ok(v)
+                    })
                 }
             };
             match vram {
@@ -816,7 +1074,7 @@ impl State {
                     if self.log {
                         eprintln!("mtlvk: texture {id:#x}: drawn in VRAM, copied to the surface after each command buffer");
                     }
-                    self.proxies.insert(id, t);
+                    self.proxies.insert(id, Proxy { buf: b, offset, bpr });
                     self.objs.insert(id, Obj::Tex(v));
                     self.kinds.insert(id, (Kind::TexProxy, 0));
                     return Ok(0);
@@ -824,6 +1082,7 @@ impl State {
                 Err(e) => eprintln!("mtlvk: texture {id:#x}: no VRAM proxy ({e}); drawing into the surface"),
             }
         }
+        let t = self.indexed(id, desc.pixel_format, desc.usage, |_, i| b.new_texture(&desc, i, offset, bpr).map_err(err("buffer new_texture")))?;
         self.objs.insert(id, Obj::Tex(t));
         self.kinds.insert(id, (Kind::TexOverBuf, 0));
         Ok(0)
@@ -844,13 +1103,18 @@ impl State {
         }
         let pf = PixelFormat::try_from(pf).map_err(err("pixel format"))?;
         let tt = TextureType::try_from(ttype).map_err(err("texture type"))?;
-        let v = if has_swizzle != 0 {
+        let (levels, slices) = (l0 as u32..(l0 + ln) as u32, s0 as u32..(s0 + sn) as u32);
+        let swz = if has_swizzle != 0 {
             let c = |b: u32| metal2vulkan::metal::TextureSwizzle::try_from((sw >> b) & 0xff).map_err(err("swizzle"));
-            let swz = metal2vulkan::metal::TextureSwizzleChannels::new(c(0)?, c(8)?, c(16)?, c(24)?);
-            t.new_texture_view_with_swizzle(pf, tt, l0..l0 + ln, s0..s0 + sn, swz).map_err(err("new_texture_view_with_swizzle"))?
+            Some(metal2vulkan::metal::TextureSwizzleChannels::new(c(0)?, c(8)?, c(16)?, c(24)?))
         } else {
-            t.new_texture_view_with_levels_slices(pf, tt, l0..l0 + ln, s0..s0 + sn).map_err(err("new_texture_view_with_levels_slices"))?
+            None
         };
+        let usage = t.descriptor().usage;
+        let v = self.indexed(id, pf, usage, |_, i| match swz {
+            Some(swz) => t.new_texture_view_with_swizzle(pf, tt, levels, slices, swz, i).map_err(err("new_texture_view_with_swizzle")),
+            None => t.new_texture_view(pf, tt, levels, slices, i).map_err(err("new_texture_view")),
+        })?;
         if self.log {
             eprintln!("mtlvk: texture view {id:#x} of {parent:#x}: {pf:?} {tt:?} levels {l0}+{ln} slices {s0}+{sn}");
         }
@@ -873,14 +1137,19 @@ impl State {
             options = (options & !0xf0) | 0x20;
         }
         let pf = PixelFormat::try_from(pf).map_err(err("pixel format"))?;
-        let mut desc = TextureDescriptor::texture_2d(pf, w.max(1), h.max(1), false);
-        desc.texture_type = TextureType::try_from(ttype).map_err(err("texture type"))?;
-        desc.depth = d.max(1);
-        desc.mipmap_level_count = (mips as u64).max(1);
-        desc.sample_count = (samples as u64).max(1);
-        desc.array_length = array.max(1);
+        let tt = TextureType::try_from(ttype).map_err(err("texture type"))?;
+        let mut desc = TextureDescriptor::new(tt, pf, w.max(1) as u32, h.max(1) as u32);
+        desc.depth = d.max(1) as u32;
+        desc.mipmap_level_count = mips.max(1);
+        desc.sample_count = samples.max(1);
+        desc.array_length = array.max(1) as u32;
         desc.usage = TextureUsage::try_from(usage as u32).map_err(err("usage"))?;
-        desc.resource_options = ResourceOptions::from_raw(options).map_err(err("options"))?;
+        // Managed textures are Shared here: the runtime's Managed texture names bytes of the consumer's, which
+        // metalhostd does not hand over (its replaceRegion goes through TEX_REPLACE)
+        desc.storage_mode = match (options >> 4) & 0xf {
+            2 => StorageMode::Private,
+            _ => StorageMode::Shared,
+        };
         Ok(desc)
     }
 
@@ -902,9 +1171,9 @@ impl State {
 
     fn rps_new(&mut self, id: u64, r: &mut Rd) -> Res<()> {
         let (vf, ff) = (r.u64(), r.u64());
-        let mut desc = RenderPipelineDescriptor::new(StageSource::Function(self.func(vf)?.function_descriptor()));
+        let mut desc = RenderPipelineDescriptor::new(StageSource::Function(self.func(vf)?.clone()));
         if ff != 0 {
-            desc.fragment = Some(StageSource::Function(self.func(ff)?.function_descriptor()));
+            desc.fragment = Some(StageSource::Function(self.func(ff)?.clone()));
         }
         let mut formats = Vec::new();
         for i in 0..8 {
@@ -963,7 +1232,7 @@ impl State {
             return Err("truncated RPS_NEW".into());
         }
         let t0 = std::time::Instant::now();
-        let p = match self.device.new_render_pipeline_state(&desc, &PipelineOptions::default()) {
+        let p = match self.device.new_render_pipeline_state(&desc, sampler_ids) {
             Ok(p) => p,
             Err(e) => {
                 self.dump_failed(id, &[("vert", vf), ("frag", ff)], &format!("{e}\ncolors [{}] depth {df} stencil {sf} samples {samples}\n", formats.join(" ")));
@@ -999,22 +1268,23 @@ impl State {
         };
         d.front_face_stencil = face(r)?;
         d.back_face_stencil = face(r)?;
-        let s = self.device.new_depth_stencil_state(&d).map_err(err("new_depth_stencil_state"))?;
+        let s = self.device.new_depth_stencil_state(&d);
         self.objs.insert(id, Obj::Dss(s));
         Ok(())
     }
 
     fn region(r: &mut Rd) -> Region {
         let (x, y, z, w, h, d) = (r.u64(), r.u64(), r.u64(), r.u64(), r.u64(), r.u64());
-        Region::new_3d(x, y, z, w, h, d)
+        Region { origin: origin3(x, y, z), size: origin3(w, h, d) }
     }
 
     /// Runs one blit on the helper queue and waits (CPU-side texture access to non-shared storage).
     fn helper_blit(&self, f: impl FnOnce(&mut BlitCommandEncoder) -> Result<(), metal2vulkan_runtime::Error>) -> Res<()> {
         let cb = self.helper.command_buffer().map_err(err("command buffer"))?;
         let mut enc = cb.blit_command_encoder().map_err(err("blit encoder"))?;
-        f(&mut enc).map_err(err("blit"))?;
-        enc.end_encoding().map_err(err("end encoding"))?;
+        let r = f(&mut enc).map_err(err("blit"));
+        enc.end_encoding();
+        r?;
         cb.commit().map_err(err("commit"))?;
         cb.wait_until_completed().map_err(err("wait"))?;
         Ok(())
@@ -1023,28 +1293,31 @@ impl State {
     fn tex_replace(&mut self, r: &mut Rd) -> Res<()> {
         let id = r.u64();
         let region = Self::region(r);
-        let (level, slice) = (r.u32() as u64, r.u32() as u64);
+        let (level, slice) = (r.u32(), r.u32());
         let (bpr, bpi, len) = (r.u64(), r.u64(), r.u64());
         let data = r.bytes(len as usize);
         self.mark(id);
         let t = self.tex(id)?.clone();
         // x86Sim: diagnostics, MTLVK_DUMP_REPLACE=<dir> saves every replaceRegion's bytes
         if let Some(dir) = std::env::var_os("MTLVK_DUMP_REPLACE") {
-            let n = format!("{}/{id:x}-f{}-{}x{}-bpr{bpr}-l{level}.raw", dir.to_string_lossy(), t.pixel_format().as_raw(),
-                region.size.width, region.size.height);
+            let n = format!("{}/{id:x}-f{}-{}x{}-bpr{bpr}-l{level}.raw", dir.to_string_lossy(), t.descriptor().pixel_format.as_raw(),
+                region.size[0], region.size[1]);
             let _ = std::fs::write(n, data);
         }
-        match t.replace_region(region, level, slice, data, bpr, bpi) {
+        match t.replace_region(region, level, slice, HostBytes::from(data), bpr, bpi) {
             Ok(()) => Ok(()),
             Err(e) => {
                 if self.log {
                     eprintln!("mtlvk: replace_region direct: {e}; staging");
                 }
-                let staging = self.device.new_buffer_with_bytes(data, ResourceOptions::shared()).map_err(err("staging"))?;
-                let bpi = if bpi == 0 { bpr * region.size.height } else { bpi };
-                self.helper_blit(|enc| {
-                    enc.copy_from_buffer_to_texture(&staging, 0, bpr, bpi, region.size, &t, slice, level, region.origin, BlitOption::None)
-                })
+                let staging = own_buffer(&self.device, data.len() as u64)?;
+                if let Some(c) = staging.contents() {
+                    // SAFETY: the staging buffer holds data.len() bytes.
+                    unsafe { std::ptr::copy_nonoverlapping(data.as_ptr(), c.as_ptr(), data.len()) };
+                }
+                let bpi = if bpi == 0 { bpr * region.size[1] as u64 } else { bpi };
+                let layout = BufferLayout { offset: 0, bytes_per_row: bpr, bytes_per_image: bpi };
+                self.helper_blit(|enc| enc.copy_from_buffer(&staging, layout, region.size, &t, place(slice as u64, level as u64, region.origin)))
             }
         }
     }
@@ -1052,7 +1325,7 @@ impl State {
     fn tex_getbytes(&mut self, r: &mut Rd) -> Res<Vec<u8>> {
         let id = r.u64();
         let region = Self::region(r);
-        let (level, slice) = (r.u32() as u64, r.u32() as u64);
+        let (level, slice) = (r.u32(), r.u32());
         let (bpr, bpi, len) = (r.u64(), r.u64(), r.u64());
         let t = self.tex(id)?.clone();
         let mut out = vec![0u8; len as usize];
@@ -1062,10 +1335,11 @@ impl State {
                 if self.log {
                     eprintln!("mtlvk: get_bytes direct: {e}; staging");
                 }
-                let bpi = if bpi == 0 { bpr * region.size.height } else { bpi };
-                let staging = self.device.new_buffer(len.max(1), ResourceOptions::shared()).map_err(err("staging"))?;
+                let bpi = if bpi == 0 { bpr * region.size[1] as u64 } else { bpi };
+                let staging = own_buffer(&self.device, len)?;
+                let layout = BufferLayout { offset: 0, bytes_per_row: bpr, bytes_per_image: bpi };
                 self.helper_blit(|enc| {
-                    enc.copy_from_texture_to_buffer(&t, slice, level, region.origin, region.size, &staging, 0, bpr, bpi, BlitOption::None)
+                    enc.copy_from_texture_to_buffer(&t, place(slice as u64, level as u64, region.origin), region.size, &staging, layout)
                 })?;
                 let c = staging.contents().ok_or("staging has no contents")?;
                 // SAFETY: len bytes of the staging buffer.
@@ -1113,9 +1387,9 @@ impl State {
                 }
                 C_CS_BEGIN => {
                     enc.end()?;
-                    let dt = DispatchType::try_from(c.u32()).map_err(err("dispatch type"))?;
+                    let dt = if c.u32() == 1 { DispatchType::Concurrent } else { DispatchType::Serial };
                     self.skip_draws.set(false);
-                    enc = Enc::Compute(cb.compute_command_encoder_with_dispatch_type(dt).map_err(err("compute encoder"))?);
+                    enc = Enc::Compute(cb.compute_command_encoder(dt).map_err(err("compute encoder"))?);
                 }
                 C_CS_END => {
                     enc.end()?;
@@ -1123,7 +1397,7 @@ impl State {
                     if dump_dir.is_some() && std::env::var_os("MTLVK_DUMP_IDS").is_none() && std::env::var_os("MTLVK_DUMP_RESOLVES").is_none() && !dump_targets.is_empty() && DUMPED.load(std::sync::atomic::Ordering::Relaxed) < 400 {
                         let ts: Vec<Texture> = dump_targets.drain(..).map(|(t, _)| t).collect();
                         for t in ts {
-                            for l in 0..t.mipmap_level_count() {
+                            for l in 0..t.descriptor().mipmap_level_count as u64 {
                                 dump_targets.push((t.clone(), l));
                             }
                         }
@@ -1153,8 +1427,8 @@ impl State {
                         .is_none_or(|after| DUMP_T0.elapsed().as_secs_f64() >= after);
                     if dump_dir.is_some() && wanted {
                         dump_targets = pass.color_attachments.iter().filter_map(|a| match &a.resolve_texture {
-                            Some(r) => Some((r.clone(), a.resolve_level)),
-                            None => a.texture.clone().map(|t| (t, a.level)),
+                            Some(r) => Some((r.clone(), a.resolve_level as u64)),
+                            None => a.texture.clone().map(|t| (t, a.level as u64)),
                         }).collect();
                     }
                     self.skip_draws.set(false);
@@ -1191,9 +1465,9 @@ impl State {
                     let (e, v) = (c.u64(), c.u64());
                     let ev = self.event(e)?;
                     if kind == C_SIGNAL {
-                        cb.encode_signal_event(EventRef::Shared(ev), v).map_err(err("signal"))?;
+                        cb.encode_signal_event(ev.as_event(), v).map_err(err("signal"))?;
                     } else {
-                        cb.encode_wait_for_event(EventRef::Shared(ev), v).map_err(err("wait"))?;
+                        cb.encode_wait_for_event(ev.as_event(), v).map_err(err("wait"))?;
                     }
                 }
                 k => return Err(format!("unknown command {k}")),
@@ -1203,14 +1477,16 @@ impl State {
         let written: Vec<u64> = std::mem::take(&mut *self.written.borrow_mut()).into_iter().collect();
         if !written.is_empty() {
             let mut be = cb.blit_command_encoder().map_err(err("blit encoder"))?;
+            let mut r = Ok(());
             for id in written {
-                if let (Some(host), Ok(v)) = (self.proxies.get(&id), self.tex(id)) {
-                    let (w, h) = (v.width(), v.height());
-                    be.copy_from_texture_to_texture(v, 0, 0, Origin::new(0, 0, 0), Size::new(w, h, 1), host, 0, 0, Origin::new(0, 0, 0))
-                        .map_err(err("copy back"))?;
+                if let (Some(p), Ok(v)) = (self.proxies.get(&id), self.tex(id)) {
+                    let (w, h) = (v.descriptor().width, v.descriptor().height);
+                    let layout = BufferLayout { offset: p.offset, bytes_per_row: p.bpr, bytes_per_image: p.bpr * h as u64 };
+                    r = r.and(be.copy_from_texture_to_buffer(v, place(0, 0, [0; 3]), [w, h, 1], &p.buf, layout).map_err(err("copy back")));
                 }
             }
-            be.end_encoding().map_err(err("end blit"))?;
+            be.end_encoding();
+            r?;
         }
         let mirrors: Vec<Mirror> = self.mirrors.values().cloned().collect();
         for m in &mirrors {
@@ -1222,11 +1498,11 @@ impl State {
         let out = self.out.clone();
         let t_commit = std::sync::Arc::new(std::sync::OnceLock::<std::time::Instant>::new());
         let t_commit2 = t_commit.clone();
-        cb.add_completed_handler(Box::new(move |cb: &CommandBuffer| {
+        cb.add_completed_handler(move |cb: &CommandBuffer| {
             if *TIMING {
                 let now = std::time::Instant::now();
                 let tc = *t_commit2.get().unwrap_or(&now);
-                let gpu = (cb.gpu_end_time().unwrap_or(0.0) - cb.gpu_start_time().unwrap_or(0.0)) * 1000.0;
+                let gpu = cb.gpu_end_time().saturating_sub(cb.gpu_start_time()) as f64 / 1e6;
                 timing_add((tc - t_recv).as_secs_f64() * 1000.0, (now - tc).as_secs_f64() * 1000.0, gpu);
             }
             for (name, b) in &dumps {
@@ -1243,10 +1519,10 @@ impl State {
             w.u64(id)
                 .u32(if ok { 4 } else { 5 })
                 .u32(if ok { 0 } else { 1 })
-                .f64(cb.gpu_start_time().unwrap_or(0.0))
-                .f64(cb.gpu_end_time().unwrap_or(0.0));
+                .f64(cb.gpu_start_time() as f64 / 1e9)
+                .f64(cb.gpu_end_time() as f64 / 1e9);
             out(EV_CB_DONE, 0, w.0);
-        }))
+        })
         .map_err(err("completed handler"))?;
         let _ = t_commit.set(std::time::Instant::now());
         cb.commit().map_err(err("commit"))?;
@@ -1302,18 +1578,20 @@ impl State {
         let n = DUMPED.load(std::sync::atomic::Ordering::Relaxed);
         let mut be = cb.blit_command_encoder().map_err(err("blit encoder"))?;
         for (i, (t, level)) in targets.drain(..).enumerate() {
-            let bpp = match t.pixel_format().as_raw() { 10 | 13 => 1, 30 | 25 => 2, 65 | 70 | 71 | 80 | 81 | 90 | 92 | 93 | 94 | 53 | 54 | 55 => 4, 105 | 115 => 8, 125 => 16, _ => 0 };
-            if bpp == 0 || t.sample_count() > 1 { continue; }
-            let (w, h) = ((t.width() >> level).max(1), (t.height() >> level).max(1));
+            let td = t.descriptor().clone();
+            let bpp = match td.pixel_format.as_raw() { 10 | 13 => 1, 30 | 25 => 2, 65 | 70 | 71 | 80 | 81 | 90 | 92 | 93 | 94 | 53 | 54 | 55 => 4, 105 | 115 => 8, 125 => 16, _ => 0 };
+            if bpp == 0 || td.sample_count > 1 { continue; }
+            let (w, h) = ((td.width as u64 >> level).max(1), (td.height as u64 >> level).max(1));
             let bpr = (w * bpp).div_ceil(256) * 256;
-            let st = self.device.new_buffer(bpr * h, ResourceOptions::shared()).map_err(err("dump buffer"))?;
-            if let Err(e) = be.copy_from_texture_to_buffer(&t, 0, level, Origin::new(0, 0, 0), Size::new(w, h, 1), &st, 0, bpr, bpr * h, BlitOption::None) {
-                eprintln!("mtlvk: dump copy f{} {w}x{h} level {level}: {e}", t.pixel_format().as_raw());
+            let st = own_buffer(&self.device, bpr * h)?;
+            let layout = BufferLayout { offset: 0, bytes_per_row: bpr, bytes_per_image: bpr * h };
+            if let Err(e) = be.copy_from_texture_to_buffer(&t, place(0, level, [0; 3]), [w as u32, h as u32, 1], &st, layout) {
+                eprintln!("mtlvk: dump copy f{} {w}x{h} level {level}: {e}", td.pixel_format.as_raw());
                 continue;
             }
-            dumps.push((format!("{dir}/cb{n:04}-{id:x}-{tag}{npass:02}-a{i}-l{level}-f{}-{w}x{h}-r{bpr}.raw", t.pixel_format().as_raw()), st));
+            dumps.push((format!("{dir}/cb{n:04}-{id:x}-{tag}{npass:02}-a{i}-l{level}-f{}-{w}x{h}-r{bpr}.raw", td.pixel_format.as_raw()), st));
         }
-        be.end_encoding().map_err(err("end blit"))?;
+        be.end_encoding();
         Ok(())
     }
 
@@ -1325,35 +1603,37 @@ impl State {
             }
             C_COPY_BT => {
                 let (s, so, bpr, bpi) = (c.u64(), c.u64(), c.u64(), c.u64());
-                let size = Size::new(c.u64(), c.u64(), c.u64());
+                let size = origin3(c.u64(), c.u64(), c.u64());
                 let d = c.u64();
                 let (slice, level) = (c.u32() as u64, c.u32() as u64);
                 if std::env::var_os("MTLVK_LOG_PASSES").is_some() { eprintln!("mtlvk: blit buffer {s:#x} -> texture {d:#x} slice {slice} level {level}"); }
-                let origin = Origin::new(c.u64(), c.u64(), c.u64());
+                let origin = origin3(c.u64(), c.u64(), c.u64());
                 self.mark(d);
-                enc.copy_from_buffer_to_texture(self.buf(s)?, so, bpr, bpi, size, self.tex(d)?, slice, level, origin, BlitOption::None)
+                let layout = BufferLayout { offset: so, bytes_per_row: bpr, bytes_per_image: bpi };
+                enc.copy_from_buffer(self.buf(s)?, layout, size, self.tex(d)?, place(slice, level, origin))
                     .map_err(err("copy buffer to texture"))?;
             }
             C_COPY_TB => {
                 let s = c.u64();
                 let (slice, level) = (c.u32() as u64, c.u32() as u64);
-                let origin = Origin::new(c.u64(), c.u64(), c.u64());
-                let size = Size::new(c.u64(), c.u64(), c.u64());
+                let origin = origin3(c.u64(), c.u64(), c.u64());
+                let size = origin3(c.u64(), c.u64(), c.u64());
                 let (d, dof, bpr, bpi) = (c.u64(), c.u64(), c.u64(), c.u64());
-                enc.copy_from_texture_to_buffer(self.tex(s)?, slice, level, origin, size, self.buf(d)?, dof, bpr, bpi, BlitOption::None)
+                let layout = BufferLayout { offset: dof, bytes_per_row: bpr, bytes_per_image: bpi };
+                enc.copy_from_texture_to_buffer(self.tex(s)?, place(slice, level, origin), size, self.buf(d)?, layout)
                     .map_err(err("copy texture to buffer"))?;
             }
             C_COPY_TT => {
                 let s = c.u64();
                 let (ss, sl) = (c.u32() as u64, c.u32() as u64);
-                let so = Origin::new(c.u64(), c.u64(), c.u64());
-                let size = Size::new(c.u64(), c.u64(), c.u64());
+                let so = origin3(c.u64(), c.u64(), c.u64());
+                let size = origin3(c.u64(), c.u64(), c.u64());
                 let d = c.u64();
                 if std::env::var_os("MTLVK_LOG_PASSES").is_some() { eprintln!("mtlvk: blit texture -> texture {d:#x}"); }
                 let (ds, dl) = (c.u32() as u64, c.u32() as u64);
-                let dor = Origin::new(c.u64(), c.u64(), c.u64());
+                let dor = origin3(c.u64(), c.u64(), c.u64());
                 self.mark(d);
-                enc.copy_from_texture_to_texture(self.tex(s)?, ss, sl, so, size, self.tex(d)?, ds, dl, dor).map_err(err("copy texture"))?;
+                enc.copy_from_texture(self.tex(s)?, place(ss, sl, so), size, self.tex(d)?, place(ds, dl, dor)).map_err(err("copy texture"))?;
             }
             C_FILL => {
                 let (b, start, len, v) = (c.u64(), c.u64(), c.u64(), c.u32());
@@ -1414,8 +1694,8 @@ impl State {
             }
             C_CS_DISPATCH => {
                 let (k, _) = (c.u32(), c.u32());
-                let grid = Size::new(c.u64(), c.u64(), c.u64());
-                let group = Size::new(c.u64(), c.u64(), c.u64());
+                let grid = origin3(c.u64(), c.u64(), c.u64());
+                let group = origin3(c.u64(), c.u64(), c.u64());
                 if self.skip_draws.get() {
                 } else if k == 0 {
                     enc.dispatch_threads(grid, group).map_err(e)?;
@@ -1425,19 +1705,20 @@ impl State {
             }
             C_CS_DISPATCH_INDIRECT => {
                 let (ib, off) = (c.u64(), c.u64());
-                let group = Size::new(c.u64(), c.u64(), c.u64());
+                let group = origin3(c.u64(), c.u64(), c.u64());
                 if !self.skip_draws.get() {
-                    enc.dispatch_threadgroups_indirect(self.buf(ib)?, off, group).map_err(e)?;
+                    enc.dispatch_threadgroups_with_indirect_buffer(self.buf(ib)?, off, group).map_err(e)?;
                 }
             }
             C_CS_BARRIER => {
-                let scope = BarrierScope::try_from(c.u64() as u32).map_err(err("barrier scope"))?;
-                enc.memory_barrier_with_scope(scope);
+                // the runtime's barrier covers every scope (buffers, textures, render targets)
+                let _scope = c.u64();
+                enc.memory_barrier();
             }
             C_CS_USE => {
                 let (res, usage, is_tex) = (c.u64(), c.u32(), c.u32());
-                let usage = ResourceUsage::try_from(usage).map_err(err("usage"))?;
-                let r = if is_tex != 0 { ResourceRef::Texture(self.tex(res)?) } else { ResourceRef::Buffer(self.buf(res)?) };
+                let usage = resource_usage(usage);
+                let r = if is_tex != 0 { Resource::Texture(self.tex(res)?) } else { Resource::Buffer(self.buf(res)?) };
                 enc.use_resource(r, usage).map_err(e)?;
             }
             _ => return Err(format!("unknown compute command {kind}")),
@@ -1521,7 +1802,7 @@ impl State {
             C_RE_TEXTURE => {
                 let (t, stage, index) = (c.u64(), c.u32(), c.u32());
                 if std::env::var_os("MTLVK_LOG_PASSES").is_some() {
-                    let dims = if t == 0 { String::new() } else { self.tex(t).map(|x| format!(" {}x{} f{}", x.width(), x.height(), x.pixel_format().as_raw())).unwrap_or_default() };
+                    let dims = if t == 0 { String::new() } else { self.tex(t).map(|x| format!(" {}x{} f{}", x.descriptor().width, x.descriptor().height, x.descriptor().pixel_format.as_raw())).unwrap_or_default() };
                     eprintln!("mtlvk:   texture {t:#x} stage {stage} index {index}{dims}");
                 }
                 let t = if t == 0 { None } else { Some(self.tex(t)?) };
@@ -1536,9 +1817,7 @@ impl State {
                 let (s, stage, index, has_lod, lmin, lmax) = (c.u64(), c.u32(), c.u32(), c.u32(), c.f32(), c.f32());
                 let s = if s == 0 { None } else { Some(self.sampler(s)?) };
                 if has_lod != 0 {
-                    let (mn, mx) = ([lmin], [lmax]);
-                    let clamps = Some((&mn[..], &mx[..]));
-                    if stage == 0 { enc.set_vertex_sampler_states(&[s], clamps, index) } else { enc.set_fragment_sampler_states(&[s], clamps, index) }
+                    if stage == 0 { enc.set_vertex_sampler_state_with_lod_clamps(s, lmin, lmax, index) } else { enc.set_fragment_sampler_state_with_lod_clamps(s, lmin, lmax, index) }
                         .map_err(e)?;
                 } else if stage == 0 {
                     enc.set_vertex_sampler_state(s, index).map_err(e)?;
@@ -1547,23 +1826,23 @@ impl State {
                 }
             }
             C_RE_VIEWPORT => {
-                let v = Viewport::new(c.f64(), c.f64(), c.f64(), c.f64(), c.f64(), c.f64());
+                let v = viewport(c);
                 enc.set_viewport(v).map_err(e)?;
             }
             C_RE_SCISSOR => {
-                let s = ScissorRect::new(c.u64(), c.u64(), c.u64(), c.u64());
-                enc.set_scissor_rect(s).map_err(e)?;
+                let s = ScissorRect { x: c.u64(), y: c.u64(), width: c.u64(), height: c.u64() };
+                enc.set_scissor_rect(s);
             }
             C_RE_VIEWPORTS => {
                 let n = c.u32() as usize;
                 c.u32();
-                let vs: Vec<Viewport> = (0..n.min(16)).map(|_| Viewport::new(c.f64(), c.f64(), c.f64(), c.f64(), c.f64(), c.f64())).collect();
+                let vs: Vec<Viewport> = (0..n.min(16)).map(|_| viewport(c)).collect();
                 enc.set_viewports(&vs).map_err(e)?;
             }
             C_RE_SCISSORS => {
                 let n = c.u32() as usize;
                 c.u32();
-                let rs: Vec<ScissorRect> = (0..n.min(16)).map(|_| ScissorRect::new(c.u64(), c.u64(), c.u64(), c.u64())).collect();
+                let rs: Vec<ScissorRect> = (0..n.min(16)).map(|_| ScissorRect { x: c.u64(), y: c.u64(), width: c.u64(), height: c.u64() }).collect();
                 enc.set_scissor_rects(&rs).map_err(e)?;
             }
             C_RE_CULL => enc.set_cull_mode(CullMode::try_from(c.u32()).map_err(err("cull mode"))?),
@@ -1572,11 +1851,11 @@ impl State {
             C_RE_DEPTH_CLIP => enc.set_depth_clip_mode(DepthClipMode::try_from(c.u32()).map_err(err("clip mode"))?).map_err(e)?,
             C_RE_DEPTH_BIAS => {
                 let (b, s, cl) = (c.f32(), c.f32(), c.f32());
-                enc.set_depth_bias(b, s, cl).map_err(e)?;
+                enc.set_depth_bias(b, s, cl);
             }
             C_RE_STENCIL_REF => {
                 let (f, b) = (c.u32(), c.u32());
-                enc.set_stencil_reference_values(f, b);
+                enc.set_stencil_front_back_reference_value(f, b);
             }
             C_RE_BLEND_COLOR => {
                 let (r, g, b, a) = (c.f32(), c.f32(), c.f32(), c.f32());
@@ -1618,7 +1897,8 @@ impl State {
                 let p = PrimitiveType::try_from(p).map_err(err("primitive"))?;
                 let it = IndexType::try_from(it).map_err(err("index type"))?;
                 if !self.skip_draws.get() {
-                    self.drawn(enc.draw_indexed_primitives(p, count, it, self.buf(ib)?, off, inst, base_vertex, base_inst));
+                    let indices = IndexBuffer { buffer: self.buf(ib)?, offset: off, index_type: it };
+                    self.drawn(enc.draw_indexed_primitives(p, count, indices, inst, base_vertex, base_inst));
                 }
             }
             C_RE_DRAW_INDIRECT => {
@@ -1633,14 +1913,15 @@ impl State {
                 let p = PrimitiveType::try_from(p).map_err(err("primitive"))?;
                 let it = IndexType::try_from(it).map_err(err("index type"))?;
                 if !self.skip_draws.get() {
-                    self.drawn(enc.draw_indexed_primitives_indirect(p, it, self.buf(xb)?, xoff, self.buf(ib)?, off));
+                    let indices = IndexBuffer { buffer: self.buf(xb)?, offset: xoff, index_type: it };
+                    self.drawn(enc.draw_indexed_primitives_indirect(p, indices, self.buf(ib)?, off));
                 }
             }
             C_RE_USE => {
                 let (res, usage, is_tex) = (c.u64(), c.u32(), c.u32());
-                let usage = ResourceUsage::try_from(usage).map_err(err("usage"))?;
-                let r = if is_tex != 0 { ResourceRef::Texture(self.tex(res)?) } else { ResourceRef::Buffer(self.buf(res)?) };
-                enc.use_resource(r, usage, RenderStages::VERTEX | RenderStages::FRAGMENT).map_err(e)?;
+                let usage = resource_usage(usage);
+                let r = if is_tex != 0 { Resource::Texture(self.tex(res)?) } else { Resource::Buffer(self.buf(res)?) };
+                enc.use_resource(r, usage).map_err(e)?;
             }
             _ => return Err(format!("unknown render command {kind}")),
         }
@@ -1649,9 +1930,9 @@ impl State {
 
     fn pass(&self, c: &mut Rd) -> Res<RenderPassDescriptor> {
         LAST_PASS_IDS.with(|v| v.borrow_mut().clear());
-        let mut pass = RenderPassDescriptor::new();
-        let mut resolves: Vec<(Option<Texture>, u64, u64)> = Vec::new();
-        let mut att = |c: &mut Rd| -> Res<(Option<Texture>, u64, u64, u64, u64, u64, [f64; 4])> {
+        let mut pass = RenderPassDescriptor::default();
+        let mut resolves: Vec<(Option<Texture>, u32, u32)> = Vec::new();
+        let mut att = |c: &mut Rd| -> Res<(Option<Texture>, u32, u32, u32, u32, [f64; 4])> {
             let t = c.u64();
             let (level, slice, plane, load, store, _pad) = (c.u32(), c.u32(), c.u32(), c.u32(), c.u32(), c.u32());
             let clear = [c.f64(), c.f64(), c.f64(), c.f64()];
@@ -1665,8 +1946,10 @@ impl State {
             self.mark(t);
             self.mark(rt);
             let tex = if t == 0 { None } else { Some(self.tex(t)?.clone()) };
-            resolves.push((if rt == 0 { None } else { Some(self.tex(rt)?.clone()) }, rl as u64, rs as u64));
-            Ok((tex, level as u64, slice as u64, plane as u64, load as u64, store as u64, clear))
+            resolves.push((if rt == 0 { None } else { Some(self.tex(rt)?.clone()) }, rl, rs));
+            // a 3D texture's depth plane: the runtime renders no 3D texture, and takes the slice for an array's layer
+            let slice = if plane != 0 && slice == 0 { plane } else { slice };
+            Ok((tex, level, slice, load, store, clear))
         };
         let mut colors = Vec::new();
         for _ in 0..MAX_COLOR {
@@ -1674,7 +1957,7 @@ impl State {
         }
         let depth = att(c)?;
         let stencil = att(c)?;
-        for (i, (tex, level, slice, plane, load, store, clear)) in colors.into_iter().enumerate() {
+        for (i, (tex, level, slice, load, store, clear)) in colors.into_iter().enumerate() {
             if tex.is_none() || i >= pass.color_attachments.len() {
                 continue;
             }
@@ -1682,41 +1965,38 @@ impl State {
             a.texture = tex;
             a.level = level;
             a.slice = slice;
-            a.depth_plane = plane;
-            a.load_action = LoadAction::from_raw(load).map_err(err("load action"))?;
-            a.store_action = StoreAction::from_raw(store).map_err(err("store action"))?;
+            a.load_action = load_action(load)?;
+            a.store_action = store_action(store)?;
             a.clear_color = ClearColor::new(clear[0], clear[1], clear[2], clear[3]);
             (a.resolve_texture, a.resolve_level, a.resolve_slice) = resolves[i].clone();
         }
-        let (tex, level, slice, plane, load, store, clear) = depth;
+        let (tex, level, slice, load, store, clear) = depth;
         if tex.is_some() {
             let a = &mut pass.depth_attachment;
             a.texture = tex;
             a.level = level;
             a.slice = slice;
-            a.depth_plane = plane;
-            a.load_action = LoadAction::from_raw(load).map_err(err("load action"))?;
-            a.store_action = StoreAction::from_raw(store).map_err(err("store action"))?;
+            a.load_action = load_action(load)?;
+            a.store_action = store_action(store)?;
             a.clear_depth = clear[0];
             (a.resolve_texture, a.resolve_level, a.resolve_slice) = resolves[MAX_COLOR].clone();
         }
-        let (tex, level, slice, plane, load, store, clear) = stencil;
+        let (tex, level, slice, load, store, clear) = stencil;
         if tex.is_some() {
             let a = &mut pass.stencil_attachment;
             a.texture = tex;
             a.level = level;
             a.slice = slice;
-            a.depth_plane = plane;
-            a.load_action = LoadAction::from_raw(load).map_err(err("load action"))?;
-            a.store_action = StoreAction::from_raw(store).map_err(err("store action"))?;
+            a.load_action = load_action(load)?;
+            a.store_action = store_action(store)?;
             a.clear_stencil = clear[1] as u32;
             (a.resolve_texture, a.resolve_level, a.resolve_slice) = resolves[MAX_COLOR + 1].clone();
         }
         let (w, h, layers, samples) = (c.u64(), c.u64(), c.u64(), c.u64());
-        pass.render_target_width = w;
-        pass.render_target_height = h;
-        pass.render_target_array_length = layers;
-        pass.default_raster_sample_count = samples;
+        pass.render_target_width = w as u32;
+        pass.render_target_height = h as u32;
+        pass.render_target_array_length = layers as u32;
+        pass.default_raster_sample_count = samples as u32;
         Ok(pass)
     }
 }
@@ -2133,7 +2413,7 @@ pub fn selftest_compute(device: &Device, metallib: &[u8]) -> Res<()> {
     let c = mk(&mut s, 303, &|_| -1.0)?;
     let d = mk(&mut s, 304, &|_| -1.0)?;
     let e = mk(&mut s, 306, &|_| -1.0)?;
-    let gpu_of = |s: &State, id: u64| s.buf(id).unwrap().gpu_address().0;
+    let gpu_of = |s: &State, id: u64| s.buf(id).unwrap().gpu_address();
     let mut w = Wr::default();
     w.u64(400);
     s.handle(QUEUE_NEW, &w.0, None);

@@ -1,5 +1,5 @@
 //! x86Sim RAM 2: the idle cost of a metal2vulkan device on this host: PSS by mapping kind and malloc's figures
-//! before and after `Device::system_default()`, and after a raw Vulkan instance + device without the runtime.
+//! before and after the runtime's `Device::new`, and after a raw Vulkan instance + device without the runtime.
 //! Usage: devprobe [raw|runtime]
 fn pss() -> String {
     let s = std::fs::read_to_string("/proc/self/smaps_rollup").unwrap_or_default();
@@ -46,30 +46,14 @@ fn main() {
             std::hint::black_box(dev);
         }
     } else {
-        use metal2vulkan::device::VkExtension as E;
-        use metal2vulkan::device::VkFeature as F;
-        let mut o = metal2vulkan_runtime::DeviceOptions::default();
-        for w in std::env::var("WITHHOLD").unwrap_or_default().split(',').filter(|w| !w.is_empty()) {
-            let e = match w {
-                "accel" => vec![E::KhrAccelerationStructure, E::KhrDeferredHostOperations, E::KhrRayQuery],
-                "mesh" => vec![E::ExtMeshShader],
-                "descbuf" => vec![E::ExtDescriptorBuffer],
-                "coopmat" => vec![E::KhrCooperativeMatrix],
-                "interlock" => vec![E::ExtFragmentShaderInterlock],
-                _ => panic!("{w}"),
-            };
-            o.withheld_extensions.extend(e);
-            o.withheld_features.extend(match w {
-                "accel" => vec![F::RayQuery, F::AccelerationStructure],
-                "mesh" => vec![F::TaskShader, F::MeshShader],
-                "interlock" => vec![F::FragmentShaderPixelInterlock, F::FragmentShaderSampleInterlock],
-                _ => vec![],
-            });
-        }
-        let d = metal2vulkan_runtime::Device::system_default_with(&o).unwrap();
-        println!("extensions: {:?}", d.enabled().extensions);
+        // the new runtime enables the floor's extensions and the consumer's alone (no ray tracing to withhold)
+        let instance = metal2vulkan_runtime::Instance::new(&[]).unwrap();
+        println!("instance: {}", pss());
+        let p = instance.physical_devices().unwrap().into_iter().find(|p| p.check().is_ok()).expect("no device above the floor");
+        let d = metal2vulkan_runtime::Device::new(&p, metal2vulkan_runtime::DeviceOptions::default()).unwrap();
+        println!("extensions: {:?}", d.extensions());
         println!("runtime device: {}", pss());
-        let q = d.new_command_queue().unwrap();
+        let q = d.new_command_queue(64).unwrap();
         println!("+queue: {}", pss());
         std::hint::black_box(q);
         std::hint::black_box(d);

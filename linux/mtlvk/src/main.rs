@@ -23,76 +23,115 @@ extern "C" fn on_usr1(_: libc::c_int) {
     conn::STATS_REQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 }
 
-/// x86Sim RAM 2: what the phone's Metal needs of the device, and no more of the driver's memory.
-/// - Ray tracing withheld (VK_KHR_acceleration_structure, VK_KHR_ray_query and
-///   VK_KHR_deferred_host_operations): VKMTL has no acceleration structure, and NVIDIA's driver
-///   loads libnvidia-rtcore and allocates ~60 MB PSS (37 MB of it malloc) for them in vkCreateDevice
-///   (src/bin/devprobe.rs: 183 -> 123 MB). MTLVK_RAYTRACING=1 keeps them.
-/// - 8 VkQueues for the logical queues' round robin (METAL2VULKAN_QUEUES; the runtime takes all 16 of
-///   NVIDIA's graphics family): each costs ~2.3 MB (devprobe: 16 -> 8 queues 124 -> 106 MB).
-/// - The in-memory memo of translated functions and pipelines at MTLVK_MEMO_MB (default 32; the runtime's default
-///   is 256 MB): it is a copy of what the on-disk shader cache holds, and live pipeline states keep their own.
-fn device_options() -> metal2vulkan_runtime::DeviceOptions {
-    use metal2vulkan::device::{VkExtension as E, VkFeature as F};
-    if std::env::var_os("METAL2VULKAN_QUEUES").is_none() {
-        std::env::set_var("METAL2VULKAN_QUEUES", "8");
+/// The device mtlvk serves every phone on: the first Vulkan device above metal2vulkan-runtime's floor, a discrete GPU
+/// first (MTLVK_DEVICE=<n> picks the n-th of those above the floor, in the loader's order).
+///
+/// Dropped with the new runtime (metal2vulkan-runtime 0.2, upstream's rewrite): the old runtime's x86Sim RAM 2 options.
+/// - Ray tracing withheld: the new runtime enables only the floor's extensions and those the consumer names
+///   (`DeviceOptions::extensions`); it never asks for VK_KHR_acceleration_structure / ray_query, so NVIDIA's
+///   libnvidia-rtcore stays out without a knob (MTLVK_RAYTRACING is gone).
+/// - METAL2VULKAN_QUEUES=8: the new runtime takes one VkQueue for its work and a second for presenting, not the
+///   family's 16.
+/// - The in-memory memo (MTLVK_MEMO_MB): the new runtime keeps the last 1,024 compiled contents by its own rule, and
+///   its lowerings on disk in `pipeline_cache_dir` (MTLVK_PIPELINE_CACHE, default $XDG_CACHE_HOME/metal2vulkan-rt;
+///   MTLVK_PIPELINE_CACHE_MB caps the lowerings, default the runtime's 128).
+pub fn open_device() -> Result<Device, String> {
+    use metal2vulkan_runtime::{DeviceOptions, Instance};
+    let instance = Instance::new(&[]).map_err(|e| format!("Vulkan instance: {e}"))?;
+    let physical = instance.physical_devices().map_err(|e| format!("physical devices: {e}"))?;
+    let entry_inst = instance.raw().1;
+    let mut ok: Vec<_> = physical
+        .into_iter()
+        .filter(|p| match p.check() {
+            Ok(_) => true,
+            Err(e) => {
+                eprintln!("mtlvk: a Vulkan device below the runtime's floor: {e:?}");
+                false
+            }
+        })
+        .collect();
+    // SAFETY: property queries of the instance's own physical devices.
+    let discrete = |p: &metal2vulkan_runtime::PhysicalDevice| unsafe {
+        entry_inst.get_physical_device_properties(p.raw()).device_type == ash::vk::PhysicalDeviceType::DISCRETE_GPU
+    };
+    let pick = match std::env::var("MTLVK_DEVICE").ok().and_then(|v| v.parse::<usize>().ok()) {
+        Some(n) if n < ok.len() => n,
+        _ => ok.iter().position(discrete).unwrap_or(0),
+    };
+    if ok.is_empty() {
+        return Err("no Vulkan device above metal2vulkan-runtime's floor".into());
     }
-    let mut o = metal2vulkan_runtime::DeviceOptions::default();
-    let memo_mb = std::env::var("MTLVK_MEMO_MB").ok().and_then(|v| v.parse::<u64>().ok()).filter(|v| *v > 0).unwrap_or(32);
-    o.shader_cache.memory_capacity = memo_mb << 20;
-    if std::env::var("MTLVK_RAYTRACING").map(|v| v != "1").unwrap_or(true) {
-        o.withheld_extensions.extend([E::KhrAccelerationStructure, E::KhrRayQuery, E::KhrDeferredHostOperations]);
-        o.withheld_features.extend([F::AccelerationStructure, F::RayQuery]);
+    let physical = ok.swap_remove(pick);
+    let mut o = DeviceOptions::default();
+    let dir = std::env::var_os("MTLVK_PIPELINE_CACHE").map(std::path::PathBuf::from).or_else(|| {
+        let base = std::env::var_os("XDG_CACHE_HOME")
+            .map(std::path::PathBuf::from)
+            .or_else(|| std::env::var_os("HOME").map(|h| std::path::Path::new(&h).join(".cache")))?;
+        Some(base.join("metal2vulkan-rt"))
+    });
+    if dir.as_deref().is_some_and(|d| d.as_os_str() != "0") {
+        o.pipeline_cache_dir = dir;
     }
-    o
+    o.pipeline_cache_cap = std::env::var("MTLVK_PIPELINE_CACHE_MB").ok().and_then(|v| v.parse::<u64>().ok()).map(|mb| mb << 20);
+    let device = Device::new(&physical, o).map_err(|e| format!("device: {e}"))?;
+    conn::grant_indices(&device)?;
+    Ok(device)
 }
 
-/// x86Sim RAM 2: every MTLVK_TRIM_EVERY seconds (default 5; 0 = never), give back what the device's spare
-/// command pools and descriptor pools hold past MTLVK_TRIM_IDLE seconds unused (default 10): NVIDIA keeps a command
-/// pool's 2 MB chunks of pinned system memory until the pool is reset with RELEASE_RESOURCES, so the spares held
-/// the busiest moment's command buffers for good (~2 MB per spare pool).
+/// x86Sim RAM 2/8/14: every MTLVK_TRIM_EVERY seconds (default 5; 0 = never), give back what this process holds and
+/// does not use: clean file pages (MTLVK_FILETRIM, memstat::FileTrim) and glibc's free arena pages (malloc_trim, after
+/// a quiet tick and at least every minute).
+///
+/// x86Sim RAM 8: compiled contents (compute kernels and render pipelines, with their VkPipelines) no pipeline state's
+/// creation looked up for MTLVK_PIPELINE_IDLE seconds (default 300; 0 = never) are forgotten from the device's map
+/// (`Device::forget_idle_contents`, x86Sim's addition to the new runtime): the map keeps the last 1,024 for the
+/// device's life otherwise, those of every app that ended among them. Each goes once no live state holds it.
+///
+/// Dropped with the old runtime: Device::trim_idle (spare command pools reset with RELEASE_RESOURCES or destroyed,
+/// spare descriptor pools released). The new runtime records into at most 64 idle pools and keeps one descriptor set
+/// for every pipeline; after a boot and nine apps NVIDIA's command memory (memstat nvctl-small) stayed at 21 MB, where
+/// the old runtime's spares grew it to 126 MB.
 fn start_trim(device: Device) {
     let every = std::env::var("MTLVK_TRIM_EVERY").ok().and_then(|v| v.parse::<f64>().ok()).unwrap_or(5.0);
-    let idle = std::env::var("MTLVK_TRIM_IDLE").ok().and_then(|v| v.parse::<f64>().ok()).unwrap_or(10.0);
     if every <= 0.0 {
         return;
     }
     let log = std::env::var_os("MTLVK_MEMSTATS").is_some();
+    let file_trim_mb = std::env::var("MTLVK_FILETRIM").ok().and_then(|v| v.parse::<u64>().ok()).unwrap_or(8);
     let pipeline_idle = std::env::var("MTLVK_PIPELINE_IDLE").ok().and_then(|v| v.parse::<f64>().ok()).unwrap_or(300.0);
     let pipeline_idle = (pipeline_idle > 0.0).then(|| std::time::Duration::from_secs_f64(pipeline_idle));
-    let file_trim_mb = std::env::var("MTLVK_FILETRIM").ok().and_then(|v| v.parse::<u64>().ok()).unwrap_or(8);
     let _ = std::thread::Builder::new().name("trim".into()).spawn(move || {
         let mut last_malloc_trim = std::time::Instant::now();
         let mut ft = memstat::FileTrim::new(file_trim_mb << 10);
         loop {
             std::thread::sleep(std::time::Duration::from_secs_f64(every));
+            let mut quiet = false;
+            if let Some(idle) = pipeline_idle {
+                let forgotten = device.forget_idle_contents(idle);
+                if forgotten > 0 {
+                    quiet = true;
+                    if log {
+                        eprintln!("mtlvk trim: {forgotten} idle compiled contents forgotten");
+                    }
+                }
+            }
             if file_trim_mb > 0 {
                 if let Some((before, after)) = ft.tick(every) {
+                    quiet = true;
                     if log {
                         eprintln!("mtlvk trim: file pages {} -> {} MB", before >> 10, after >> 10);
                     }
                 }
             }
-            let (pools, descriptors) = device.trim_idle(std::time::Duration::from_secs_f64(idle));
-            // x86Sim RAM 8: pipelines nothing used for MTLVK_PIPELINE_IDLE s (default 300; 0 = never): graphics
-            // pipeline libraries no new key claimed, the VkPipelines kept for released variants and those of idle variants
-            let (libraries, pipelines) = match pipeline_idle {
-                Some(idle) => device.trim_idle_pipelines(idle),
-                None => (0, 0),
-            };
-            if log && (libraries > 0 || pipelines > 0) {
-                eprintln!("mtlvk trim: {libraries} pipeline libraries, {pipelines} pipelines destroyed");
-            }
-            let freed = pools + libraries + pipelines;
             // glibc keeps freed pages of its arenas (an app's pipelines and command logs, gone with it); give back
             // the whole free pages after a quiet trim and at least every minute.
-            let malloc = (freed > 0 || descriptors > 0 || last_malloc_trim.elapsed().as_secs() >= 60) && {
+            if quiet || last_malloc_trim.elapsed().as_secs() >= 60 {
                 last_malloc_trim = std::time::Instant::now();
                 // SAFETY: plain libc call.
-                unsafe { libc::malloc_trim(0) != 0 }
-            };
-            if log && (freed > 0 || descriptors > 0) {
-                eprintln!("mtlvk trim: {pools} command pools, {descriptors} descriptor pools released, malloc_trim {malloc}");
+                let malloc = unsafe { libc::malloc_trim(0) != 0 };
+                if log {
+                    eprintln!("mtlvk trim: malloc_trim {malloc}");
+                }
             }
         }
     });
@@ -193,15 +232,15 @@ fn main() {
     // SAFETY: the handler only bumps an atomic.
     unsafe { libc::signal(libc::SIGUSR1, on_usr1 as extern "C" fn(libc::c_int) as libc::sighandler_t) };
     let arg = std::env::args().nth(1);
-    // x86Sim RAM 2: the device as the phone needs it (see device_options).
-    let device = match Device::system_default_with(&device_options()) {
+    let device = match open_device() {
         Ok(d) => d,
         Err(e) => {
             eprintln!("mtlvk: no Vulkan device: {e}");
             std::process::exit(1);
         }
     };
-    eprintln!("mtlvk: device {} (registryID {:#x})", device.name(), device.registry_id());
+    let (name, registry) = conn::device_identity(&device);
+    eprintln!("mtlvk: device {name} (registryID {registry:#x})");
     if arg.as_deref() == Some("selftest-compute") {
         let path = std::env::args().nth(2).unwrap_or_else(|| "tests/metal/shaders/probe.metallib".into());
         let data = std::fs::read(&path).unwrap_or_else(|e| {
