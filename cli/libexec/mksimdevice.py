@@ -212,6 +212,11 @@ def main():
     for d in ["tmp", "var/run", "var/db", "var/log", "Library/Preferences", "Library/Logs",
               "Library/Application Support/Simulator", "Library/LaunchDaemons"]:
         os.makedirs(os.path.join(data, d), exist_ok=True)
+    # x86Sim: Automation Mode's state folder, which CoreSimulator makes in every device's data (empty until a UI test
+    # enables it). automationmode-writer only writes its state file into it ("The folder automation-enabled doesn't
+    # exist" otherwise), so Automation Mode stayed off: watchOS apps then refused XCTest's automation session and UI
+    # tests failed with "Lost connection to the application" (tests/apps/XCTestDemo on a watch).
+    os.makedirs(os.path.join(data, "var/db/com.apple.dt.automationmode"), exist_ok=True)
     open(data + "/var/run/memory_warning_simulation", "a").close()
     # x86Sim: the runtime's sample content (SampleContent next to RuntimeRoot: on iOS the photo library with its six
     # sample photos, and the sample contacts), which CoreSimulator copies into a new device's data at `simctl create`.

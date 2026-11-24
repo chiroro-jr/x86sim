@@ -317,8 +317,7 @@ x86sim test qa --spm MyPackage                          # a Swift package's test
   copies them from `$X86SIM_MAC`), `--platform DIR`, or the SDK `x86sim dev setup sdk --xip` installed.
 - **Every platform**: `tests/apps/XCTestDemo` builds for iOS, tvOS, watchOS and visionOS (`X86SIM_PLATFORM=tvos
   tests/apps/XCTestDemo/build.sh`; `run.sh <phone>` picks the phone's). Its unit, logic and UI tests give Apple's
-  results on iPhone, iPad, Apple TV and Vision Pro; on Apple Watch the unit and logic tests do, its UI tests do not
-  run yet ("Lost connection to the application").
+  results on iPhone, iPad, Apple TV, Apple Watch and Vision Pro.
 
 `tests/apps/XCTestDemo/run.sh <phone>` runs the fixture (hosted unit tests, logic tests, UI tests, each with a
 deliberate failure) and checks every result against Apple's simulator.
