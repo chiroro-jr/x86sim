@@ -39,10 +39,13 @@ P pidof com.x86sim.test.dbgapp > /dev/null && echo "X86TEST lldb runs-after-deta
 # 2. attach to the running app
 timeout 300 "$X" --phone "$PHONE" debug com.x86sim.test.dbgapp --symbols "$DS" --batch \
 	-o "thread list" -o "bt all" -o "breakpoint set -n dbg_work" -o "continue" -o "frame variable round" -o "thread info" \
+	-o "breakpoint delete -f" -o "breakpoint set -n '-[UILabel setText:]'" -o "continue" -o "bt 4" \
 	-o "breakpoint delete -f" -o "detach" > "$OUT/attach.txt" 2>&1
 check attach "$OUT/attach.txt" "stop reason = signal SIGSTOP" "thread #2"
 check bt-all "$OUT/attach.txt" "UIApplicationMain" "dbgapp\`worker"
 check worker-breakpoint "$OUT/attach.txt" "dbgapp\`dbg_work\(round=[0-9]+\)" "\(long\) round = [0-9]+"
+# UIKitCore's code comes from the AOT image: its blocks must be dropped for the breakpoint (gdbstub.cpp bp_set)
+check aot-breakpoint "$OUT/attach.txt" "UIKitCore\`-\[UILabel setText:\]" "stop reason = breakpoint 2\.1"
 check detach2 "$OUT/attach.txt" "Process [0-9]+ detached"
 # 3. Settings
 if [ $settings = 1 ]; then

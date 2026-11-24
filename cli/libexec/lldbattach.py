@@ -231,14 +231,22 @@ def serve(cmds, ready_fd):
             time.sleep(0.05)
         time.sleep(0.05)
 
+    def stop_id():
+        p = target().GetProcess()
+        return p.GetStopID() if p and p.IsValid() else -1
+
     def run(c, timeout=30):
         r = lldb.SBCommandReturnObject()
-        before = state()
+        before, sid = state(), stop_id()
         ci.HandleCommand(c, r)
-        settle(timeout if state() != before or state() == "running" else 2)
+        # async mode: a resuming command (continue, next, finish, ...) may return before the process shows "running"
+        end = time.monotonic() + 0.5
+        while state() == before and stop_id() == sid and time.monotonic() < end:
+            time.sleep(0.02)
+        settle(timeout)
         out = (r.GetOutput() or "") + (r.GetError() or "")
         st = state()
-        if st == "stopped" and before != "stopped":
+        if st == "stopped" and (before != "stopped" or stop_id() != sid):
             r2 = lldb.SBCommandReturnObject()
             ci.HandleCommand("thread list", r2)
             out += r2.GetOutput() or ""
