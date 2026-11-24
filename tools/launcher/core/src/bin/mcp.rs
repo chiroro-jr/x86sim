@@ -145,6 +145,11 @@ fn call_json(name: &str, a: &Value) -> anyhow::Result<Answer> {
         return r.map(Answer::Json);
     }
     // ---- end Pool ----
+    // ---- Share (browser streaming) ----
+    if let Some(r) = x86sim_core::share::mcp_call(name, a) {
+        return r.map(Answer::Json);
+    }
+    // ---- end Share ----
     let after = ax::After::parse(a["after"].as_str());
     let cfg = aot::Paths::new(&aot::Paths::default_jc()).load_config();
     // ---- simctl parity (feat/ap-simctl) ----
