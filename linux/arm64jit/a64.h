@@ -351,7 +351,7 @@ void jit_fork_unlock();
 void gheap_fork_unlock();
 void *gh_malloc(size_t); void *gh_calloc(size_t, size_t); void *gh_realloc(void *, size_t); void gh_free(void *);
 void *gh_memalign(size_t align, size_t size); size_t gh_size(const void *); size_t gh_good_size(size_t);
-void ax_euid_prepare(const std::string &cache);  // handlers.cpp: libAccessibility's text range for h_geteuid
+void ax_euid_prepare(const std::string &cache, const std::string &exe);  // handlers.cpp: non-root euid for libAccessibility & fileproviderd
 int stub_fd_for_path(const char *path);  // open() redirect: a dup of the stub dylib's fd, or -1
 const char *stub_path_for_fd(int fd);    // F_GETPATH for a stub dylib open on fd (its real copy), or nullptr
 
