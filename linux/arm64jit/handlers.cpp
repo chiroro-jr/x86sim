@@ -264,15 +264,23 @@ static u64 reserve_low(u64 len) {
     }
     return 0;
 }
-u64 reserve_aligned(u64 size, u64 mask) {
+static u64 reserve_aligned_span(u64 size, u64 mask, u64 keep) {
+    if (!size || size > kLowEnd) return 0;
     u64 align = (mask | 0x3fff) + 1;
-    u64 r = reserve_low(size + align);
+    if (!align || align > kLowEnd - size) return 0;
+    // reserve_low() rounds len up to 16 KB; use the same rounded size for `end` so the trailing 4-12 KB
+    // overhang of non-16K requests is unmapped instead of leaked as a permanent PROT_NONE VMA.
+    u64 req = (size + align + 0x3fff) & ~0x3fffull;
+    u64 r = reserve_low(req);
     if (!r) return 0;
     u64 a = (r + align - 1) & ~(align - 1);
     if (a > r) munmap((void *)r, a - r);
-    u64 end = r + size + align, aend = a + ((size + 0x3fff) & ~0x3fffull);
+    u64 end = r + req, aend = a + keep;
     if (end > aend) munmap((void *)aend, end - aend);
     return a;
+}
+u64 reserve_aligned(u64 size, u64 mask) {
+    return reserve_aligned_span(size, mask, (size + 0x3fff) & ~0x3fffull);
 }
 // Speed 5: guest pages are 16K, Darling's are 4K. Memory that native code maps for the guest in the host range
 // (Mach out-of-line message data, Darling's own vm_allocate) is 4K-granular, and the guest frees it in 16K pages:
@@ -355,14 +363,20 @@ static bool guard_unmap(GuestThread &t, u64 a, u64 len, const char *what, u64 *n
 static void vm_map_like(GuestThread &t, u32 i, u64 *ints, int addr_arg, int size_arg, int mask_arg, int flags_arg) {
     u64 *addrp = (u64 *)ints[addr_arg];
     u64 fps[8] = {}; NRet r;
-    if ((ints[flags_arg] & kAnywhere) && addrp) {
-        u64 a = reserve_aligned(ints[size_arg], mask_arg >= 0 ? ints[mask_arg] : 0);
+    if ((ints[flags_arg] & kAnywhere) && addrp && ints[size_arg]) {
+        // Darling's maps are 4K-granular: keep only the 4K-rounded span reserved before Darling overwrites it,
+        // so non-16K mappings (e.g. metalhostd's 4 KB MTLBuffer named entries) do not leave 4-12 KB PROT_NONE tails.
+        // Because reserve_low() probes 16K-aligned slots with MAP_FIXED_NOREPLACE and round4(size) overlaps every
+        // 16K page in [a, a + round16(size)), the tail remains free for Darling when a named entry's intra-page
+        // offset makes it map an extra 4K page (round4(offset + size)), and no post-call munmap can chop a live page.
+        const u64 len4 = (ints[size_arg] + 0xfff) & ~0xfffull;
+        u64 a = reserve_aligned_span(ints[size_arg], mask_arg >= 0 ? ints[mask_arg] : 0, len4);
         if (a) {
             u64 saved = *addrp; *addrp = a;
             u64 f = ints[flags_arg]; ints[flags_arg] = (f & ~(u64)kAnywhere) | kOverwrite;
             a64_ncall(g_thunks[i].native, ints, fps, &r);
             if ((int)r.rax == 0) { t.set_x(0, 0); return; }
-            munmap((void *)a, (ints[size_arg] + 0x3fff) & ~0x3fffull);
+            munmap((void *)a, len4);
             *addrp = saved; ints[flags_arg] = f;
         }
     }
@@ -554,12 +568,13 @@ static void h_mmap(GuestThread &t, u32 i) {
     u64 fps[8] = {}; NRet r;
     constexpr u64 kFixed = 0x10;
     if (!(ints[3] & kFixed) && ints[1]) {
-        if (u64 a = reserve_aligned(ints[1], 0)) {
+        const u64 len4 = (ints[1] + 0xfff) & ~0xfffull;
+        if (u64 a = reserve_aligned_span(ints[1], 0, len4)) {
             u64 save0 = ints[0], save3 = ints[3];
             ints[0] = a; ints[3] |= kFixed;
             a64_ncall(g_thunks[i].native, ints, fps, &r);
             if (r.rax == a) { t.set_x(0, a); return; }
-            munmap((void *)a, (ints[1] + 0x3fff) & ~0x3fffull);
+            munmap((void *)a, len4);
             ints[0] = save0; ints[3] = save3;
         }
     }
